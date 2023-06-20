@@ -1,0 +1,113 @@
+/* -*- mode: mode: c++; c-default-style: "linux" -*- */
+
+#ifndef _PARAMS_H_
+#define _PARAMS_H_
+
+#define idH  0
+#define idHU 1
+#define idHV 2
+#define idZ 3
+#define idR 4
+
+// Some physical constants
+#define GRAV 9.81
+#define SQRTGRAV 3.132091953
+
+// subsurface
+#define NVG 7
+
+//Some tolerances
+#define TOL6 1e-6
+#define TOL8 1e-8
+#define TOL8NEG -1e-8
+#define TOL9 1e-9
+#define TOL9NEG -1e-9
+#define TOL12 1e-12
+#define TOL12NEG -1e-12
+#define TOL14 1e-14
+#define TOL14NEG -1e-14
+#define TOL15 1e-15
+#define TOL15NEG -1e-15
+
+//friction model (0-->upwind or 1-->pointwise-centered)
+#define POINTWISE_FRICTION 0
+
+#define FRICTION_MANNING 1
+#define FRICTION_DARCYWEISBACH 2
+#define FRICTION_CHEZY 3
+#ifndef FRICTION_MODEL
+#define FRICTION_MODEL FRICTION_MANNING
+#endif
+
+//min depth from which water is stopped
+//#define hmin 0.001
+
+//No Data ThresHold
+#define NDTH 9999.0
+
+//halo cells (overlapping cells between domains for MPI)
+#define haloc 1
+#define hc 1
+
+//program options
+#ifndef DEBUG_PARALLEL_DECOMPOSITION
+#define DEBUG_PARALLEL_DECOMPOSITION 0 //debug the subdomains ranks and neighbours
+#endif
+#ifndef DEBUG_SUBSURFACE
+#define DEBUG_SUBSURFACE 0
+#endif
+#ifndef DEBUG_WORKFLOW
+#define DEBUG_WORKFLOW 0
+#endif
+#ifndef DEBUG_BOUNDARY
+#define DEBUG_BOUNDARY 0
+#endif
+#ifndef DEBUG_RAINFALL
+#define DEBUG_RAINFALL 0
+#endif
+#ifndef DEBUG_KOKKOS_SETUP
+#define DEBUG_KOKKOS_SETUP 0
+#endif
+#ifndef DEBUG_DT
+#define DEBUG_DT 0
+#endif
+
+//colors
+#define RESET   "\033[0m"
+#define BLACK   "\033[30m"      /* Black */
+#define RED     "\033[31m"      /* Red */
+#define GREEN   "\033[32m"      /* Green */
+#define YELLOW  "\033[33m"      /* Yellow */
+#define BLUE    "\033[34m"      /* Blue */
+#define MAGENTA "\033[35m"      /* Magenta */
+#define CYAN    "\033[36m"      /* Cyan */
+#define WHITE   "\033[37m"      /* White */
+#define GRAY   "\033[90m"      /* Gray */
+
+//mesagges
+#define GSTAR GREEN << "[**] " << RESET
+#define GOK   GREEN << "[OK] " << RESET
+#define GIO   MAGENTA << "[IO] " << RESET
+#define BEXC  BLUE << "[!] " << RESET
+#define BDASH  BLUE << "[-] " << RESET
+#define YEXC  YELLOW << "[!] " << RESET
+#define REXC  RED << "[!] " << RESET
+#define RERROR  RED << "[ERROR] " << RESET
+#define GGD   GRAY<< "[DEBUG] " << RESET
+
+#define NO_DATA -999;
+
+
+
+int const OUT_NETCDF  = 1;
+int const OUT_VTK 	 = 2;
+int const OUT_BIN 	 = 3;
+
+
+int const OUTPUT_PRECISION = 6;
+
+
+
+
+
+#endif

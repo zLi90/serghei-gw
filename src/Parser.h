@@ -1,0 +1,1587 @@
+/* -*- mode: c++ -*- */
+
+#ifndef _PARSER_H_
+#define _PARSER_H_
+
+#include <fstream>
+#include <string>
+#include <sstream>
+#include <algorithm>
+#include <sys/types.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include "define.h"
+#include "string.h"
+#include "Domain.h"
+#include "FileIO.h"
+#include "Parallel.h"
+#include "SWSourceSink.h"
+
+class Parser {
+
+class ParserLine{
+public:
+  std::string line;
+  std::string key ;
+  std::stringstream value;
+
+  void lowercase(){
+    std::for_each(line.begin(), line.end(), [](char & c) {
+      c = ::tolower(c);
+    });
+  }
+
+  void parse(){
+    // make sure key and value are clean (in case of reuse)
+    key.clear();
+    value.clear();
+     // Remove spaces and tabs from the line
+     // line.erase (std::remove(line.begin(), line.end(), ' '), line.end());
+     // line.erase (std::remove(line.begin(), line.end(), '\t'), line.end());
+
+     // If the line isn't empty and doesn't begin with a comment specifier, split it based on the colon
+     if (!line.empty() && line.find("//",0) != 0) {
+
+       // Find the colon
+       uint splitloc = line.find(':',0);
+
+       // Store the key and value strings
+       key   = line.substr(0,splitloc);
+
+       // Remove spaces and tabs from the key
+       key.erase(std::remove(key.begin(), key.end(), ' '), key.end());
+       key.erase(std::remove(key.begin(), key.end(), '\t'), key.end());
+       std::string val = line.substr(splitloc+1,line.length()-splitloc);
+
+       // Check for comments after values
+       size_t splitter = val.find("//",0);
+       std::string strloc;
+       if (splitter != std::string::npos){
+         strloc = val.substr(0,splitter);
+       } else {
+         strloc = val;
+       }
+
+       // Transform the val into a string stream for convenience
+       value.clear();
+       value.str(strloc);
+     }
+   }
+
+   void print(){
+     std::cout << "line: " << line << "\tkey: " << key << "\tvalue: " << value.str() << std::endl;
+   }
+};
+
+int checkValidOption(std::string mystring, std::set<std::string> myset){
+  if( myset.count(mystring) != 0){
+    return 1;
+  }
+  else{
+    return 0;
+  }
+}
+
+public:
+
+  int readDimensions(std::string fNameIn, Domain &dom, State &state, Parallel &par, FileIO &io){
+ 	int ierr[2];
+	std::string tempStr;
+ 	tempStr = fNameIn + "parameters.input";
+ 	ierr[0]=readParamsFile(tempStr,dom,par,io);
+	tempStr = fNameIn + "dem.input"; //just the header
+ 	ierr[1]=readHeaderDEMFile(tempStr,dom,par);
+	for (int i=0;i<2;i++){
+		if(!ierr[i]){
+			return 0;
+		}
+	}
+	return 1;
+  }
+
+  int readInputFiles (std::string fNameIn, Domain &dom, State &state, SourceSinkData &ss,
+		      std::vector<ExtBC> &extbc, Parallel &par, FileIO &io)
+  {
+
+    int const Nfiles = 6;
+    int ierr[Nfiles];
+    std::string tempStr;
+
+    tempStr = fNameIn + "dem.input";
+    ierr[0] = readDEMFile(tempStr,dom,state,par);
+
+    tempStr = fNameIn + "sw.input";
+    ierr[1] = readSWFile(tempStr, dom, par, state, fNameIn);
+
+    tempStr = fNameIn + "rainfall.input";
+    ierr[2] = readRainfallFile(tempStr, dom, ss.rain, par);
+
+#ifdef _DEV_RAIN_
+    if (par.masterproc)
+      {
+	int dim = ss.rain.nx * ss.rain.ny;
+	std::cerr << BDASH "rainfall partititioned in x-direction: "  << ss.rain.nx << "\n";
+	std::cerr << BDASH "rainfall partititioned in y-direction: "  << ss.rain.ny << "\n";
+
+	int t = 0;
+	int count = 0;
+	for (int i = 0; i < dim * ss.rain.np; i ++)
+	  {
+	    std::cerr << BDASH "rainfall intensity (" << (t % dim) << ") nr. " << count << ": " << ss.rain.value(i) << "\n";
+	    t ++;
+	    if ((t % dim) == 0)
+	      count ++;
+	  }
+      }
+#endif
+
+    tempStr = fNameIn + "extbc.input";
+    ierr[3] = readExtBCFile(tempStr, dom, extbc, par, state);
+
+    tempStr = fNameIn + "infiltration.input";
+    ierr[4] = readInfiltrationFile(tempStr, dom, ss.inf, par);
+
+    tempStr = fNameIn + "infiltrationMap.input";
+    ierr[5] = readInfiltrationMap(tempStr, dom, ss.inf, par);
+
+    for (int i = 0; i < Nfiles; i++){
+      if (!ierr[i])	return 0;
+    }
+    return 1;
+  }
+
+  int readParamsFile(std::string fNameIn, Domain &dom, Parallel &par, FileIO &io) {
+
+    // Initialize all read-in values to -999
+    dom.simLength = -999;
+    dom.cfl       = -999;
+    par.nproc_x   = -999;
+    par.nproc_y   = -999;
+    io.outFreq    = -999;
+    io.obsFreq    = -999;
+    std::string strAux;
+
+    // Read in colon-separated key: value file line by line
+    std::ifstream fInStream(fNameIn);
+    std::string line;
+    ParserLine pline;
+
+    if (fInStream.is_open()){
+      while (std::getline(fInStream, line)) {
+	pline.line = line;
+	pline.parse();
+	//pline.print();
+
+	// If the line was valid and a key is stored
+	if(!pline.key.empty()){
+	  // Match the key, and store the value
+	  if (!strcmp("simLength", pline.key.c_str())) { pline.value >> dom.simLength; }
+	  else if (!strcmp("cfl", pline.key.c_str())) { pline.value >> dom.cfl; }
+	  else if (!strcmp("parNx", pline.key.c_str())) { pline.value >> par.nproc_x; }
+	  else if (!strcmp("parNy", pline.key.c_str())) { pline.value >> par.nproc_y; }
+	  else if (!strcmp("outFreq", pline.key.c_str())) { pline.value >> io.outFreq; }
+	  else if (!strcmp("obsFreq", pline.key.c_str())) { pline.value >> io.obsFreq; }
+	  else if (!strcmp("nScreen", pline.key.c_str())) { pline.value >> io.nScreen; }
+	  else if (!strcmp("outFormat", pline.key.c_str())) { pline.value >> strAux; handleOutFormat(strAux,io,fNameIn,par); }
+	  else if (!strcmp("BCtype", pline.key.c_str())) { pline.value >> strAux; handleBCtype(strAux,dom,fNameIn,par); }
+	  else {
+	  	 if(par.masterproc){
+	    std::cerr << RERROR "key " << pline.key << " not understood in file " << fNameIn << "\n";
+	    exit(-1);
+		 }
+	  }
+	}
+      }
+
+    }else{
+	 	if(par.masterproc){
+      std::cerr<< RERROR "Unable to open " << fNameIn << "\n";
+      return 0;
+		}
+    }
+    if (dom.simLength == -999) { if (par.masterproc) std::cerr << RERROR "key " << "simLength" << " not set.\n"; exit(-1); }
+    if (dom.cfl       == -999) { if (par.masterproc) std::cerr << RERROR "key " << "cfl"       << " not set.\n"; exit(-1); }
+    if (par.nproc_x   == -999) { if (par.masterproc) std::cerr << RERROR "key " << "parNx"     << " not set.\n"; exit(-1); }
+    if (par.nproc_y   == -999) { if (par.masterproc) std::cerr << RERROR "key " << "parNy"     << " not set.\n"; exit(-1); }
+    if (io.outFreq    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "outFreq"   << " not set.\n"; exit(-1); }
+    if (io.obsFreq    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "obsFreq"   << " not set.\n"; exit(-1); }
+    if (io.outFormat  == -999) { if (par.masterproc) std::cerr << RERROR "key " << "outFormat" << " not set.\n"; exit(-1); }
+    if (dom.BCtype    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "BCtype"    << " not set.\n"; exit(-1); }
+
+    // Print out the values
+    if (par.masterproc) {
+      std::cerr << BDASH "simLength: "  << dom.simLength << "\n";
+      std::cerr << BDASH "cfl: "        << dom.cfl       << "\n";
+      std::cerr << BDASH "parNx: "      << par.nproc_x   << "\n";
+      std::cerr << BDASH "parNy: "      << par.nproc_y   << "\n";
+      std::cerr << BDASH "outFreq: "    << io.outFreq    << "\n";
+      std::cerr << BDASH "obsFreq: "    << io.obsFreq    << "\n";
+      std::cerr << BDASH "outFormat: "  << io.outFormat  << "\n";
+      std::cerr << BDASH "BCtype: "     << dom.BCtype    << "\n";
+    }
+
+    if (par.masterproc){
+      std::cerr << GOK "Parameters read\n";
+    }
+
+    return 1;
+
+  }
+
+ int readHeaderDEMFile(std::string fNameIn, Domain &dom, Parallel &par) {
+
+    // Initialize all read-in values to -999 except for NODATA, which usually takes this value
+	 dom.nx_glob 	= -999;
+    dom.ny_glob  	= -999;
+	 dom.xll       = -999;
+    dom.yll   		= -999;
+	 dom.dx   		= -999;
+
+	 real nodata	= 123456789;
+    std::string line;
+    std::ifstream fInStream(fNameIn);
+
+   std::string str;
+	if (fInStream.is_open()){
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> dom.nx_glob;
+
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> dom.ny_glob;
+
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> dom.xll;
+
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> dom.yll;
+
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> dom.dx;
+
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> nodata;
+
+	}else{
+		if (par.masterproc) {
+			std::cerr<<RERROR "Unable to open " << fNameIn << "\n";
+			return 0;
+		}
+	}
+
+    // Print out the values
+    if (par.masterproc) {
+      std::cerr << BDASH "nx_glob: " 	<< dom.nx_glob 	<< "\n";
+      std::cerr << BDASH "ny_glob: "<< dom.ny_glob 	<< "\n";
+      std::cerr << BDASH "xll: "    << dom.xll 	<< "\n";
+      std::cerr << BDASH "yll: "    << dom.yll  << "\n";
+      std::cerr << BDASH "dx: "     << dom.dx   << "\n";
+    }
+
+    // Test to make sure all values were initialized
+	 //
+    if (dom.nx_glob 		== -999) { if (par.masterproc) std::cerr << RERROR "" << "ncols" << " not set." << std::endl ; exit(-1); }
+    if (dom.ny_glob 		== -999) { if (par.masterproc) std::cerr << RERROR "" << "nrows"       << " not set." << std::endl; exit(-1); }
+    if (dom.xll      == -999) { if (par.masterproc) std::cerr << RERROR "" << "xll"   << " not set." << std::endl; exit(-1); }
+    if (dom.yll      == -999) { if (par.masterproc) std::cerr << RERROR "" << "yll"   << " not set." << std::endl; exit(-1); }
+    if (dom.dx       == -999) { if (par.masterproc) std::cerr << RERROR "" << "dx"   << " not set." << std::endl; exit(-1); }
+	 return 1;
+
+  }
+
+
+  int readDEMFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+
+	 realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
+
+    std::ifstream fInStream(fNameIn);
+    std::string line;
+	 real nodata;
+
+   std::string str;
+	if (fInStream.is_open()){
+    // read but not really used
+		std::getline(fInStream,str); //ncol
+		std::getline(fInStream,str); //nrow
+		std::getline(fInStream,str); //xll
+		std::getline(fInStream,str); //yll
+		std::getline(fInStream,str); //dx
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> nodata;
+
+		real tmp;
+
+		int ndata=dom.ny_glob*dom.nx_glob;
+		int flagnodata=0;
+
+    	for (int ii=0; ii<ndata; ii++) {
+			if (!fInStream.fail() && !fInStream.eof()){
+				fInStream >> tmp;
+				if(tmp-nodata<TOL12 && tmp-nodata>TOL12NEG){
+					if(!flagnodata){
+						if (par.masterproc) {
+							std::cerr<< YEXC "There is some no-data in your DEM file\n";
+						}
+						flagnodata=1;
+					}
+					tmpVar(ii)=NDTH+0.001; //we set the no data values as high elevation cells. They will be dry during the computation
+
+				}else{
+					tmpVar(ii)=tmp;
+				}
+			}else{
+				if(par.masterproc){
+					std::cerr<< RERROR "Error reading DEM file. Not enough data\n";
+					return 0;
+				}
+			}
+		}
+
+		fInStream.close();
+
+	}else{
+		if (par.masterproc) {
+			std::cerr<<RERROR "Unable to open " << fNameIn << "\n";
+			return 0;
+		}
+	}
+
+	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+ 		int i,j;
+		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
+		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
+		state.z(ii1)=tmpVar(ii2);
+		if(state.z(ii1)>NDTH){
+			state.isnodata(ii1)=true;
+		}else{
+			state.isnodata(ii1)=false;
+		}
+	});
+	if (par.masterproc){
+		std::cerr<< GOK "DEM file read\n";
+	}
+ 	 return 1;
+
+  }
+
+  int readRoughnessFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+
+	 realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
+    std::ifstream fInStream(fNameIn);
+    std::string line;
+   std::string str;
+
+	 int tnx,tny;
+	 real txll,tyll,tdx;
+	 real nodata;
+
+	 tnx=-999;
+	 tny=-999;
+	 txll=-999;
+	 tyll=-999;
+	 tdx=-999;
+	 nodata = 123456789;
+
+	int ndata=dom.ny_glob*dom.nx_glob;
+
+	if (fInStream.is_open()){
+
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> tnx;
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> tny;
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> txll;
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> tyll;
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> tdx;
+    std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+    std::stringstream(str) >> nodata;
+
+		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
+		if(dom.ny_glob !=tny || dom.nx_glob !=tnx || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
+      std::cout << tnx << "\t" << tny  << "\t" << txll  << "\t" << tyll  << "\t" << tdx << std::endl;
+			if(par.masterproc){
+				std::cerr<<RERROR "Roughness file parameters don't match DEM file parameters. Unable to continue\n";
+				return 0;
+			}
+		}
+
+		real tmp;
+    	for (int ii=0; ii<ndata; ii++) {
+			if (!fInStream.fail() && !fInStream.eof()){
+				fInStream >> tmp;
+				if(tmp<0.0){
+					if(par.masterproc){
+						std::cerr<<RERROR "There are some negative roughness value. Unable to continue\n";
+						return 0;
+					}
+				}
+				tmpVar(ii)=tmp;
+			}else{
+				if(par.masterproc){
+					std::cerr<<RERROR "Error reading roughness file. Not enough data\n";
+					return 0;
+				}
+			}
+		}
+
+		fInStream.close();
+
+	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+ 		int i,j;
+		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
+		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
+		state.roughness(ii1)=tmpVar(ii2);
+	});
+
+
+	}
+  else{
+  		if(par.masterproc){
+    		std::cerr << RERROR "File " << fNameIn << " not found" << std::endl;
+    		return 0;
+	 	}
+	}
+	if (par.masterproc){
+		std::cerr<<GOK "Roughness set\n";
+	}
+ 	return 1;
+  }
+
+
+ int readHiniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+
+	 realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
+    std::ifstream fInStream(fNameIn);
+    std::string line;
+
+	 int tnx,tny;
+	 real txll,tyll,tdx;
+	 real nodata;
+
+	 tnx=-999;
+	 tny=-999;
+	 txll=-999;
+	 tyll=-999;
+	 tdx=-999;
+	 nodata = 123456789;
+
+	 int ndata=dom.ny_glob*dom.nx_glob;
+   std::string str;
+	if (fInStream.is_open()){
+    std::getline(fInStream,str,' ');
+    std::getline(fInStream,str);
+    std::stringstream(str) >> tnx;
+
+    std::getline(fInStream,str,' ');
+    std::getline(fInStream,str);
+    std::stringstream(str) >> tny;
+
+    std::getline(fInStream,str,' ');
+    std::getline(fInStream,str);
+    std::stringstream(str) >> txll;
+
+    std::getline(fInStream,str,' ');
+    std::getline(fInStream,str);
+    std::stringstream(str) >> tyll;
+
+    std::getline(fInStream,str,' ');
+    std::getline(fInStream,str);
+    std::stringstream(str) >> tdx;
+
+    std::getline(fInStream,str,' ');
+    std::getline(fInStream,str);
+    std::stringstream(str) >> nodata;
+		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
+		if(dom.ny_glob !=tny || dom.nx_glob !=tnx || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
+			if(par.masterproc){
+				std::cerr<< RERROR "Initial depth file parameters don't match DEM file parameters. Unable to continue\n";
+			}
+    		// Print out the values
+			 if (par.masterproc) {
+				std::cerr << BDASH "nx_glob: " 	<< dom.nx_glob 	<< tnx <<"\n";
+				std::cerr << BDASH "ny_glob: "<< dom.ny_glob 	<< tny << "\n";
+				std::cerr << BDASH "xll: "    << dom.xll 	<< txll <<"\n";
+				std::cerr << BDASH "yll: "    << dom.yll  << tyll<<"\n";
+				std::cerr << BDASH "dx: "     << dom.dx   << tdx<<"\n";
+			 }
+
+			return 0;
+		}
+
+		real tmp;
+    	for (int ii=0; ii<ndata; ii++) {
+			if (!fInStream.fail() && !fInStream.eof()){
+				fInStream >> tmp;
+                #if !SERGHEI_TEST_TRACY
+    				if(tmp<0.0){
+                        // allow negative depth just for testing Tracy's problem, ZhiLi20210713
+                        if(par.masterproc){
+
+        					std::cerr<<tmp<<"\n";
+        					std::cerr<< RERROR "There are some negative depth values. Unable to continue\n";
+        					return 0;
+        					}
+    				}
+                #endif
+
+				tmpVar(ii)=tmp;
+			}else{
+				if(par.masterproc){
+					std::cerr<< RERROR "Error reading initial depth file. Not enough data\n";
+					return 0;
+				}
+			}
+		}
+
+		fInStream.close();
+
+	}
+	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+ 		int i,j;
+		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
+		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
+		state.h(ii1)=tmpVar(ii2);
+		if(state.isnodata(ii1)){
+			state.h(ii1)=0.0;
+		}
+
+
+	});
+	if (par.masterproc){std::cerr<<GOK "Hini set\n";}
+ 	return 1;
+  }
+
+
+ int readUiniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+
+	 realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
+    std::ifstream fInStream(fNameIn);
+    std::string line;
+
+	 int tnx,tny;
+	 real txll,tyll,tdx;
+	 real nodata;
+
+	 tnx=-999;
+	 tny=-999;
+	 txll=-999;
+	 tyll=-999;
+	 tdx=-999;
+	 nodata = 123456789;
+
+	int ndata=dom.ny_glob*dom.nx_glob;
+	std::string str;
+
+	if (fInStream.is_open()){
+
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> tnx;
+
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> tny;
+
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> txll;
+
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> tyll;
+
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> tdx;
+
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> nodata;
+
+		// fInStream.ignore(256,' ');
+		// fInStream >> tnx;
+		// fInStream.ignore(256,' ');
+		// fInStream >> tny;
+		// fInStream.ignore(256,' ');
+		// fInStream >> txll;
+		// fInStream.ignore(256,' ');
+		// fInStream >> tyll;
+		// fInStream.ignore(256,' ');
+		// fInStream >> tdx;
+		// fInStream.ignore(256,' ');
+		// fInStream >> nodata;
+
+
+		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
+		if(dom.ny_glob !=tny || dom.nx_glob !=tnx || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
+			if(par.masterproc){
+				std::cerr<<RERROR "Initial x-velocity file parameters don't match DEM file parameters. Unable to continue\n";
+				return 0;
+			}
+		}
+
+		real tmp;
+
+    	for (int ii=0; ii<ndata; ii++) {
+			if (!fInStream.fail() && !fInStream.eof()){
+				fInStream >> tmp;
+				tmpVar(ii)=tmp;
+			}else{
+				if(par.masterproc){
+					std::cerr<<RERROR "Error reading initial x-velocity file. Not enough data\n";
+					return 0;
+				}
+			}
+		}
+
+		fInStream.close();
+
+	} else{
+		const real constVel=0.0;
+		if (par.masterproc){
+			std::cerr << YEXC << fNameIn << " not found\n";
+			std::cerr<< BDASH "A constant value of "<< constVel << " is used for initial x-velocity\n";
+		}
+
+		Kokkos::parallel_for( ndata , KOKKOS_LAMBDA (int iGlob) {
+			tmpVar(iGlob)=constVel;
+		});
+	}
+
+	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+ 		int i,j;
+		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
+		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
+		state.hu(ii1)=tmpVar(ii2)*state.h(ii1);
+		if(state.z(ii1)>NDTH){
+			state.hu(ii1)=0.0;
+		}
+	});
+	if (par.masterproc){std::cerr<< GOK "Uini set\n";}
+ 	return 1;
+	}
+
+ int readViniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+
+	 realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
+    std::ifstream fInStream(fNameIn);
+    std::string line;
+
+	 int tnx,tny;
+	 real txll,tyll,tdx;
+	 real nodata;
+
+	 tnx=-999;
+	 tny=-999;
+	 txll=-999;
+	 tyll=-999;
+	 tdx=-999;
+	 nodata = 123456789;
+
+
+	int ndata=dom.ny_glob*dom.nx_glob;
+	std::string str;
+
+	if (fInStream.is_open()){
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> tnx;
+
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> tny;
+
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> txll;
+
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> tyll;
+
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> tdx;
+
+	  std::getline(fInStream,str,' ');
+	  std::getline(fInStream,str);
+	  std::stringstream(str) >> nodata;
+
+		// fInStream.ignore(256,' ');
+		// fInStream >> tnx;
+		// fInStream.ignore(256,' ');
+		// fInStream >> tny;
+		// fInStream.ignore(256,' ');
+		// fInStream >> txll;
+		// fInStream.ignore(256,' ');
+		// fInStream >> tyll;
+		// fInStream.ignore(256,' ');
+		// fInStream >> tdx;
+		// fInStream.ignore(256,' ');
+		// fInStream >> nodata;
+
+		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
+		if(dom.ny_glob !=tny || dom.nx_glob !=tny || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
+			if(par.masterproc){
+			std::cerr<< RERROR "Initial y-velocity file parameters don't match DEM file parameters. Unable to continue\n";
+			return 0;
+			}
+		}
+
+		real tmp;
+
+    	for (int ii=0; ii<ndata; ii++) {
+			if (!fInStream.fail() && !fInStream.eof()){
+				fInStream >> tmp;
+				tmpVar(ii)=tmp;
+			}else{
+				if(par.masterproc){
+				std::cerr<< RERROR "Error reading initial y-velocity file. Not enough data\n";
+				return 0;
+				}
+			}
+		}
+
+		fInStream.close();
+
+	}else{
+		const real constVel=0.0;
+		if (par.masterproc){
+			std::cerr << YEXC << fNameIn << " not found\n";
+			std::cerr<<BDASH "A constant value of "<< constVel << " is used for initial y-velocity\n";
+		}
+		Kokkos::parallel_for( ndata , KOKKOS_LAMBDA (int iGlob) {
+			tmpVar(iGlob)=constVel;
+		});
+ 	}
+
+	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+ 		int i,j;
+		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
+		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
+		state.hv(ii1)=tmpVar(ii2)*state.h(ii1);
+		if(state.z(ii1)>NDTH){
+			state.hv(ii1)=0.0;
+		}
+	});
+
+
+	if (par.masterproc){
+		std::cerr<<GOK "Vini set\n";
+	}
+
+
+ 	return 1;
+
+}
+
+
+  // Reads infiltration data files
+  int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &inf, Parallel &par){
+
+    // Read in colon-separated key: value file line by line
+    std::ifstream fInStream(fNameIn);
+    std::string line;
+
+    ParserLine pline;
+
+    int jk,jfc,jf0;
+    jk = jfc = jf0 = 1;
+
+    if (fInStream.is_open()){
+      while (std::getline(fInStream, line)) {
+        pline.line = line;
+	      pline.lowercase();
+        pline.parse();
+
+	      // If the line was valid and a key is stored
+	      if(!pline.key.empty()){
+	         // Match the key, and store the value
+           if(!strcmp("infmodel",pline.key.c_str())){
+             pline.value >> inf.modelName ;
+             if(!inf.modelName.compare("none")) inf.model = INF_NONE;
+             if(!inf.modelName.compare("constant")) inf.model = INF_CONSTANT;
+             if(!inf.modelName.compare("horton")) inf.model = INF_HORTON;
+             if(!inf.modelName.compare("greenampt")) inf.model = INF_GREENAMPT;
+           }
+
+           if(!strcmp("infiltrationclasses",pline.key.c_str())){pline.value >> inf.nLabels ;}
+         }
+       }
+    }
+    else{
+      inf.model = INF_NONE;
+      if (par.masterproc){
+	       std::cerr << YEXC << fNameIn << " not found\n";
+	       std::cerr << BDASH "Impervious domain set\n";
+	    }
+	    inf.modelName = "none";
+      return 1;
+    }
+
+    // now that the headers have been read, allocate stuff
+    if(inf.model){
+      if(inf.nLabels <= 0){
+			if(par.masterproc){
+        std::cerr << RERROR "Number of infiltration classes must be larger than 0" << std::endl;
+        return 0;
+		  }
+      }
+      inf.nLabels++;  // to account for label value 0 as impervious
+      // allocate the infiltration map
+      inf.infLabel = intArr( "infLabel", dom.ncells);
+        // TODO parallelisation
+        if(inf.nLabels == 2){
+          for(int ii=0; ii<dom.ncells; ii++){
+            inf.infLabel(ii) = 1;
+          }
+        }
+    }
+
+    if(inf.model == INF_CONSTANT){
+      inf.constCap = realArr("constCap",inf.nLabels);
+      inf.constCap(0) = 0.;
+      for(int ii=1; ii<inf.nLabels; ii++) inf.constCap(ii) = NO_DATA;
+    }
+
+    if(inf.model == INF_HORTON){
+      inf.k = realArr("k",inf.nLabels);
+      inf.fc = realArr("fc",inf.nLabels);
+      inf.f0 = realArr("f0",inf.nLabels);
+      inf.k(0) = inf.fc(0) = inf.f0(0) = 0.;
+      for(int ii=1; ii<inf.nLabels; ii++){
+        inf.k(ii) = NO_DATA;
+        inf.fc(ii) = NO_DATA;
+        inf.f0(ii) = NO_DATA;
+      }
+    }
+
+    // now read the data
+    fInStream.clear();
+    fInStream.seekg(0);
+    if (fInStream.is_open()){
+      while (std::getline(fInStream, line)) {
+        pline.line = line;
+        //std::cout << pline.line << std::endl;
+	      pline.lowercase();
+        pline.parse();
+
+	      // If the line was valid and a key is stored
+	      if(!pline.key.empty()){
+	         // Match the key, and store the value
+           if(inf.model == INF_CONSTANT){
+	             if(!strcmp("rate",pline.key.c_str())){
+                 pline.value >> inf.constCap(jfc)  ; jfc++;
+               }
+           }
+           // Horton model
+           if(inf.model == INF_HORTON){
+             if(!strcmp("k",pline.key.c_str())){pline.value >> inf.k(jk); jk++;}
+	           if(!strcmp("fc",pline.key.c_str())){ pline.value >> inf.fc(jfc); jfc++;}
+	           if(!strcmp("f0",pline.key.c_str())){ pline.value >> inf.f0(jf0); jf0++;}
+           }
+           if(inf.model == INF_GREENAMPT){
+	         // Green-Ampt model
+	         if(!strcmp("ks",pline.key.c_str())){ pline.value >> inf.ks  ; }
+	         if(!strcmp("psi",pline.key.c_str())){ pline.value >> inf.psi  ; }
+	         if(!strcmp("dtheta",pline.key.c_str())){ pline.value >> inf.dtheta  ;}
+          }
+	      }
+	    }
+    }
+
+    // at this point, everything has been read
+
+    // rate unit conversion from mm/s -> m/s
+    for(int ii=0; ii<inf.nLabels; ii++){
+	     if(inf.model == INF_CONSTANT) inf.constCap(ii) /= 1000.;
+        if(inf.model == INF_HORTON){
+            inf.fc(ii) /= 1000.;
+            inf.f0(ii) /= 1000.;
+        }
+    }
+
+    if(!inf.assignModel(par)){
+	 	if(par.masterproc){
+	     std::cerr << RERROR << "Error in infiltration input" << std::endl;
+	     return 0;
+		 }
+    }
+
+    if (par.masterproc){
+    std::cout << GOK << "Infiltration model set" << std::endl;
+    }
+
+    return 1;
+
+  }
+
+
+  /* Reads rainfall data file */
+  inline int readRainfallFile (std::string fNameIn, Domain &dom, TimeSeries &rain, Parallel &par)
+  {
+
+    // TODO modify this reader to use a parsing strategy
+
+    std::ifstream fInStream (fNameIn);
+    std::string line;
+    std::string tunits;
+    std::string runits;
+
+    real tfactor;
+    real rfactor;
+    int isok = 0; // flag to check if procedure completed as expected
+
+    if (fInStream.is_open ()){
+	     dom.isRain = 1;
+	     rain.timeIndex = 0;
+
+	     fInStream.ignore (256, ' ');
+       fInStream >> tunits;
+	     fInStream.ignore (256, ' ');
+	     fInStream >> runits;
+	     fInStream.ignore (256, ' ');
+	     fInStream >> rain.np;
+	     fInStream.ignore (256, ' ');
+	     fInStream >> rain.nx;
+	     fInStream.ignore (256, ' ');
+	     fInStream >> rain.ny;
+
+	     rain.time  = realArr ("raintime", rain.np);
+	     rain.value = realArr ("rain",     rain.nx * rain.ny * rain.np);
+
+	// ---------------------------------------------------------------------------
+	// internally, the entire solver uses meters and seconds,
+	// therefore, everything needs to be converted
+	// ---------------------------------------------------------------------------
+
+    if(!tunits.compare ("h")){
+	    tfactor = 3600.0;  // hours to seconds
+	    isok = 1;
+	   }
+
+	  if(!tunits.compare ("s")){
+	    tfactor = 1.0;
+	    isok = 1;
+	  }
+
+	  if(!isok){
+	  	if(par.masterproc){
+	    	std::cerr << RERROR "Invalid time units specified in rainfall file" << std::endl;
+	   	 return 0;
+		 }
+	  }
+
+	isok = 0;
+
+	if (!runits.compare ("mm/h"))
+	  {
+	    rfactor = 0.001 / 3600.0; // mm/h to m/s
+	    isok = 1;
+	  }
+
+	if (!runits.compare ("mm/s"))
+	  {
+	    rfactor = 0.001; // mm/s to m/s
+	    isok = 1;
+	  }
+
+	if (!isok)
+	  {
+	  	 if(par.masterproc){
+	    std::cerr << RERROR "Invalid rainfall units specified in rainfall file" << std::endl;
+	    return 0;
+		 }
+	  }
+
+	// ---------------------------------------------------------------------------
+	// the units have been converted at this point
+	// ---------------------------------------------------------------------------
+
+	// ---------------------------------------------------------------------------
+	/*
+
+	   Read in the rain data values. the data is in row-first
+	   order, meaning that the following raster values
+
+	   +-----+-----+-----+-----+
+	   | 0,0 | 1,0 | 2,0 | 3,0 |
+	   +-----+-----+-----+-----+
+	   | 1,0 | 1,1 | 2,1 | 3,1 |
+	   +-----+-----+-----+-----+
+	   | 2,0 | 1,2 | 2,2 | 3,2 |
+	   +-----+-----+-----+-----+
+
+	   The data (nx = 4, ny = 3) are given in the rain input file
+	   as columns in the following order:
+
+	   0,0 - 1,0 - 2,0 - 3,0 - 1,0 - 1,1 - 2,1 - 3,1 - 2,0 - 1,2 - 2,2 - 3,2
+
+	   In the following loop, we map these values onto a 1D array
+	   that appends the time series for each partition in the
+	   order given above. The first np entries of the array belong
+	   to the partition 0,0 and the next np entries belong to 1,0
+	   and so on.
+
+	   This means that the first value of the first column, that
+	   maps to ti = 0 in the partition (0,0) is stored in
+	   value(0). The first value of the second column that is the
+	   value in partition (1,0) is stored in value(np). The first
+	   value of the third column is stored in value(2 * np). The
+	   first value of the nth column is stored in value((n-1) * np)
+
+	   The nth value of the first column, corresponding to ti=n-1
+	   is stored in value(n-1). The nth value of the second column
+	   is stored in (2 * np + n - 1).
+
+	   The nth value of the kth column is stored in:
+	   (k - 1) * np + n - 1.
+
+	*/
+	// ---------------------------------------------------------------------------
+
+	 for (int i = 0; i < rain.np; i++){
+	    if (!fInStream.fail () && !fInStream.eof ()){
+		      fInStream >> rain.time (i);
+          rain.time (i) *= tfactor;
+          for (int j = 0; j < rain.nx * rain.ny; j ++){
+		          fInStream >> rain.value (i + j * rain.np);
+		          rain.value (i + j * rain.np) *= rfactor;
+//              std::cout << GGD << " t = " << rain.time(i) << "\tr = " <<  rain.value(i + j*rain.np) << std::endl;
+		      }
+      }
+      else{
+			if(par.masterproc){
+		      std::cerr << RERROR "Error reading rainfall file\n";
+		      return 0;
+			}
+	     }
+	  }
+
+	  fInStream.close();
+  }
+  else{
+	   dom.isRain = 0;
+  }
+
+  if (par.masterproc) std::cerr << GOK "Rainfall set\n";
+
+    return 1;
+
+}
+
+
+
+  int readExtBCFile(std::string fNameIn, Domain &dom, std::vector<ExtBC> &extbc, Parallel &par, State &state) {
+    std::ifstream fInStream(fNameIn);
+    std::string dir;
+    std::vector<std::string> polygonFile;
+    std::vector<std::string> fullPathPoly;
+    std::vector<std::string> hydrographFile;
+
+    std::string line;
+    ParserLine pline;
+
+    int nPoly;
+
+
+	//set domain boundaries
+	dom.iE=0;
+	dom.iW=0;
+	dom.iN=0;
+	dom.iS=0;
+
+	if(par.myrank % par.nproc_x ==0){dom.iW=1;} //west boundary of the full domain
+	if(par.myrank % par.nproc_x ==par.nproc_x-1){dom.iE=1;} //east boundary of the full domain
+	if(par.myrank / par.nproc_x ==0){dom.iN=1;} //north boundary of the full domain
+	if(par.myrank / par.nproc_x ==par.nproc_y-1){dom.iS=1;} //south boundary of the full domain
+
+
+    dir = fNameIn.substr(0, fNameIn.length() - 11); // 11 chars equivalent to "extbc.input" to get the dir
+
+    int ibc = -2;
+    int bccount = 0;
+    int bccountFound = 0;
+    if(fInStream.is_open()){
+      while (std::getline(fInStream, line)) {
+        pline.line = line;
+        pline.parse();
+        if(!pline.key.empty()){
+          // we should read the number of boundaries here
+	  if (!strcmp("bccount", pline.key.c_str())){
+	    pline.value >> bccount;
+      bccountFound = 1;
+      if(bccount < 1){
+        std::cout << YEXC << "extbc.input indicates zero external boundaries." << std::endl;
+        return 1;
+      }
+	    extbc.resize(bccount);
+	    polygonFile.resize(bccount);
+	    fullPathPoly.resize(bccount);
+	    hydrographFile.resize(bccount);
+	    ibc ++;
+	  }
+          else if(!strcmp("id",pline.key.c_str())){
+            ibc++;
+            if(bccount > 0)
+            pline.value >> extbc[ibc].id;
+          }
+          else if(!strcmp("bctype", pline.key.c_str()) && ibc >=0 ) {if(bccount > 0) pline.value >> extbc[ibc].bctype;}
+          else if(!strcmp("polygon", pline.key.c_str()) && ibc >=0 ) {if(bccount > 0) pline.value >> polygonFile[ibc];}
+          else if (!strcmp("direction", pline.key.c_str()) && ibc >=0 ) {if(bccount > 0) pline.value >> extbc[ibc].normalx >> extbc[ibc].normaly;}
+          else if(!strcmp("bcvals", pline.key.c_str()) && ibc >=0 ){
+              if(bccount > 0 ){
+                extbc[ibc].bcvals = realArr("bcvals", 3);
+                pline.value >> extbc[ibc].bcvals(0) >> extbc[ibc].bcvals(1) >> extbc[ibc].bcvals(2);
+              }
+          }
+          else if(!strcmp("hydrograph",pline.key.c_str()) && ibc >=0){
+            pline.value >> hydrographFile[ibc];
+          }
+          else if(ibc >= 0){
+			 	       if(par.masterproc){
+					            std::cerr << RERROR << "In extbc.input: Key " << pline.key << " not understood." << std::endl;
+					            return 0;
+				       }
+          }
+          if(ibc < -1){
+			 	       if(par.masterproc){
+					            std::cerr << RERROR << "No boundaries defined in extbc.input, number of boundaries not defined, or 'id' key not found." << std::endl;
+					            return 0;
+				       }
+          }
+        }
+      } //end while
+      fInStream.close();
+      if(!bccountFound){
+			     std::cerr << RERROR << "Number of boundaries not defined in extbc.input. Please define 'bccount'" << std::endl;
+					 return 0;
+      }
+    }
+    else{
+	 	if(par.masterproc)
+    	std::cerr << YEXC << "extbc.input not found. Default boundaries used." << std::endl;
+    }
+
+    #if DEBUG_BOUNDARY
+      for (int k = 0; k < extbc.size(); k++) {
+        std::cerr << GGD "Boundary type for " << k << "th boundary: " << extbc[k].BoundaryTypes[extbc[k].bctype] << " (" << extbc[k].bctype << ")." << std::endl;
+        std::cerr << GGD << "Direction for " << k << "th boundary: (" << extbc[k].nx << "," << extbc[k].ny << ")" << std::endl;
+        std::cerr << GGD << "Polygon file for " << k << "th boundary: " << polygonFile[k] << std::endl;
+        std::cerr << GGD << "Hydrograph file for " << k << "th boundary: " << hydrographFile[k] << std::endl;
+      }
+    #endif
+    if(par.masterproc){
+      if(ibc+1 < extbc.size()){
+			 if(par.masterproc){
+
+        std::cerr << RERROR << "Expected " << extbc.size() << " boundary condition input blocks, but only found " << ibc+1 << " in extbc.input." << std::endl;
+		  	return 0;
+		  }
+      }
+      for (int k = 0; k < extbc.size(); k++) {
+			if(par.masterproc){
+        std::cout << GOK <<  "External boundary " << k << " set to " << extbc[k].BoundaryTypes[extbc[k].bctype] << " (" << extbc[k].bctype << ")"<< std::endl;
+		  }
+      }
+    }
+    // normalise BC normal vectors by magnitude
+    for (int k = 0; k < extbc.size(); k++) {
+      real mod = sqrt(extbc[k].normalx*extbc[k].normalx + extbc[k].normaly*extbc[k].normaly);
+      extbc[k].normalx /= mod;
+      extbc[k].normaly /= mod;
+    }
+
+    // read polygon files
+    for (int k = 0; k < polygonFile.size(); k ++) {
+      fullPathPoly[k] = dir + polygonFile[k];
+      std::ifstream fPoly(fullPathPoly[k]);
+      // read in kth polygon
+      if (fPoly.is_open()) {
+        fPoly.ignore(256,' ');
+        fPoly >> nPoly;
+        realArr xPoly=realArr( "xPoly" , nPoly );
+        realArr yPoly=realArr( "yPoly" , nPoly );
+        for (int i=0; i<nPoly; i++) {
+          if (!fPoly.fail() && !fPoly.eof()) {
+            fPoly >> xPoly(i) >> yPoly(i);
+            #if DEBUG_BOUNDARY
+              std::cout << GGD << "extbc polygon " << k << ". Point " << i << "/" << nPoly << "\t" << xPoly(i) << "\t" << yPoly(i) << std::endl;
+            #endif
+          }
+          else{
+			 	       if(par.masterproc){
+					            std::cerr<< RERROR "Error reading boundary polygon file " << k << ": " << fullPathPoly[k] << std::endl;
+					            return 0;
+				       }
+          }
+        }
+        if(!extbc[k].find_bcells(state, extbc[k], dom, par, nPoly, xPoly, yPoly)) return 0;
+      }
+      else{
+        if(par.masterproc){
+          std::cerr<< RERROR "Polygon file " << k << ": " << fullPathPoly[k] << " not found." << std::endl;
+        	return 0;
+		    }
+      }
+      fPoly.close();
+	  } // end for read in of the kth polygon
+
+
+      // read hydrograph files
+      for (int k = 0; k < hydrographFile.size(); k ++) {
+        std::string fname = dir + hydrographFile[k];
+        std::ifstream fHydro(fname);
+        int ndata=0;
+        // read in kth polygon
+        if(fHydro.is_open()) {
+          fHydro.ignore(256,' ');
+          fHydro >> ndata;
+          if (ndata > 0){
+            extbc[k].hydrograph.initialise(ndata);
+          }
+          for(int i=0; i<ndata; i++) {
+            if (!fHydro.fail() && !fHydro.eof()) {
+              fHydro >> extbc[k].hydrograph.time(i) >> extbc[k].hydrograph.value(i);
+            }
+            else{
+              if(par.masterproc){
+                std::cerr<< RERROR "Error reading hydrograph file for boundary " << k << ": " << hydrographFile[k] << std::endl;
+                return 0;
+              }
+            }
+          } // end for ndata
+          fHydro.close();
+        }
+      } // end for hydrogaph files
+
+
+	Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
+        int ii = dom.getIndex(iGlob);
+		  state.isBound(ii)=0;
+    });
+
+
+	 for (int k = 0; k < extbc.size(); k ++) { //should be done before the exchange (water depth might be modified).
+		  int value;
+		  switch (extbc[k].bctype){
+			case SWE_BC_CRITICAL:
+			case SWE_BC_H_CONST:
+			case SWE_BC_WSE_CONST:
+			case SWE_BC_FREE_OUTFLOW:
+			case SWE_BC_HZ_T_OUTLET:
+				value=-1*(k+1);
+				break;
+
+			case SWE_BC_Q_CONST:
+			case SWE_BC_HZ_T_INLET:
+			case SWE_BC_Q_T:
+				value=k+1;
+			break;
+
+		  default:
+			 std::cerr << RERROR " Boundary type: " << extbc[k].bctype << " not recognised." << std::endl;
+			 exit(EXIT_FAILURE);
+
+		 }
+
+		 for(int iGlob=0;iGlob<extbc[k].ncellsBC;iGlob++){
+	 		int ii=extbc[k].bcells[iGlob];
+			state.isBound(ii)=value;
+		}
+
+	}
+
+  return 1;
+};
+
+
+
+  int readSWFile(std::string fNameIn, Domain &dom, Parallel &par, State &state, std::string fDirIn){
+    std::ifstream fInStream(fNameIn);
+    std::string line;
+    ParserLine pline;
+    ShallowWater sw;
+    std::string tempStr;
+
+
+    sw.initialMode="dry";
+    sw.frictionModel="none";
+
+    if (fInStream.is_open()){
+      while (std::getline(fInStream, line)) {
+        pline.line = line;
+	      pline.lowercase();
+        pline.parse();
+
+        // If the line was valid and a key is stored
+	      if(!pline.key.empty()){
+          // Match the key, and store the value
+          if(!strcmp("initialmode",pline.key.c_str())){ pline.value >> sw.initialMode; }
+	        if(!strcmp("initialvalue",pline.key.c_str())){ pline.value >> sw.initialValue ; }
+          if(!strcmp("friction",pline.key.c_str())){ pline.value >> sw.frictionModel  ; }
+          if(!strcmp("roughness",pline.key.c_str())){ pline.value >> sw.roughnessInput  ; }
+          if(!strcmp("drydepth",pline.key.c_str())){ pline.value >> sw.hmin  ; }
+        }
+      }
+    }else{
+      if (par.masterproc){
+         std::cerr << RERROR "File " << fNameIn << " not found" << std::endl;
+         return 0;
+      }
+    }
+
+    // Initialise roughness
+    if(!checkValidOption(sw.frictionModel, sw.frictionModels)){
+	    if(par.masterproc){
+        std::cerr << RERROR "Invalid friction model. Please correct sw.input" << std::endl;
+        return 0;
+		  }
+    }
+
+    // assign dry threshold water depth to zero velocities
+    if(sw.hmin < 0){
+      std::cerr << RERROR "Invalid or missing dry depth tolerance" << std::endl;
+      return 0;
+    }
+    state.hmin = sw.hmin;
+
+    int consistency=1;
+    if(sw.frictionModel.compare("none") != 0){
+      // consistency check
+      switch(FRICTION_MODEL){
+        case FRICTION_MANNING:
+          if(sw.frictionModel.compare("manning")) consistency=0 ;
+          break;
+        case FRICTION_DARCYWEISBACH:
+          if(sw.frictionModel.compare("darcyweisbach")) consistency=0;
+          break;
+        case FRICTION_CHEZY:
+          if(sw.frictionModel.compare("chezy")) consistency=0;
+          break;
+      }
+      if(!consistency){
+        std::cerr << RERROR "Friction model in .sw file is inconsistent with FRICTION_MODEL compilation flag" << std::endl;
+        return 0;
+      }
+      sw.roughness  = atof(sw.roughnessInput.c_str());
+      if(!sw.roughnessInput.compare("file")){
+        tempStr = fDirIn + "roughness.input";
+ 	      if(!readRoughnessFile(tempStr,dom,state,par)) return 0;
+      }
+      else{
+        if(sw.roughness < 0 ){
+		  	  if(par.masterproc){
+          std::cerr << RERROR "Negative friction coefficient. Please correc sw.input" << std::endl;
+			 	return 0;
+			 }
+        }
+        Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
+          int i,j;
+          unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+          int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;
+          state.roughness(ii) = sw.roughness;
+        });
+        if (par.masterproc){
+          std::cout << BDASH "Friction coefficient set constant to " << sw.roughness << std::endl;
+        }
+      }
+    }
+
+
+    if(!checkValidOption(sw.initialMode, sw.initialModes)){
+	 	if(par.masterproc){
+      std::cerr << RERROR "Invalid initial SW mode. Please correct sw.input" << std::endl;
+      return 0;
+		}
+    }
+
+    if(!sw.initialMode.compare("file")){
+      tempStr = fDirIn + "hini.input";
+      if(!readHiniFile(tempStr,dom,state,par)) return 0;
+      tempStr = fDirIn + "uini.input";
+      if(!readUiniFile(tempStr,dom,state,par)) return 0;
+      tempStr = fDirIn + "vini.input";
+	    if(!readViniFile(tempStr,dom,state,par)) return 0;
+    }
+    else{
+      if(!sw.initialMode.compare("dry")) sw.initialValue = 0.;
+      Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
+        int i,j;
+        unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+        int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;
+        state.h(ii) = sw.initialValue;
+        state.hu(ii) = state.hv(ii) = 0.;
+      });
+    }
+
+    if(!sw.initialMode.compare("h+z")){
+      Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
+        int i,j;
+        unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+        int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;
+        state.h(ii) -= state.z(ii);
+        if(state.h(ii) < 0) state.h(ii) = 0.;
+      });
+    }
+
+
+		if (par.masterproc){
+			std::cerr<<GOK "Shallow water initial condition set" << std::endl;
+			std::cerr<<GOK "Roughness and friction set" << std::endl;
+		}
+
+    return 1;
+  }
+
+
+
+
+  int createOutputDir(std::string &fNameOut) {
+
+	if (mkdir(fNameOut.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1)
+	{
+    if(fNameOut[fNameOut.length()-1] != '/'){
+      fNameOut += "/";
+    }
+		 if( errno == EEXIST ) {
+			 // already exists
+			 std::cerr << RERROR "Output folder already exists. Please delete it before continue. Error:" << strerror(errno) << std::endl;
+			 	return 0;
+		 } else {
+			 // something else
+			  std::cerr << RERROR "Cannot create output folder. Error:" << strerror(errno) << std::endl;
+		 		return 0;
+		 }
+	}
+	std::cerr << GOK "Output folder created\n";
+	return 1;
+  }
+
+
+  void handleOutFormat(std::string &str, FileIO &io, std::string &fNameIn, Parallel &par) {
+    // TODO this could be handled with ParserLine::parse
+    size_t splitloc = str.find("//",0);
+    std::string strloc;
+    if (splitloc != std::string::npos){
+      strloc = str.substr(0,splitloc);
+    } else {
+      strloc = str;
+    }
+
+    if      ( !strcmp(strloc.c_str(),"NETCDF") ) { io.outFormat = OUT_NETCDF; }
+    else if ( !strcmp(strloc.c_str(),"VTK"  ) ) { io.outFormat  = OUT_VTK ; }
+    else if ( !strcmp(strloc.c_str(),"BIN"  ) ) { io.outFormat  = OUT_BIN ; }
+    else  {
+	 	if(par.masterproc){
+          std::cerr << RERROR "unrecognized outFormat " << strloc.c_str() << " in file " << fNameIn << "\n";
+          exit(-1);
+		}
+    }
+  }
+
+  void handleBCtype(std::string &str, Domain &dom, std::string &fNameIn, Parallel &par) {
+    size_t splitloc = str.find("//",0);
+    std::string strloc;
+    if (splitloc != std::string::npos){
+      strloc = str.substr(0,splitloc);
+    } else {
+      strloc = str;
+    }
+    if      ( !strcmp(strloc.c_str(),"PERIODIC") ) { dom.BCtype = SWE_BC_PERIODIC; }
+    else if ( !strcmp(strloc.c_str(),"REFLECTIVE"  ) ) { dom.BCtype  = SWE_BC_REFLECTIVE ; }
+    else if ( !strcmp(strloc.c_str(),"TRANSMISSIVE"  ) ) { dom.BCtype  = SWE_BC_TRANSMISSIVE ; }
+    else  {
+	 	if(par.masterproc){
+          std::cerr << RERROR "unrecognized BCtype " << strloc.c_str() << " in file " << fNameIn << "\n";
+          exit(-1);
+		}
+    }
+  }
+
+
+    int readInfiltrationMap(std::string fNameIn, Domain &dom, InfiltrationModel &inf, Parallel &par) {
+        if(!inf.model) return 1;
+        if(inf.nLabels <= 2) return 1;  // 1 for the pervious type, 1 for the impervious type, therefore 2
+        realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
+        std::ifstream fInStream(fNameIn);
+        std::string line;
+        int tnx,tny;
+        real txll,tyll,tdx;
+        real nodata = 123456789;
+        tnx=-999; tny=-999;   txll=-999;  tyll=-999;  tdx=-999;
+        int ndata=dom.ny_glob*dom.nx_glob;
+    	if (fInStream.is_open())   {
+    		fInStream.ignore(256,' ');
+    		fInStream >> tnx;
+    		fInStream.ignore(256,' ');
+    		fInStream >> tny;
+    		fInStream.ignore(256,' ');
+    		fInStream >> txll;
+    		fInStream.ignore(256,' ');
+    		fInStream >> tyll;
+    		fInStream.ignore(256,' ');
+    		fInStream >> tdx;
+    		fInStream.ignore(256,' ');
+    		fInStream >> nodata;
+            if(dom.ny_glob !=tny || dom.nx_glob !=tnx || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
+			     if(par.masterproc){std::cerr<<RERROR "Infiltration map file header does not match DEM file header.\n";return 0;}
+		    }
+		    real tmp;
+    	    for (int ii=0; ii<ndata; ii++) {
+			    if (!fInStream.fail() && !fInStream.eof()){
+				    fInStream >> tmp;
+				    if(tmp<0.0){
+					    if(par.masterproc){
+					        std::cerr<<RERROR "There are negative values. Data should only be positive integers.\n";return 0;
+					    }
+				    }
+				    tmpVar(ii)=tmp;
+			    }
+                else{
+				    if(par.masterproc){std::cerr<<RERROR "Error reading infiltration map. Not enough data\n";}
+				    return 0;
+			    }
+		    }
+		    fInStream.close();
+        	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+         		int i,j;
+        		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+        		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
+        		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
+        		inf.infLabel(ii1)=tmpVar(ii2);
+        	});
+            return 1;
+	    }
+        else    {
+  	         if(par.masterproc){std::cerr << RERROR "File " << fNameIn << " not found" << std::endl; return 0;}
+	         if (par.masterproc){std::cerr<<GOK "Infiltration map read\n";}
+ 	         return 1;
+        }
+    }
+
+};
+
+#endif
