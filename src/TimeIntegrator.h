@@ -16,66 +16,48 @@
 #include "SWSourceSink.h"
 
 class TimeIntegrator {
-
-  Edges edge;
+    Edges edge;
 
 public :
 
-  inline void stepForward(State &state, SourceSinkData &ss, std::vector<ExtBC> &extbc, Domain &dom, Exchange &exch, Parallel &par, FileIO &io, SergheiTimers &timers) {
-	  timers.swe.reset();
-        #if !SERGHEI_SUBSURFACE_MODEL
-	    computeDt(state,dom,io);
-        real dtloc = dom.dt;
-        // int ierr = MPI_Allreduce(&dtloc, &dom.dt, 1, MPI_DOUBLE , MPI_MIN, MPI_COMM_WORLD);
-        #endif
-        //dom.dt = 0.1;
-
-		edge.computeDeltaStateSW(state, dom, exch, par);
-
+    inline void stepForward(State &state, SourceSinkData &ss, std::vector<ExtBC> &extbc, Domain &dom, Exchange &exch, Parallel &par, FileIO &io, SergheiTimers &timers) {
+        timers.swe.reset();
         // #if !SERGHEI_SUBSURFACE_MODEL
-		// adjustDt(dom,io);
+        // computeDt(state,dom,io);
+        // real dtloc = dom.dt;
+        // // int ierr = MPI_Allreduce(&dtloc, &dom.dt, 1, MPI_DOUBLE , MPI_MIN, MPI_COMM_WORLD);
         // #endif
-		timers.Tsweflux += timers.swe.seconds();
 
-      ss.ComputeSWSourceSink(state,dom);
+        edge.computeDeltaStateSW(state, dom, exch, par);
+        timers.Tsweflux += timers.swe.seconds();
 
-	   timers.swe.reset();
-   	computeNewState(state, dom, ss);
-		timers.Tswe += timers.swe.seconds();
+        ss.ComputeSWSourceSink(state,dom);
 
-		for (int k = 0; k < extbc.size(); k ++) { //should be done before the exchange (water depth might be modified).
-		  applyExtBC(state,extbc[k],dom);
-		}
+        timers.swe.reset();
+        computeNewState(state, dom, ss);
+        timers.Tswe += timers.swe.seconds();
 
-		exch.exchangeMPIh(state,dom,exch,par); //only neccesary to exchange the h (for wet-dry) but for the moment we exchange everything
-	   timers.swe.reset();
+        for (int k = 0; k < extbc.size(); k ++) { //should be done before the exchange (water depth might be modified).
+            applyExtBC(state,extbc[k],dom);
+        }
 
-		wetDryCorrection( state, dom);
+        exch.exchangeMPIh(state,dom,exch,par); //only neccesary to exchange the h (for wet-dry) but for the moment we exchange everything
+        timers.swe.reset();
 
-		timers.Tswe += timers.swe.seconds();
+        wetDryCorrection( state, dom);
 
-		exch.exchangeMPIhuhv(state,dom,exch,par);//neccesary to exchange again because of the wet/dry correction
-	   timers.swe.reset();
+        timers.Tswe += timers.swe.seconds();
 
-		for (int k = 0; k < extbc.size(); k ++) { //after getting the final values, the discharge is integrated at every BC. The reason for not doing this before is because the previous kernels could eventually modify the boundary cell values.
-			integrateExtBC(state,extbc[k],dom);
-		}
+        exch.exchangeMPIhuhv(state,dom,exch,par);//neccesary to exchange again because of the wet/dry correction
+        timers.swe.reset();
 
-		timers.Tswe += timers.swe.seconds();
+        for (int k = 0; k < extbc.size(); k ++) { //after getting the final values, the discharge is integrated at every BC. The reason for not doing this before is because the previous kernels could eventually modify the boundary cell values.
+            integrateExtBC(state,extbc[k],dom);
+        }
 
+        timers.Tswe += timers.swe.seconds();
 
-        // Kokkos::parallel_for( dom.ncells , KOKKOS_LAMBDA (int iGlob) {
-        //   int i, j, ncells;
-    	// 	int id1,id2;
-        //     if (iGlob == 124)  {
-        //         unpackIndices(iGlob,dom.ny+2*hc,dom.nx+2*hc,j,i);
-        //         //id2 = iGlob - dom.nx - 2*hc;
-        //         id2 = iGlob;
-        //         printf(" (%d,%d) : H = %f, V = %f, Q = %f\n",i,j,state.h(id2),state.hv(id2),20.0*60.0*state.hv(id2));
-        //     }
-        // });
-
-	}
+    }
 
   inline void computeNewState(State &state , const Domain &dom, const SourceSinkData &ss) {
     #if DEBUG_WORKFLOW
@@ -107,10 +89,6 @@ public :
 
       hf -= ss.inf.rate(ii)*dom.dt;
     }
-    #if SERGHEI_SUBSURFACE_MODEL
-    // printf(" SW -%d- : hf=%f, qss=%f, qt=%f\n",ii,1e5*hf,1e5*state.qss(ii),1e5*state.qss(ii) * dom.dt);
-    hf += state.qss(ii) * dom.dt;
-    #endif
 
 		if(hf<TOL12 || nodata){
 			//reduction or remove. Should be in the order of machine accuracy
@@ -169,70 +147,58 @@ public :
 
 
   inline void computeGwExchange(State &state , const Domain &dom) {
-    #if DEBUG_WORKFLOW
-    std::cout << GGD << __func__ << std::endl;
-    #endif
     Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
         int ii = dom.getIndex(iGlob);
         state.h(ii) += state.qss(ii) * dom.dt;
-    	if(state.h(ii)<TOL12){state.h(ii)=0.0;}
+    	if(state.h(ii)<TOL12) {state.h(ii)=0.0;}
     });
   }
 
 
+    inline void computeDt(State &state, Domain &dom, FileIO &io) {
 
-  inline void computeDt(State &state, Domain &dom, FileIO &io) {
+        dom.dt = 1.e7;
 
-  dom.dt = 1.e7;
+        Kokkos::parallel_reduce( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob, real &dt) {
+            int ii = dom.getIndex(iGlob);
+            real h=state.h(ii);
+            real hu=state.hu(ii);
+            real hv=state.hv(ii);
+            dt=fmin(dt,1e3);
+            if(h>TOL12){
+                dt=fmin(dt,dom.dx/(fabs(hu/h)+sqrt(GRAV*h)));
+                dt=fmin(dt,dom.dx/(fabs(hv/h)+sqrt(GRAV*h)));
+            }
+        } , Kokkos::Min<real>(dom.dt) );
+        Kokkos::fence();
 
-	Kokkos::parallel_reduce( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob, real &dt) {
-    int ii = dom.getIndex(iGlob);
-	 	real h=state.h(ii);
-	 	real hu=state.hu(ii);
-	 	real hv=state.hv(ii);
-		dt=fmin(dt,1e3);
-		if(h>TOL12){
-			dt=fmin(dt,dom.dx/(fabs(hu/h)+sqrt(GRAV*h)));
-			dt=fmin(dt,dom.dx/(fabs(hv/h)+sqrt(GRAV*h)));
-		}
-	} , Kokkos::Min<real>(dom.dt) );
+        dom.dt*=dom.cfl;
 
-	  Kokkos::fence();
-
-	  dom.dt*=dom.cfl;
-
-#if DEBUG_DT
-	std::cout << "time = " << dom.etime << "\tdt_cfl = " << dom.dt << std::endl;
-#endif
-	 if(dom.dt>1e2){ //it means that evertyhing is dry.
-
-     if(dom.isRain){
-       // if there is rain, we impose a time step equivalent for h=1
-       // this is to make sure we capture the start of the rain
-       // TODO: improve this using the known rainfall signal
-       dom.dt=dom.dx/(1+sqrt(GRAV));
         #if DEBUG_DT
-        	std::cout << "time = " << dom.etime << "\tdt_rain = " << dom.dt << std::endl;
+            std::cout << "time = " << dom.etime << "\tdt_cfl = " << dom.dt << std::endl;
         #endif
-     }
+        if(dom.dt>1e2){ //it means that evertyhing is dry.
+            if(dom.isRain){
+            // if there is rain, we impose a time step equivalent for h=1
+            // this is to make sure we capture the start of the rain
+            // TODO: improve this using the known rainfall signal
+                dom.dt=dom.dx/(1+sqrt(GRAV));
+                #if DEBUG_DT
+                    std::cout << "time = " << dom.etime << "\tdt_rain = " << dom.dt << std::endl;
+                #endif
+            }
+        }
+        // correction to match output times
+        if (dom.etime + dom.dt > io.numOut*io.outFreq) { dom.dt = io.numOut*io.outFreq - dom.etime; }
+        if (dom.etime + dom.dt > dom.simLength) { dom.dt = dom.simLength - dom.etime; }
+
+        real dtloc = dom.dt;
+        int ierr = MPI_Allreduce(&dtloc, &dom.dt, 1, MPI_DOUBLE , MPI_MIN, MPI_COMM_WORLD);
+
+        #if DEBUG_DT
+            std::cout << "time = " << dom.etime << "\tdt_cor = " << dom.dt << std::endl;
+        #endif
     }
-    // Zhi Li
-    //if (dom.dt > 0.1)   {dom.dt = 0.1;}
-
-    // correction to match output times
-    if (dom.etime + dom.dt > io.numOut*io.outFreq) { dom.dt = io.numOut*io.outFreq - dom.etime; }
-    if (dom.etime + dom.dt > dom.simLength) { dom.dt = dom.simLength - dom.etime; }
-
-    // real dtloc = dom.dt;
-    // int ierr = MPI_Allreduce(&dtloc, &dom.dt, 1, MPI_DOUBLE , MPI_MIN, MPI_COMM_WORLD);
-
-
-#if DEBUG_DT
-	std::cout << "time = " << dom.etime << "\tdt_cor = " << dom.dt << std::endl;
-#endif
-
-
-  }
 
 
 	inline void wetDryCorrection(State &state, Domain &dom) {
@@ -274,9 +240,10 @@ public :
          case SWE_BC_CRITICAL: // critical flow boundary condition
 	         Kokkos::parallel_for(extbc.ncellsBC , KOKKOS_LAMBDA (int iGlob){
 		           int ii=extbc.bcells[iGlob];
+
 		           real h=state.h(ii);
 		           if( h>=state.hmin) {
-                 real hu=state.hu(ii);
+                     real hu=state.hu(ii);
 		             real hv=state.hv(ii);
 		             real vel=1.0*sqrt(GRAV*h); //Froude 1.0 (critical)
 		             hu=vel*h*extbc.normalx;

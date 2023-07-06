@@ -58,16 +58,16 @@ public:
         for (int iGlob = 0; iGlob < gdom.ncells; iGlob++)  {
             unpackIndices(iGlob, gdom.nz+2*hc, gdom.ny+2*hc, gdom.nx+2*hc, kk, jj, ii);
             if (ii == 0)    {
-                if (jj > 0 & jj < gdom.ny+1)    {idxBufW(idxW) = iGlob;  idxW += 1;}
+                if (jj > 0 & jj < gdom.ny+1 & kk > 0 & kk < gdom.nz+1)    {idxBufW(idxW) = iGlob;  idxW += 1;}
             }
             else if (ii == gdom.nx+1)   {
-                if (jj > 0 & jj < gdom.ny+1)    {idxBufE(idxE) = iGlob;  idxE += 1;}
+                if (jj > 0 & jj < gdom.ny+1 & kk > 0 & kk < gdom.nz+1)    {idxBufE(idxE) = iGlob;  idxE += 1;}
             }
             if (jj == 0)    {
-                if (ii > 0 & ii < gdom.nx+1)    {idxBufN(idxN) = iGlob;  idxN += 1;}
+                if (ii > 0 & ii < gdom.nx+1 & kk > 0 & kk < gdom.nz+1)    {idxBufN(idxN) = iGlob;  idxN += 1;}
             }
             else if (jj == gdom.ny+1)   {
-                if (ii > 0 & ii < gdom.nx+1)    {idxBufS(idxS) = iGlob;  idxS += 1;}
+                if (ii > 0 & ii < gdom.nx+1 & kk > 0 & kk < gdom.nz+1)    {idxBufS(idxS) = iGlob;  idxS += 1;}
             }
         }
     }

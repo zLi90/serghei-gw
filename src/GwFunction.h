@@ -46,7 +46,7 @@ public:
         face_flux(gw, state, gdom, gbc, par);
         gmpi.mpi_sendrecv(gw.q, gdom, par);
 
-        update_wc(gw, gdom);
+        update_wc(gw, state, gdom);
         gmpi.mpi_sendrecv(gw.h, gdom, par);
         gmpi.mpi_sendrecv(gw.wc, gdom, par);
 
@@ -56,6 +56,9 @@ public:
         Kokkos::parallel_for(gdom.ncells, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
+
+        gw.Vtot = integrate(gw, gdom);
+        gw.Vexch = get_Vexchange(state, gdom);
     }
 
     /* --------------------------------------------------
@@ -63,8 +66,8 @@ public:
     -------------------------------------------------- */
     inline void picard_solve(GwState &gw, State &state, GwDomain &gdom, GwBC &gbc,
             GwMatrix &A, GwSolver &gsolver, SourceSinkData &ss, GwMPI &gmpi, Parallel &par)  {
-        int iter, iter_cg, iter_max = 50, ierr=1;
-        real eps_diff = 1.0, eps_tmp, eps_old = 1.0, eps = 1.0, eps_min = 5e-3, dt_tmp;
+        int iter, iter_cg, iter_max = 100, ierr=1;
+        real eps_diff = 1.0, eps_tmp, eps_old = 1.0, eps = 1.0, eps_min = 5e-6, dt_tmp;
         enforce_swe_bc(gw, state, gdom, gbc, ss);
         face_conductivity(gw, gdom, gbc, par);
         gmpi.mpi_sendrecv(gw.k, gdom, par);
@@ -92,20 +95,22 @@ public:
             eps_tmp = fabs(eps_old - eps);
             ierr = MPI_Allreduce(&eps_tmp, &eps_diff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
-            update_wc(gw, gdom);
+            update_wc(gw, state, gdom);
             gmpi.mpi_sendrecv(gw.wc, gdom, par);
 
             iter += 1;
         }
-        // printf("    > Picard loop converges in %d iterations with eps = %f\n",iter,eps);
+        // printf("    > Picard loop converges in %d iterations with eps = %f, %f\n",iter,eps,eps_diff);
 
-        // dt_waco(gw, gdom);
         dt_iter(gw, gdom, iter);
         dt_tmp = gdom.dt;
         ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
         Kokkos::parallel_for(gdom.ncells, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
+
+        gw.Vtot = integrate(gw, gdom);
+        gw.Vexch = get_Vexchange(state, gdom);
     }
 
     // /* --------------------------------------------------
@@ -223,19 +228,21 @@ public:
             if (kk == 0)    {
                 if (gbc.bctypeZM == SUB_BC_NOFLOW)   {gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = 0.0;}
                 else if (gbc.bctypeZM == SUB_BC_H_CONST) {gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;}
+                else if (gbc.bctypeZM == SUB_BC_H_SWE)  {
+                    if (gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) > 0.0)   {
+                        // NOTE: This assumes rainfall is converted to surface ponding first
+                        gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;
+                    }
+                    else if (gw.h(iGlob,1) > 0.5*gdom.dz(iGlob))    {
+                        // NOTE : This represents exfiltration
+                        gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;
+                    }
+                    else {
+                        gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = 0.0;
+                    }
+                }
                 else {
                     gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob-gdom.nxhc*gdom.nyhc,3));
-                    if (gbc.bctypeZM == SUB_BC_H_SWE)    {
-                        if (gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) <= 0.0)   {
-                            if (gdom.isRain == 1) {gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;}
-                            //else if (h(dom.hpair(idx,1),1) < 0.5*dz(dom.hpair(idx,1)))  {k(dom.hpair(idx,0),2) = 0.0;}
-                        }
-                        else {gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;}
-                    }
-                    else if (gbc.bctypeZM == SUB_BC_Q_CONST)    {
-                        if (gdom.isRain == 1 && gdom.qrain(iGlobSW) != 0.0)   {gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;}
-                        else if (gbc.qbcZM != 0.0)   {gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;}
-                    }
                 }
             }
             else if (kk == gdom.nz-1)   {
@@ -383,7 +390,7 @@ public:
             gw.coef(idom,5) = - gdom.dt * gw.k(iGlob,2) / pow(gdom.dz(iGlob), 2.0);
             gw.coef(idom,6) = - gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / pow(gdom.dz(iGlob), 2.0);
             gw.coef(idom,7) = (ch + ss*gw.wc(iGlob,1)/wcs)*gw.h(iGlob,1)
-                - gdom.dt*(gw.k(iGlob,2) - gw.k(iGlob-gdom.nxhc*gdom.nyhc,2)) / gdom.dz(iGlob);
+                - gdom.dt*(gw.k(iGlob,2) - gw.k(iGlob-gdom.nxhc*gdom.nyhc,2)) / gdom.dz(iGlob)
                 + gdom.dt*(gw.k(iGlob,0) * gdom.sinx(iGlob) - gw.k(iGlob-1,0) * gdom.sinx(iGlob-1))/gdom.dx
                 + gdom.dt*(gw.k(iGlob,1) * gdom.siny(iGlob) - gw.k(iGlob-gdom.nxhc,1) * gdom.siny(iGlob-gdom.nxhc))/gdom.dy;
             if (gdom.gw_scheme != 1) {
@@ -472,7 +479,7 @@ public:
     // /* --------------------------------------------------
     //     Get water content
     // -------------------------------------------------- */
-    inline void update_wc(GwState &gw, GwDomain &gdom)	{
+    inline void update_wc(GwState &gw, State &state, GwDomain &gdom)	{
         // Update wc with explicit scheme
         if (gdom.gw_scheme == 1)    {
             Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
@@ -487,20 +494,24 @@ public:
                 qqy = (gw.q(iGlob,1) - gw.q(iGlob-gdom.nxhc,1)) / gdom.dy;
                 qqz = (gw.q(iGlob,2) - gw.q(iGlob-gdom.nxhc*gdom.nyhc,2)) / gdom.dz(iGlob);
                 gw.wc(iGlob,1) = (gw.wc(iGlob,0) + gdom.dt * (qqx + qqy + qqz)) / coef;
+                gw.wc(iGlob,2) = 0.0;
             });
             // Choose h or wc at the interface
             Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
-                int ii, jj, kk, iGlob, ivg, flag;
+                int ii, jj, kk, iGlob, iGlobSW, ivg, flag;
         		real wcs, wcr, wcm, n, m, alpha, sbar;
                 unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+                iGlobSW = packIndices(gdom.nyhc, gdom.nxhc, jj+hc, ii+hc);
                 ivg = gw.soilID(iGlob) * NVG;
                 wcs = gw.vgTable(ivg+2);     wcr = gw.vgTable(ivg+3);
                 n = gw.vgTable(ivg+4);       alpha = gw.vgTable(ivg+6);
                 m = 1.0 - 1.0 / n;
                 wcm = wcr + (wcs-wcr)*pow((1.0 + pow(fabs(gdom.aev)*alpha,n)), m);
 
-                if (gw.wc(iGlob,1) >= wcs - 1e-7)	{gw.wc(iGlob,2) += (gw.wc(iGlob,1)-wcs);    gw.wc(iGlob,1) = wcs;}
+                if (gw.wc(iGlob,1) >= wcs - 1e-10)	{
+                    gw.wc(iGlob,2) = gw.wc(iGlob,1)-wcs;    gw.wc(iGlob,1) = wcs;
+                }
                 else    {
                     flag = 0;
                     if (gw.wc(iGlob+1,1) >= wcs & gw.k(iGlob,0) > 0.0)    {flag = 1;}
@@ -513,9 +524,11 @@ public:
                     if (kk == 0 & gdom.isRain == 1)    {flag = 0;}
 
                     if (flag == 1)  {
+                        real tmp = gw.wc(iGlob,1);
                         sbar = pow(1.0 + pow(fabs(alpha*gw.h(iGlob,1)), n), -m);
                         if (gw.h(iGlob,1) > gdom.aev)   {gw.wc(iGlob,1) = wcs;}
                         else {gw.wc(iGlob,1) = sbar * (wcm - wcr) + wcr;}
+                        gw.wc(iGlob,2) = tmp - gw.wc(iGlob,1);
                     }
                     else    {
                         if (gw.wc(iGlob,1) < wcs)   {
@@ -524,10 +537,75 @@ public:
                         else {gw.h(iGlob,1) = 0.0;}
                     }
                 }
-                // store the mass loss
-        		if (gw.wc(iGlob,1) > wcs)	{gw.wc(iGlob,2) += (gw.wc(iGlob,1)-wcs); gw.wc(iGlob,1) = wcs;}
-        		else if (gw.wc(iGlob,1) < wcr+0.001)	{gw.wc(iGlob,1) = wcr+0.001;}
             });
+
+            // // send extra mass to other cells
+            // Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+            //     int ii, jj, kk, iGlob, iGlobSW, ivg;
+        	// 	real wcs, wcr;
+            //     unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            //     iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+            //     iGlobSW = packIndices(gdom.nyhc, gdom.nxhc, jj+hc, ii+hc);
+            //     ivg = gw.soilID(iGlob) * NVG;
+            //     wcs = gw.vgTable(ivg+2);     wcr = gw.vgTable(ivg+3);
+            //     if (gw.wc(iGlob,2) > 0) {
+            //         real wc_tot = 0.0, wcxp, wcxm, wcyp, wcym, wczp, wczm;
+            //         if (gw.q(iGlob,0) != 0 && gw.wc(iGlob+1,1) < wcs)  {
+            //             wcxp = wcs - gw.wc(iGlob+1,1);
+            //             wc_tot += wcxp;
+            //         }
+            //         else if (gw.q(iGlob-1,0) != 0 && gw.wc(iGlob-1,1) < wcs)  {
+            //             wcxm = wcs - gw.wc(iGlob-1,1);
+            //             wc_tot += wcxm;
+            //         }
+            //         else if (gw.q(iGlob,1) != 0 && gw.wc(iGlob+gdom.nxhc,1) < wcs) {
+            //             wcyp = wcs - gw.wc(iGlob+gdom.nxhc,1);
+            //             wc_tot += wcyp;
+            //         }
+            //         else if (gw.q(iGlob-gdom.nxhc,1) != 0 && gw.wc(iGlob-gdom.nxhc,1) < wcs) {
+            //             wcym = wcs - gw.wc(iGlob-gdom.nxhc,1);
+            //             wc_tot += wcym;
+            //         }
+            //         else if (gw.q(iGlob,2) != 0 && gw.wc(iGlob+gdom.nxhc*gdom.nyhc,1) < wcs) {
+            //             wczp = wcs - gw.wc(iGlob+gdom.nxhc*gdom.nyhc,1);
+            //             wc_tot += wczp;
+            //         }
+            //         else if (gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) != 0 && gw.wc(iGlob-gdom.nxhc*gdom.nyhc,1) < wcs) {
+            //             wczm = wcs - gw.wc(iGlob-gdom.nxhc*gdom.nyhc,1);
+            //             wc_tot += wczm;
+            //         }
+            //
+            //
+            //         if (wc_tot > 0)  {
+            //             if (gw.q(iGlob,0) != 0 && gw.wc(iGlob+1,1) < wcs && wcxp != 0.0)  {
+            //                 gw.wc(iGlob+1,1) += gw.wc(iGlob,2) * wcxp / wc_tot;
+            //             }
+            //             else if (gw.q(iGlob-1,0) != 0 && gw.wc(iGlob-1,1) < wcs && wcxm != 0.0)  {
+            //                 gw.wc(iGlob-1,1) += gw.wc(iGlob,2) * wcxm / wc_tot;
+            //             }
+            //             else if (gw.q(iGlob,1) != 0 && gw.wc(iGlob+gdom.nxhc,1) < wcs && wcyp != 0.0) {
+            //                 gw.wc(iGlob+gdom.nxhc,1) += gw.wc(iGlob,2) * wcyp / wc_tot;
+            //             }
+            //             else if (gw.q(iGlob-gdom.nxhc,1) != 0 && gw.wc(iGlob-gdom.nxhc,1) < wcs && wcym != 0.0) {
+            //                 gw.wc(iGlob-gdom.nxhc,1) += gw.wc(iGlob,2) * wcym / wc_tot;
+            //             }
+            //             else if (gw.q(iGlob,2) != 0 && wczp != 0.0) {
+            //                 gw.wc(iGlob+gdom.nxhc*gdom.nyhc,1) += gw.wc(iGlob,2) * wczp / wc_tot;
+            //             }
+            //             else if (gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) != 0 && wczm != 0.0) {
+            //                 real dwc = gw.wc(iGlob,2) * wczm / wc_tot;
+            //                 gw.wc(iGlob-gdom.nxhc*gdom.nyhc,1) += gw.wc(iGlob,2) * wczm / wc_tot;
+            //                 if (kk == 0)    {
+            //                     state.qss(iGlobSW) += dwc * gdom.dz(iGlob) / gdom.dt;
+            //                 }
+            //             }
+            //         }
+            //     }
+            //
+            //     // store the mass loss
+            //     if (gw.wc(iGlob,1) > wcs)	{gw.wc(iGlob,1) = wcs;}
+            //     else if (gw.wc(iGlob,1) < wcr+0.001)	{gw.wc(iGlob,1) = wcr+0.001;}
+            // });
         }
         else {
             Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
@@ -545,8 +623,8 @@ public:
                 else {gw.wc(iGlob,1) = sbar * (wcm - wcr) + wcr;}
                 if (gw.wc(iGlob,1) > wcs)	{gw.wc(iGlob,2) += (gw.wc(iGlob,1)-wcs); gw.wc(iGlob,1) = wcs;}
         		// else if (gw.wc(iGlob,1) < wcr+0.001)	{gw.wc(iGlob,1) = wcr+0.001;}
-            });
 
+            });
         }
 
     }
@@ -580,8 +658,8 @@ public:
     inline void dt_iter(GwState &gw, GwDomain &gdom, int iter)	{
     	real dt_old;
     	dt_old = gdom.dt;
-        if (iter < 5)   {gdom.dt = gdom.dt * 1.1;}
-        else if (iter > 8)  {gdom.dt = gdom.dt * 0.9;}
+        if (iter < 7)   {gdom.dt = gdom.dt * 1.1;}
+        else if (iter > 11)  {gdom.dt = gdom.dt * 0.9;}
         if (gdom.dt > gdom.dt_max)	{gdom.dt = gdom.dt_max;}
     	else if (gdom.dt < gdom.dt_init)	{gdom.dt = gdom.dt_init;}
     }
@@ -606,6 +684,34 @@ public:
 
     // /* --------------------------------------------------
     //     End eps computation
+    // -------------------------------------------------- */
+
+    // /* --------------------------------------------------
+    //     Integrator
+    // -------------------------------------------------- */
+    inline real integrate(GwState &gw, GwDomain &gdom)	{
+    	real V_tot;
+        Kokkos::parallel_reduce(gdom.nCellDomain, KOKKOS_LAMBDA (int idx, real &tmp) {
+            int ii, jj, kk, iGlob;
+            unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+            tmp += gw.wc(iGlob,1) * gdom.dx * gdom.dx * gdom.dz(iGlob);
+		} , Kokkos::Sum<real>(V_tot) );
+        return V_tot;
+    }
+    inline real get_Vexchange(State &state, GwDomain &gdom)	{
+    	real V_exch;
+        Kokkos::parallel_reduce(gdom.ny*gdom.nx, KOKKOS_LAMBDA (int idx, real &tmp) {
+            int ii, jj, iGlob;
+            unpackIndices(idx, gdom.ny, gdom.nx, jj, ii);
+            iGlob = (hc+jj)*gdom.nxhc + ii + hc;
+            tmp += state.qss(iGlob) * gdom.dx * gdom.dx * gdom.dt;
+		} , Kokkos::Sum<real>(V_exch) );
+        return V_exch;
+    }
+
+    // /* --------------------------------------------------
+    //     End integrating computation
     // -------------------------------------------------- */
 
 

@@ -411,6 +411,14 @@ public:
             }
       		fInStream.close();
       	}
+        else {
+            if (gdom.nSoilID == 1)  {
+                for (int ii=0; ii<ndata; ii++) {tmpVar(ii) = 0;}
+            }
+            else {
+                if(par.masterproc){std::cerr<< RERROR "Unable to open soil ID file!\n";  return 0;}
+            }
+        }
         // assign soil ID to cells
         for (idx = 0; idx < gdom.nCellDomain; idx++)  {
             unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
@@ -503,7 +511,7 @@ public:
         // initialize the primary variables
         for (iGlob = 0; iGlob < gdom.ncells; iGlob++)   {
             gw.wc(iGlob,0) = 0.0;   gw.wc(iGlob,1) = 0.0;
-            gw.h(iGlob,0) = 0.0;    gw.h(iGlob,1) = 0.0;    gw.h(iGlob,2) = 0.0;
+            gw.h(iGlob,0) = 0.0;    gw.h(iGlob,1) = 0.0;    gw.wc(iGlob,2) = 0.0;
         }
         // read initial condition from file
         if(!gw.initialMode.compare("file-h")) {

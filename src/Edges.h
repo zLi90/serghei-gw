@@ -20,7 +20,7 @@ public :
 
 	inline void computeDeltaStateSW(State &state, Domain &dom, Exchange &exch, Parallel &par){
 	 	solve(state, dom, exch, par);
-		computeTimeStepReduction(dom, state);
+		// computeTimeStepReduction(dom, state);
 	}
 
 

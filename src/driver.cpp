@@ -124,6 +124,7 @@ int main(int argc, char** argv) {
 		GwMatrix A(gdom);
 		GwSolver gsolver;
 		gsolver.init(A, gdom);
+		std::cerr << GGD "Subsurface Solver has been initialized! " << std::endl;
 		#endif
 
 		#if SERGHEI_TOOLS
@@ -162,6 +163,9 @@ int main(int argc, char** argv) {
 
 		// Write initial time series data
 		io.writeTimeSeriesIni(state,dom,par,ss,sint,bint,extbc,outFolder);
+		#if SERGHEI_SUBSURFACE_MODEL
+		io.writeSubTimeSeriesIni(gw,gdom,dom,par,outFolder);
+		#endif
 
 		// capture initialisation time
 		if (par.masterproc) timers.Tinit = timers.serghei.seconds();
@@ -172,19 +176,19 @@ int main(int argc, char** argv) {
 		gdom.dt = gdom.dt_init;
 		gdom.dtOld = gdom.dt_init;
 		dom.dt = gdom.dt;
+		#else
+		tint.computeDt(state,dom,io);
 		#endif
 
 		// The Main Time Loop
 		while (dom.etime < dom.simLength) {
-			#if SERGHEI_SUBSURFACE_MODEL
-			dom.dt = gdom.dt;
-			#endif
 			//previous mass
 			oldVolume=sint.surfaceVolumeG;
 
 			bint.integrate(extbc,1);//has to be called here (previous time step) with mode==1 (boundary flows)
 
 			tint.stepForward(state, ss, extbc, dom, exch, par, io, timers);
+
 			timers.swe.reset();
 
 			// run subsurface model
@@ -197,6 +201,14 @@ int main(int argc, char** argv) {
 			else {gwf.picard_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
 			tint.computeGwExchange(state , dom);
 			#endif
+
+			// Unify dt
+			tint.computeDt(state,dom,io);
+			#if SERGHEI_SUBSURFACE_MODEL
+			if (dom.dt < gdom.dt)	{gdom.dt = dom.dt;}
+			else {dom.dt = gdom.dt;}
+			#endif
+
 			oldVolume+=(bint.inflowDischargeG - bint.outflowDischargeG)*dom.dt; //Boundary fluxes with the new dt
 
 			bint.integrate(extbc,0);//called here with mode==0 (adjusted volume)
@@ -220,26 +232,6 @@ int main(int argc, char** argv) {
 			dom.nIter++;
 			dom.countIterDt++;
 			accumDt+=dom.dt;
-
-			// Check infiltration front and terminate if necessary
-			// int iGlob, ivg, ii, jj, kk = gdom.nz / 3;
-			// real wcs, wcr;
-			// ii = 0;
-			// jj = 0;
-			// iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-			// ivg = gw.soilID(iGlob) * NVG;
-			// wcs = gw.vgTable(ivg+2);     wcr = gw.vgTable(ivg+3);
-			// if (gw.wc(iGlob,1) > wcr + 0.1*(wcs - wcr))	{
-			// 	io.outputSubsurface(gw, gdom, par,outFolder);
-			// 	std::cerr << "     Normal termination ... \n\n";
-			// 	return 0;
-			// }
-			// else if (isnan(gw.wc(iGlob,1)))	{
-			// 	io.outputSubsurface(gw, gdom, par,outFolder);
-			// 	std::cerr << "     NANs termination ... \n\n";
-			// 	return 0;
-			// }
-
 
 			if (dom.nIter%io.nScreen==0 || fabs(dom.etime - io.numOut*io.outFreq) <= 0.5*dom.dt) {
 			//if (fabs(dom.etime - io.numOut*io.outFreq) <= 0.5*dom.dt) {
@@ -284,6 +276,9 @@ int main(int argc, char** argv) {
 				obs.update(state,par,dom.dt);
 				#endif
 				io.writeTimeSeries(state,dom,par,sint,bint);
+				#if SERGHEI_SUBSURFACE_MODEL
+				io.writeSubsurfaceTimeSeries(gw,gdom,dom,par);
+				#endif
 			  if (par.masterproc){
 					#if SERGHEI_TOOLS
 					obs.writeGauges(dom.etime);

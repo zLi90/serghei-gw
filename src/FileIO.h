@@ -28,6 +28,7 @@ protected:
   int tVar, xVar, yVar, hVar, hzVar, uVar, vVar, zVar, z3Var, hdVar, wcVar;
   int infVar,infVolVar;
   std::ofstream domainOutputFile;
+  std::ofstream SubsurfaceOutputFile;
   std::ofstream logFile;
 
 public:
@@ -38,7 +39,7 @@ public:
 
   real obsFreq;
   int numObs = 0;
-  int nScreen = 1000; //if this value is not specified, the information is displayed every 1000 iterations
+  int nScreen = 100; //if this value is not specified, the information is displayed every 1000 iterations
 
 // Writes spatial fields for initial state
 	void outputIni(const State &state, Domain const &dom, SourceSinkData &ss, Parallel const &par, std::string dir){
@@ -1003,6 +1004,42 @@ public:
     fOutStream.close();
       }
 
+
+  }
+
+
+
+  // Write header and initial state for time series files
+  int writeSubTimeSeriesIni (const GwState &gw, GwDomain const &gdom, Domain const &dom, Parallel const &par, std::string dir){
+
+        numObs = 0;
+        std::string filename = dir + "SubsurfaceTimeSeries.out";
+        SubsurfaceOutputFile.open (filename);
+
+        if (SubsurfaceOutputFile.is_open ()){
+            // Write the header
+            SubsurfaceOutputFile << "Time ";
+            SubsurfaceOutputFile << "SubSurfaceVolume ";
+            SubsurfaceOutputFile << "ExchangeVolume ";
+            SubsurfaceOutputFile << std::endl;
+        }
+        else
+        {std::cerr << RERROR "Could not create domainTimeSeries.out file" << std::endl; return 0;}
+
+        if(par.masterproc)  {writeSubsurfaceTimeSeries (gw, gdom, dom, par);}
+        numObs++;
+        return 1;
+  }
+
+
+
+  void writeSubsurfaceTimeSeries (GwState const &gw, GwDomain const &gdom, Domain const &dom, Parallel const &par){
+    // Write the data
+    std::cout.precision(OUTPUT_PRECISION);
+    SubsurfaceOutputFile << std::scientific << dom.etime << " ";
+    SubsurfaceOutputFile << std::scientific << gw.Vtot << " ";
+    SubsurfaceOutputFile << std::scientific << gw.Vexch << " ";
+    SubsurfaceOutputFile << std::endl;
 
   }
   #endif
