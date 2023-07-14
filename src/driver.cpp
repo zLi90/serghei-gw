@@ -196,6 +196,11 @@ int main(int argc, char** argv) {
 			// rainfall
 	        if (dom.isRain) {
 	            Kokkos::parallel_for( dom.ncells , KOKKOS_LAMBDA(int idom) {gdom.qrain(idom) = ss.rainRate(idom); });
+				// apply rainfall to the surface domain
+		        Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int idom) {
+		            int iGlob = dom.getIndex(idom);
+		            state.h(iGlob) += ss.rainRate(iGlob)*dom.dt;
+		        });
 	        }
 			if (gdom.gw_scheme == 1)	{gwf.pca_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
 			else {gwf.picard_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}

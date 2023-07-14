@@ -74,6 +74,7 @@ public:
         gdom.yll = dom.yll;
         gdom.zll = 0.0;
         gdom.isRain = dom.isRain;
+        gdom.hmin = state.hmin;
         // allocate domain
         gdom.etime = 0;
         gdom.nCellDomain = dom.nx * dom.ny * gdom.nz;
@@ -179,6 +180,7 @@ public:
                 return 0;
             }
         }
+        gbc.topBC = intArr("topbc", dom.ncells);
         // read initial conditions
         fNameIn = inFolder;
         if (!setGwState(fNameIn, gw, gdom, state, gbc, par, io)) {

@@ -118,15 +118,35 @@ public:
     // -------------------------------------------------- */
     inline void enforce_swe_bc(GwState &gw, State &state, GwDomain &gdom, GwBC &gbc, SourceSinkData &ss)	{
         Kokkos::parallel_for(gdom.nhalo , KOKKOS_LAMBDA(int idx) {
-            int ii, jj, kk, iGlobSW, iGlob = gdom.hpair(idx,1);
+            int ii, jj, kk, iGlobSW, ivg, iGlob = gdom.hpair(idx,1);
+            real ks;
             unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
             iGlobSW = jj*gdom.nxhc + ii;
+            ivg = gw.soilID(iGlob) * NVG;
+            ks = gw.vgTable(ivg);
             if (gdom.hpair(idx,2) == -3)  {
                 if (gbc.bctypeZM == SUB_BC_H_SWE)    {
                     gw.h(gdom.hpair(idx,0),1) = state.h(iGlobSW);
                     if (gdom.isRain == 1)    {
                         gdom.qrain(iGlobSW) = ss.rainRate(iGlobSW);
                         if (state.h(iGlobSW) <= 0.0)  {gw.wc(gdom.hpair(idx,0),1) = gw.wc(gdom.hpair(idx,0),1)/2.0;}
+                    }
+                    // assign BC type for the top layer
+                    // Surface Ponding
+                    if (gw.h(gdom.hpair(idx,0),1) > 0.0)    {
+                        real q_infilt = 2.0 * ks * (gw.h(gdom.hpair(idx,1),1) - gw.h(gdom.hpair(idx,0),1)) / gdom.dz(iGlob) - ks;
+                        if (-q_infilt * gdom.dt <= gw.h(gdom.hpair(idx,0),1))    {
+                            gbc.topBC(iGlobSW) = 1;
+                        }
+                        else    {gbc.topBC(iGlobSW) = 2;}
+                    }
+                    else {
+                        // Exfiltration
+                        if (gw.h(gdom.hpair(idx,1),1) > gw.h(gdom.hpair(idx,0),1) + 0.5*gdom.dz(iGlob)) {
+                            gbc.topBC(iGlobSW) = 1;
+                        }
+                        // No flow
+                        else {gbc.topBC(iGlobSW) = 0;}
                     }
                 }
             }
@@ -229,17 +249,13 @@ public:
                 if (gbc.bctypeZM == SUB_BC_NOFLOW)   {gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = 0.0;}
                 else if (gbc.bctypeZM == SUB_BC_H_CONST) {gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;}
                 else if (gbc.bctypeZM == SUB_BC_H_SWE)  {
-                    if (gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) > 0.0)   {
-                        // NOTE: This assumes rainfall is converted to surface ponding first
-                        gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;
-                    }
-                    else if (gw.h(iGlob,1) > 0.5*gdom.dz(iGlob))    {
-                        // NOTE : This represents exfiltration
-                        gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;
-                    }
-                    else {
+                    if (gbc.topBC(iGlobSW) == 0)    {
                         gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = 0.0;
                     }
+                    else {
+                        gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;
+                    }
+
                 }
                 else {
                     gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob-gdom.nxhc*gdom.nyhc,3));
@@ -330,20 +346,15 @@ public:
                         (gw.h(iGlob,1) - gw.h(iGlob-gdom.nxhc*gdom.nyhc,1)) / gdom.dz(iGlob) - gw.k(iGlob-gdom.nxhc*gdom.nyhc,2);
                     // Surface-subsurface exchange flux
                     if (gbc.bctypeZM == SUB_BC_H_SWE)    {
-                        q_max = gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) / gdom.dt;
-
-                        if (-gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) > q_max)  {gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) = -q_max;}
-
-                        // rainfall
-                        if (gdom.isRain == 1 & state.h(iGlobSW) <= 0.0)  {
-                            gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) = -gdom.qrain(iGlobSW);
-                            // over-saturation
-                            if (gdom.qrain(iGlobSW) > gw.k(iGlob-gdom.nxhc*gdom.nyhc,2))
-                            {gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) = -gw.k(iGlob-gdom.nxhc*gdom.nyhc,2);}
+                        if (gbc.topBC(iGlobSW) == 0)    {
+                            gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) = 0.0;
+                        }
+                        else if (gbc.topBC(iGlobSW) == 2)   {
+                            gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) = -gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) / gdom.dt;
                         }
                         // Get exchange flux
                         state.qss(iGlobSW) = gw.q(iGlob-gdom.nxhc*gdom.nyhc,2);
-                        if (state.qss(iGlobSW) < 0.0 & gw.wc(iGlob,1) >= wcs)   {state.qss(iGlobSW) = 0.0;}
+                        // if (state.qss(iGlobSW) < 0.0 & gw.wc(iGlob,1) >= wcs)   {state.qss(iGlobSW) = 0.0;}
                     }
                 }
             }
@@ -416,23 +427,15 @@ public:
             }
             if (kk == 0)    {
                 if (gbc.bctypeZM == SUB_BC_H_SWE)    {
-                    if (gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) > 0.0) {
-                        // ponding
-                        gw.coef(idom,6) = gw.coef(idom,6) * 2.0;
-                        gw.coef(idom,7) += gw.coef(idom,6) * gw.h(iGlob-gdom.nxhc*gdom.nyhc,1);
+                    if (gbc.topBC(iGlobSW) == 2)    {
+                        real q_infilt = gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) / gdom.dt;
+                        gw.coef(idom,7) -= gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / gdom.dz(iGlob);
+                        gw.coef(idom,7) += gdom.dt * q_infilt / gdom.dz(iGlob);
+                        gw.coef(idom,6) = 0.0;
                     }
                     else {
-                        // rainfall
-                        if (gdom.qrain(iGlobSW) > 0.0)  {
-                            gw.coef(idom,7) -= gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / gdom.dz(iGlob);
-                            gw.coef(idom,7) += gdom.dt * gdom.qrain(iGlobSW) / gdom.dz(iGlob);
-                            gw.coef(idom,6) = 0.0;
-
-                        }
-                        else {
-                            gw.coef(idom,6) = gw.coef(idom,6) * 2.0;
-                            gw.coef(idom,7) += gw.coef(idom,6) * gw.h(iGlob-gdom.nxhc*gdom.nyhc,1);
-                        }
+                        gw.coef(idom,6) = gw.coef(idom,6) * 2.0;
+                        gw.coef(idom,7) += gw.coef(idom,6) * gw.h(iGlob-gdom.nxhc*gdom.nyhc,1);
                     }
                 }
                 else if (gbc.bctypeZM == SUB_BC_Q_CONST)    {
@@ -452,6 +455,7 @@ public:
             }
 
             gw.coef(idom,0) -= (gw.coef(idom,1)+gw.coef(idom,2)+gw.coef(idom,3)+gw.coef(idom,4)+gw.coef(idom,5)+gw.coef(idom,6));
+
         });
         // Insert coefficients into Matrix A
         Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
@@ -521,7 +525,9 @@ public:
                     else if (gw.wc(iGlob+gdom.nxhc*gdom.nyhc,1) >= wcs & gw.k(iGlob,2) > 0.0)  {flag = 1;}
                     else if (gw.wc(iGlob-gdom.nxhc*gdom.nyhc,1) >= wcs & gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) > 0.0)  {flag = 1;}
 
-                    if (kk == 0 & gdom.isRain == 1)    {flag = 0;}
+                    // Use head form for the top layer
+                    // Not sure if this works for impermeable top boundary ?
+                    if (kk == 0)    {flag = 1;}
 
                     if (flag == 1)  {
                         real tmp = gw.wc(iGlob,1);
@@ -713,6 +719,8 @@ public:
     // /* --------------------------------------------------
     //     End integrating computation
     // -------------------------------------------------- */
+
+
 
 
 };

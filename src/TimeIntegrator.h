@@ -78,9 +78,9 @@ public :
 		hf = hold - dom.dt * (state.dsw0(ii)+state.dsw1(ii))/dom.dx;
 
         // for now, disable surface rainfall when subsurface is activated, ZhiLi20220414
-        // #if !SERGHEI_SUBSURFACE_MODEL
+        #if !SERGHEI_SUBSURFACE_MODEL
 		if(dom.isRain) {hf += ss.rainRate(ii)*dom.dt;}
-        // #endif
+        #endif
 
     if(ss.inf.model) {
 
@@ -146,13 +146,13 @@ public :
   }
 
 
-  inline void computeGwExchange(State &state , const Domain &dom) {
-    Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
-        int ii = dom.getIndex(iGlob);
-        state.h(ii) += state.qss(ii) * dom.dt;
-    	if(state.h(ii)<TOL12) {state.h(ii)=0.0;}
-    });
-  }
+    inline void computeGwExchange(State &state , const Domain &dom) {
+        Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int idom) {
+            int ii = dom.getIndex(idom);
+            state.h(ii) += state.qss(ii) * dom.dt;
+            if(state.h(ii)<TOL12) {state.h(ii)=0.0;}
+        });
+    }
 
 
     inline void computeDt(State &state, Domain &dom, FileIO &io) {
