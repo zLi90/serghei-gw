@@ -126,13 +126,20 @@ public:
             gdom.dz(iGlob) = gdom.thickH / gdom.nz_glob;
             gdom.z(iGlob) = state.z(iGlobSW) - (kk-haloc+0.5)*gdom.dz(iGlob);
         }
+        for (iGlob = 0; iGlob < gdom.ncells; iGlob++) {
+            unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
+            if (ii == 0)    {gdom.z(iGlob) = gdom.z(iGlob+1);}
+            else if (ii == gdom.nx+1) {gdom.z(iGlob) = gdom.z(iGlob-1);}
+            else if (jj == 0)   {gdom.z(iGlob) = gdom.z(iGlob+gdom.nxhc);}
+            else if (jj == gdom.ny+1) {gdom.z(iGlob) = gdom.z(iGlob-gdom.nxhc);}
+        }
         gmpi.mpi_sendrecv1(gdom.z, gdom, par);
         gmpi.mpi_sendrecv1(gdom.dz, gdom, par);
         // get angles for terrain-following domain
         for (iGlob = 0; iGlob < gdom.ncells; iGlob++)   {
             unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
             // x direction
-            if (ii >= gdom.nx)    {
+            if (ii == 0 || ii >= gdom.nx)    {
                 gdom.sinx(iGlob) = 0.0;
                 gdom.cosx(iGlob) = 1.0;
             }
@@ -144,7 +151,7 @@ public:
                 gdom.cosx(iGlob) = gdom.dx / dist;
             }
             // y direction
-            if (jj >= gdom.ny)    {
+            if (jj == 0 || jj >= gdom.ny)    {
                 gdom.siny(iGlob) = 0.0;
                 gdom.cosy(iGlob) = 1.0;
             }

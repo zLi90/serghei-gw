@@ -197,8 +197,13 @@ public:
                 if (gdom.nx == 1)   {gw.k(iGlob,0) = 0.0;}
                 else {gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));}
                 // K on minus face
-                if (par.px == 0 & gbc.bctypeXM == SUB_BC_NOFLOW)    {
-                    gw.k(iGlob-1,0) = 0.0;
+                if (par.px == 0)    {
+                    if (gbc.bctypeXM == SUB_BC_NOFLOW)  {gw.k(iGlob-1,0) = 0.0;}
+                    else    {
+                        // if (gw.h(iGlob-1,1) >= gdom.dz(iGlob)/2.0 || gw.h(iGlob,1) >= gdom.dz(iGlob)/2.0) {gw.k(iGlob-1,0) = ks;}
+                        // else {gw.k(iGlob-1,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob-1,3));}
+                        gw.k(iGlob-1,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob-1,3));
+                    }
                 }
                 else {
                     gw.k(iGlob-1,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob-1,3));
@@ -206,8 +211,13 @@ public:
             }
             else if (ii == gdom.nx-1)   {
                 gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));
-                if (par.px == par.nproc_x-1 & gbc.bctypeXP == SUB_BC_NOFLOW)    {
-                    gw.k(iGlob,0) = 0.0;
+                if (par.px == par.nproc_x-1)    {
+                    if (gbc.bctypeXP == SUB_BC_NOFLOW)  {gw.k(iGlob,0) = 0.0;}
+                    else    {
+                        // if (gw.h(iGlob+1,1) >= gdom.dz(iGlob)/2.0 || gw.h(iGlob,1) >= gdom.dz(iGlob)/2.0) {gw.k(iGlob,0) = ks;}
+                        // else {gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));}
+                        gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));
+                    }
                 }
                 gw.k(iGlob+1,0) = gw.k(iGlob,0);
             }
@@ -306,7 +316,9 @@ public:
                 if (par.px == par.nproc_x-1)    {
                     if (gbc.bctypeXP == SUB_BC_NOFLOW)   {gw.q(iGlob,0) = 0.0;}
                     else if (gbc.bctypeXP == SUB_BC_Q_CONST) {gw.q(iGlob,0) = gbc.qbcXP;}
-                    else    {gw.q(iGlob,0) = 2.0 * gw.q(iGlob,0);}
+                    else    {
+                        gw.q(iGlob,0) = 2.0 * gw.k(iGlob,0) * (gw.h(iGlob+1,1) - gw.h(iGlob,1)) / gdom.dx;
+                    }
                 }
             }
             // Get qy
@@ -329,7 +341,9 @@ public:
                 if (par.py == par.nproc_y-1)    {
                     if (gbc.bctypeYP == SUB_BC_NOFLOW)   {gw.q(iGlob,1) = 0.0;}
                     else if (gbc.bctypeYP == SUB_BC_Q_CONST) {gw.q(iGlob,1) = gbc.qbcYP;}
-                    else    {gw.q(iGlob,1) = 2.0 * gw.q(iGlob,1);}
+                    else    {
+                        gw.q(iGlob,1) = 2.0 * gw.k(iGlob,1) * (gw.h(iGlob+gdom.nxhc,1) - gw.h(iGlob,1)) / gdom.dy;
+                    }
                 }
             }
             // Get qz
@@ -411,19 +425,19 @@ public:
             // As of 202302, lateral bc must be Dirichlet type
             if (ii == 0)    {
                 gw.coef(idom,2) = gw.coef(idom,2) * 2.0;
-                gw.coef(idom,7) += gw.coef(idom,2) * gw.h(iGlob-1,1);
+                gw.coef(idom,7) -= gw.coef(idom,2) * gw.h(iGlob-1,1);
             }
             else if (ii == gdom.nx-1)   {
                 gw.coef(idom,1) = gw.coef(idom,1) * 2.0;
-                gw.coef(idom,7) += gw.coef(idom,1) * gw.h(iGlob+1,1);
+                gw.coef(idom,7) -= gw.coef(idom,1) * gw.h(iGlob+1,1);
             }
             if (jj == 0)    {
                 gw.coef(idom,4) = gw.coef(idom,4) * 2.0;
-                gw.coef(idom,7) += gw.coef(idom,4) * gw.h(iGlob-gdom.nxhc,1);
+                gw.coef(idom,7) -= gw.coef(idom,4) * gw.h(iGlob-gdom.nxhc,1);
             }
             else if (jj == gdom.ny-1)   {
                 gw.coef(idom,3) = gw.coef(idom,3) * 2.0;
-                gw.coef(idom,7) += gw.coef(idom,3) * gw.h(iGlob+gdom.nxhc,1);
+                gw.coef(idom,7) -= gw.coef(idom,3) * gw.h(iGlob+gdom.nxhc,1);
             }
             if (kk == 0)    {
                 if (gbc.bctypeZM == SUB_BC_H_SWE)    {
@@ -455,8 +469,8 @@ public:
             }
 
             gw.coef(idom,0) -= (gw.coef(idom,1)+gw.coef(idom,2)+gw.coef(idom,3)+gw.coef(idom,4)+gw.coef(idom,5)+gw.coef(idom,6));
-
         });
+        // printf(" \n\n");
         // Insert coefficients into Matrix A
         Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, irow = A.ptr(idom);
@@ -527,7 +541,9 @@ public:
 
                     // Use head form for the top layer
                     // Not sure if this works for impermeable top boundary ?
-                    if (kk == 0)    {flag = 1;}
+                    if (ii == 0 && gw.h(iGlob-1,0) >= gdom.dz(iGlob)/2.0)  {flag = 1;}
+                    if (ii == gdom.nx-1 && gw.h(iGlob+1,0) >= gdom.dz(iGlob)/2.0)  {flag = 1;}
+                    if (kk == 0)  {flag = 1;}
 
                     if (flag == 1)  {
                         real tmp = gw.wc(iGlob,1);
