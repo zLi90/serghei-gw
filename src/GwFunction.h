@@ -27,10 +27,9 @@ public:
         real dt_tmp;
         enforce_swe_bc(gw, state, gdom, gbc, ss);
 
-        face_conductivity(gw, gdom, gbc, par);
-        gmpi.mpi_sendrecv(gw.k, gdom, par);
+        face_conductivity(gw, gdom, gbc, gmpi, par);
 
-        linear_system(gw, gdom, gbc, A);
+        linear_system(gw, gdom, gbc, A, par);
         iter = gsolver.cg(A, gdom);
         Kokkos::parallel_for(gdom.nCellDomain, KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, iGlob;
@@ -39,16 +38,16 @@ public:
             gw.h(iGlob,1) = A.x(idom);
         });
         gmpi.mpi_sendrecv(gw.h, gdom, par);
+        enforce_lateral_bc(gw, gdom, gbc, par);
 
-        face_conductivity(gw, gdom, gbc, par);
-        gmpi.mpi_sendrecv(gw.k, gdom, par);
+        face_conductivity(gw, gdom, gbc, gmpi, par);
 
-        face_flux(gw, state, gdom, gbc, par);
-        gmpi.mpi_sendrecv(gw.q, gdom, par);
+        face_flux(gw, state, gdom, gbc, gmpi, par);
 
         update_wc(gw, state, gdom);
         gmpi.mpi_sendrecv(gw.h, gdom, par);
         gmpi.mpi_sendrecv(gw.wc, gdom, par);
+        enforce_lateral_bc(gw, gdom, gbc, par);
 
         dt_waco(gw, gdom);
         dt_tmp = gdom.dt;
@@ -69,12 +68,11 @@ public:
         int iter, iter_cg, iter_max = 100, ierr=1;
         real eps_diff = 1.0, eps_tmp, eps_old = 1.0, eps = 1.0, eps_min = 5e-6, dt_tmp;
         enforce_swe_bc(gw, state, gdom, gbc, ss);
-        face_conductivity(gw, gdom, gbc, par);
-        gmpi.mpi_sendrecv(gw.k, gdom, par);
+        face_conductivity(gw, gdom, gbc, gmpi, par);
 
         iter = 0;
         while (iter < iter_max && eps_diff/eps_old > eps_min && eps > eps_min) {
-            linear_system(gw, gdom, gbc, A);
+            linear_system(gw, gdom, gbc, A, par);
             iter_cg = gsolver.cg(A, gdom);
             Kokkos::parallel_for(gdom.nCellDomain, KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob;
@@ -84,11 +82,11 @@ public:
                 gw.h(iGlob,1) = A.x(idom);
             });
             gmpi.mpi_sendrecv(gw.h, gdom, par);
+            enforce_lateral_bc(gw, gdom, gbc, par);
 
-            face_conductivity(gw, gdom, gbc, par);
-            gmpi.mpi_sendrecv(gw.k, gdom, par);
-            face_flux(gw, state, gdom, gbc, par);
-            gmpi.mpi_sendrecv(gw.q, gdom, par);
+            face_conductivity(gw, gdom, gbc, gmpi, par);
+
+            face_flux(gw, state, gdom, gbc, gmpi, par);
 
             eps_old = eps;
             eps = get_eps(gw, gdom);
@@ -152,6 +150,41 @@ public:
             }
         });
 	}
+
+    inline void enforce_lateral_bc(GwState &gw, GwDomain &gdom, GwBC &gbc, Parallel &par)    {
+        if (gbc.bctypeXM != SUB_BC_NOFLOW || gbc.bctypeXP != SUB_BC_NOFLOW ||
+            gbc.bctypeYM != SUB_BC_NOFLOW || gbc.bctypeYP != SUB_BC_NOFLOW ) {
+            Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+                int ii, jj, kk, ii2, ii3, iGlob, ivg;
+                real wcs, wcr, alpha, n;
+                unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+                iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+                ii2 = kk*gdom.ny_glob + (par.j_beg+jj);
+                ii3 = kk*gdom.nx_glob + (par.i_beg+ii);
+                ivg = gw.soilID(iGlob) * gw.nVGparam;
+                wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
+                n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
+                if (ii == 0 && par.px == 0 && gbc.bctypeXM != SUB_BC_NOFLOW)    {
+                    gw.h(iGlob-1,1) = gw.hbcX(ii2,0);
+                    // printf(" -%d,%d,%d- : h=%f, alpha=%f, n=%f, wcs=%f, wcr=%f\n",ii,jj,kk,gw.h(iGlob-1,1),alpha,n,wcs,wcr);
+                    // gw.wc(iGlob-1,1) = h2wc(gw.h(iGlob-1,1), alpha, n, wcs, wcr);
+                }
+                else if (ii == gdom.nx-1 && par.px == par.nproc_x-1 && gbc.bctypeXP != SUB_BC_NOFLOW)    {
+                    gw.h(iGlob+1,1) = gw.hbcX(ii2,1);
+                    // gw.wc(iGlob+1,1) = h2wc(gw.h(iGlob+1,1), alpha, n, wcs, wcr);
+                }
+                if (jj == 0 && par.py == 0 && gbc.bctypeYM != SUB_BC_NOFLOW)    {
+                    gw.h(iGlob-gdom.nxhc,1) = gw.hbcY(ii3,0);
+                    // gw.wc(iGlob-gdom.nxhc,1) = h2wc(gw.h(iGlob-gdom.nxhc,1), alpha, n, wcs, wcr);
+                }
+                else if (jj == gdom.ny-1 && par.py == par.nproc_y-1 && gbc.bctypeYP != SUB_BC_NOFLOW)    {
+                    gw.h(iGlob+gdom.nxhc,1) = gw.hbcY(ii3,1);
+                    // gw.wc(iGlob+gdom.nxhc,1) = h2wc(gw.h(iGlob+gdom.nxhc,1), alpha, n, wcs, wcr);
+                }
+            });
+        }
+    }
+
     //
     // /* --------------------------------------------------
     //     End of pressure BC block
@@ -161,7 +194,7 @@ public:
     /* --------------------------------------------------
         Get face conductivity
     -------------------------------------------------- */
-    inline void face_conductivity(GwState &gw, GwDomain &gdom, GwBC &gbc, Parallel &par)	{
+    inline void face_conductivity(GwState &gw, GwDomain &gdom, GwBC &gbc, GwMPI &gmpi, Parallel &par)	{
         // Get relatively permeability at cell centers
         Kokkos::parallel_for( gdom.ncells , KOKKOS_LAMBDA(int iGlob) {
             int ii, jj, kk, ivg;
@@ -184,6 +217,20 @@ public:
         });
         // Get K on interior cell faces
         Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+            int ii, jj, kk, iGlob, ivg;
+            real ks;
+            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+            ivg = gw.soilID(iGlob) * NVG;
+            ks = gw.vgTable(ivg);
+            gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));
+            gw.k(iGlob,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc,3));
+            gw.k(iGlob,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc*gdom.nyhc,3));
+        });
+        // MPI exchange of K
+        gmpi.mpi_sendrecv(gw.k, gdom, par);
+        // Apply boundary conditions
+        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, iGlob, iGlobSW, ivg;
             real ks, ksx, ksy;
             unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
@@ -191,70 +238,35 @@ public:
             iGlobSW = (hc+jj)*gdom.nxhc + ii + hc;
             ivg = gw.soilID(iGlob) * NVG;
             ks = gw.vgTable(ivg);
-            // Get Kx
-            if (ii == 0)    {
-                // K on plus face
-                if (gdom.nx == 1)   {gw.k(iGlob,0) = 0.0;}
-                else {gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));}
-                // K on minus face
-                if (par.px == 0)    {
-                    if (gbc.bctypeXM == SUB_BC_NOFLOW)  {gw.k(iGlob-1,0) = 0.0;}
-                    else    {
-                        // if (gw.h(iGlob-1,1) >= gdom.dz(iGlob)/2.0 || gw.h(iGlob,1) >= gdom.dz(iGlob)/2.0) {gw.k(iGlob-1,0) = ks;}
-                        // else {gw.k(iGlob-1,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob-1,3));}
-                        gw.k(iGlob-1,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob-1,3));
-                    }
-                }
+            // Kx boundary
+            if (ii == 0 && par.px == 0) {
+                if (gbc.bctypeXM == SUB_BC_NOFLOW)  {gw.k(iGlob-1,0) = 0.0;}
                 else {
                     gw.k(iGlob-1,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob-1,3));
                 }
             }
-            else if (ii == gdom.nx-1)   {
-                gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));
-                if (par.px == par.nproc_x-1)    {
-                    if (gbc.bctypeXP == SUB_BC_NOFLOW)  {gw.k(iGlob,0) = 0.0;}
-                    else    {
-                        // if (gw.h(iGlob+1,1) >= gdom.dz(iGlob)/2.0 || gw.h(iGlob,1) >= gdom.dz(iGlob)/2.0) {gw.k(iGlob,0) = ks;}
-                        // else {gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));}
-                        gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));
-                    }
+            else if (ii == gdom.nx-1 && par.px == par.nproc_x-1)    {
+                if (gbc.bctypeXP == SUB_BC_NOFLOW)  {gw.k(iGlob,0) = 0.0;}
+                else {
+                    gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));
                 }
-                gw.k(iGlob+1,0) = gw.k(iGlob,0);
             }
-            else {
-                gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));
-                // Check if the cell face is impermeable
-                ivg = gw.soilID(iGlob+1) * NVG;       ksx = gw.vgTable(ivg);
-                if (ksx <= 0.0) {gw.k(iGlob,0) = 0.0;}
-            }
-            // Get Ky
-            if (jj == 0)    {
-                // K on plus face
-                if (gdom.ny == 1)   {gw.k(iGlob,1) = 0.0;}
-                else {gw.k(iGlob,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc,3));}
-                // K on minus face
-                if (par.py == 0 & gbc.bctypeYM == SUB_BC_NOFLOW)    {
-                    gw.k(iGlob-gdom.nxhc,1) = 0.0;
-                }
+            if (gdom.nx == 1)  {gw.k(iGlob-1,0) = 0.0; gw.k(iGlob,0) = 0.0;}
+            // Ky boundary
+            if (jj == 0 && par.py == 0) {
+                if (gbc.bctypeYM == SUB_BC_NOFLOW)  {gw.k(iGlob-gdom.nxhc,1) = 0.0;}
                 else {
                     gw.k(iGlob-gdom.nxhc,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob-gdom.nxhc,3));
                 }
             }
-            else if (jj == gdom.ny-1)   {
-                gw.k(iGlob,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc,3));
-                if (par.py == par.nproc_y-1 & gbc.bctypeYP == SUB_BC_NOFLOW)    {
-                    gw.k(iGlob,1) = 0.0;
+            else if (jj == gdom.ny-1 && par.py == par.nproc_y-1)    {
+                if (gbc.bctypeYP == SUB_BC_NOFLOW)  {gw.k(iGlob,1) = 0.0;}
+                else {
+                    gw.k(iGlob,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc,3));
                 }
-                gw.k(iGlob+gdom.nxhc,1) = gw.k(iGlob,1);
             }
-            else {
-                gw.k(iGlob,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc,3));
-                // Check if the cell face is impermeable
-                ivg = gw.soilID(iGlob+gdom.nxhc) * NVG;  ksy = gw.vgTable(ivg);
-                if (ksx <= 0.0) {gw.k(iGlob,1) = 0.0;}
-            }
-            // Get Kz
-            gw.k(iGlob,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc*gdom.nyhc,3));
+            if (gdom.ny == 1)  {gw.k(iGlob-gdom.nxhc,1) = 0.0; gw.k(iGlob,1) = 0.0;}
+            // Kz boundary
             if (kk == 0)    {
                 if (gbc.bctypeZM == SUB_BC_NOFLOW)   {gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = 0.0;}
                 else if (gbc.bctypeZM == SUB_BC_H_CONST) {gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;}
@@ -265,15 +277,15 @@ public:
                     else {
                         gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = ks;
                     }
-
                 }
                 else {
                     gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob-gdom.nxhc*gdom.nyhc,3));
                 }
             }
             else if (kk == gdom.nz-1)   {
-                if (gbc.bctypeZP == SUB_BC_NOFLOW)   {gw.k(iGlob,2) = 0.0;}
-                gw.k(iGlob+gdom.nxhc*gdom.nyhc,2) = gw.k(iGlob,2);
+                // For now only support impervious bottom
+                gw.k(iGlob,2) = 0.0;
+                gw.k(iGlob+gdom.nxhc*gdom.nyhc,2) = 0.0;
             }
         });
 	}
@@ -288,7 +300,21 @@ public:
     // /* --------------------------------------------------
     //     Get face flux
     // -------------------------------------------------- */
-    inline void face_flux(GwState &gw, State &state, GwDomain &gdom, GwBC &gbc, Parallel &par)	{
+    inline void face_flux(GwState &gw, State &state, GwDomain &gdom, GwBC &gbc, GwMPI &gmpi, Parallel &par)	{
+        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+            int ii, jj, kk, iGlob;
+            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+            gw.q(iGlob,0) = gw.k(iGlob,0) * gdom.cosx(iGlob) * (gw.h(iGlob+1,1) - gw.h(iGlob,1)) / gdom.dx
+                + gw.k(iGlob,0) * gdom.sinx(iGlob);
+            gw.q(iGlob,1) = gw.k(iGlob,1) * gdom.cosy(iGlob) * (gw.h(iGlob+gdom.nxhc,1) - gw.h(iGlob,1)) / gdom.dy
+                + gw.k(iGlob,1) * gdom.siny(iGlob);
+            gw.q(iGlob,2) = gw.k(iGlob,2) * (gw.h(iGlob+gdom.nxhc*gdom.nyhc,1) - gw.h(iGlob,1)) / gdom.dz(iGlob)
+                - gw.k(iGlob,2);
+        });
+        // MPI exchange of flux
+        gmpi.mpi_sendrecv(gw.q, gdom, par);
+        // Apply boundary conditions
         Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, ivg, iGlob, iGlobSW;
             real q_max, wcs;
@@ -297,58 +323,37 @@ public:
             ivg = gw.soilID(iGlob) * NVG;
             wcs = gw.vgTable(ivg+2);
             // Get qx
-            gw.q(iGlob,0) = gw.k(iGlob,0) * gdom.cosx(iGlob) * (gw.h(iGlob+1,1) - gw.h(iGlob,1)) / gdom.dx
-                + gw.k(iGlob,0) * gdom.sinx(iGlob);
-            if (ii == 0)    {
-                if (par.px == 0)    {
-                    if (gbc.bctypeXM == SUB_BC_NOFLOW)   {gw.q(iGlob-1,0) = 0.0;}
-                    else if (gbc.bctypeXM == SUB_BC_Q_CONST) {gw.q(iGlob-1,0) = gbc.qbcXM;}
-                    else    {
-                        gw.q(iGlob-1,0) = 2.0 * gw.k(iGlob-1,0) * (gw.h(iGlob,1) - gw.h(iGlob-1,1)) / gdom.dx;
-                    }
-                }
-                else {
-                    gw.q(iGlob-1,0) = gw.k(iGlob-1,0) * gdom.cosx(iGlob-1) * (gw.h(iGlob,1) - gw.h(iGlob-1,1)) / gdom.dx
-                        + gw.k(iGlob-1,0) * gdom.sinx(iGlob-1);
+            if (ii == 0 && par.px == 0) {
+                if (gbc.bctypeXM == SUB_BC_NOFLOW)   {gw.q(iGlob-1,0) = 0.0;}
+                else if (gbc.bctypeXM == SUB_BC_Q_CONST) {gw.q(iGlob-1,0) = gbc.qbcXM;}
+                else    {
+                    gw.q(iGlob-1,0) = 2.0 * gw.k(iGlob-1,0) * (gw.h(iGlob,1) - gw.h(iGlob-1,1)) / gdom.dx;
                 }
             }
-            else if (ii == gdom.nx-1)   {
-                if (par.px == par.nproc_x-1)    {
-                    if (gbc.bctypeXP == SUB_BC_NOFLOW)   {gw.q(iGlob,0) = 0.0;}
-                    else if (gbc.bctypeXP == SUB_BC_Q_CONST) {gw.q(iGlob,0) = gbc.qbcXP;}
-                    else    {
-                        gw.q(iGlob,0) = 2.0 * gw.k(iGlob,0) * (gw.h(iGlob+1,1) - gw.h(iGlob,1)) / gdom.dx;
-                    }
+            else if (ii == gdom.nx-1 && par.px == par.nproc_x-1)    {
+                if (gbc.bctypeXP == SUB_BC_NOFLOW)   {gw.q(iGlob,0) = 0.0;}
+                else if (gbc.bctypeXP == SUB_BC_Q_CONST) {gw.q(iGlob,0) = gbc.qbcXP;}
+                else    {
+                    gw.q(iGlob,0) = 2.0 * gw.k(iGlob,0) * (gw.h(iGlob+1,1) - gw.h(iGlob,1)) / gdom.dx;
                 }
             }
             // Get qy
-            gw.q(iGlob,1) = gw.k(iGlob,1) * gdom.cosy(iGlob) * (gw.h(iGlob+gdom.nxhc,1) - gw.h(iGlob,1)) / gdom.dy
-                + gw.k(iGlob,1) * gdom.siny(iGlob);
-            if (jj == 0)    {
-                if (par.py == 0)    {
-                    if (gbc.bctypeYM == SUB_BC_NOFLOW)   {gw.q(iGlob-gdom.nxhc,1) = 0.0;}
-                    else if (gbc.bctypeYM == SUB_BC_Q_CONST) {gw.q(iGlob-gdom.nxhc,1) = gbc.qbcYM;}
-                    else    {
-                        gw.q(iGlob-gdom.nxhc,1) = 2.0 * gw.k(iGlob-gdom.nxhc,1) * (gw.h(iGlob,1) - gw.h(iGlob-gdom.nxhc,1)) / gdom.dy;
-                    }
-                }
-                else {
-                    gw.q(iGlob-gdom.nxhc,1) = gw.k(iGlob-gdom.nxhc,1) * gdom.cosy(iGlob-gdom.nxhc) *
-                        (gw.h(iGlob,1) - gw.h(iGlob-gdom.nxhc,1)) / gdom.dy + gw.k(iGlob-gdom.nxhc,1) * gdom.siny(iGlob-gdom.nxhc);
+            if (jj == 0 && par.py == 0) {
+                if (gbc.bctypeYM == SUB_BC_NOFLOW)   {gw.q(iGlob-gdom.nxhc,1) = 0.0;}
+                else if (gbc.bctypeYM == SUB_BC_Q_CONST) {gw.q(iGlob-gdom.nxhc,1) = gbc.qbcYM;}
+                else    {
+                    gw.q(iGlob-gdom.nxhc,1) = 2.0 * gw.k(iGlob-gdom.nxhc,1) * (gw.h(iGlob,1) - gw.h(iGlob-gdom.nxhc,1)) / gdom.dy;
                 }
             }
-            else if (jj == gdom.ny-1)   {
-                if (par.py == par.nproc_y-1)    {
-                    if (gbc.bctypeYP == SUB_BC_NOFLOW)   {gw.q(iGlob,1) = 0.0;}
-                    else if (gbc.bctypeYP == SUB_BC_Q_CONST) {gw.q(iGlob,1) = gbc.qbcYP;}
-                    else    {
-                        gw.q(iGlob,1) = 2.0 * gw.k(iGlob,1) * (gw.h(iGlob+gdom.nxhc,1) - gw.h(iGlob,1)) / gdom.dy;
-                    }
+            else if (jj == gdom.ny-1 && par.py == par.nproc_y-1)    {
+                if (gbc.bctypeYP == SUB_BC_NOFLOW)   {gw.q(iGlob,1) = 0.0;}
+                else if (gbc.bctypeYP == SUB_BC_Q_CONST) {gw.q(iGlob,1) = gbc.qbcYP;}
+                else    {
+                    gw.q(iGlob,1) = 2.0 * gw.k(iGlob,1) * (gw.h(iGlob+gdom.nxhc,1) - gw.h(iGlob,1)) / gdom.dy;
                 }
             }
             // Get qz
             iGlobSW = packIndices(gdom.nyhc, gdom.nxhc, jj+hc, ii+hc);
-            gw.q(iGlob,2) = gw.k(iGlob,2) * (gw.h(iGlob+gdom.nxhc*gdom.nyhc,1) - gw.h(iGlob,1)) / gdom.dz(iGlob) - gw.k(iGlob,2);
             if (kk == 0)    {
                 if (gbc.bctypeZM == SUB_BC_NOFLOW)   {gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) = 0.0;}
                 else if (gbc.bctypeZM == SUB_BC_Q_CONST) {
@@ -389,7 +394,7 @@ public:
     // /* --------------------------------------------------
     //     Get matrix coefficients
     // -------------------------------------------------- */
-    inline void linear_system(GwState &gw, GwDomain &gdom, GwBC &gbc, GwMatrix &A)	{
+    inline void linear_system(GwState &gw, GwDomain &gdom, GwBC &gbc, GwMatrix &A, Parallel &par)	{
         // Calculate matrix coefficients
         Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, ivg, iGlob, iGlobSW;
@@ -424,19 +429,19 @@ public:
             // Adjust coefficients on boundaries
             // As of 202302, lateral bc must be Dirichlet type
             if (ii == 0)    {
-                gw.coef(idom,2) = gw.coef(idom,2) * 2.0;
+                if (par.px == 0)    {gw.coef(idom,2) = gw.coef(idom,2) * 2.0;}
                 gw.coef(idom,7) -= gw.coef(idom,2) * gw.h(iGlob-1,1);
             }
             else if (ii == gdom.nx-1)   {
-                gw.coef(idom,1) = gw.coef(idom,1) * 2.0;
+                if (par.px == par.nproc_x-1)    {gw.coef(idom,1) = gw.coef(idom,1) * 2.0;}
                 gw.coef(idom,7) -= gw.coef(idom,1) * gw.h(iGlob+1,1);
             }
             if (jj == 0)    {
-                gw.coef(idom,4) = gw.coef(idom,4) * 2.0;
+                if (par.py == 0)    {gw.coef(idom,4) = gw.coef(idom,4) * 2.0;}
                 gw.coef(idom,7) -= gw.coef(idom,4) * gw.h(iGlob-gdom.nxhc,1);
             }
             else if (jj == gdom.ny-1)   {
-                gw.coef(idom,3) = gw.coef(idom,3) * 2.0;
+                if (par.py == par.nproc_y-1)    {gw.coef(idom,3) = gw.coef(idom,3) * 2.0;}
                 gw.coef(idom,7) -= gw.coef(idom,3) * gw.h(iGlob+gdom.nxhc,1);
             }
             if (kk == 0)    {

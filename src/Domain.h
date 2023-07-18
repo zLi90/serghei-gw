@@ -7,8 +7,8 @@
 #include "geometry.h"
 #include "Indexing.h"
 
-inline int getHaloExtension(const int i, const int j, const int nx){
-  return( (haloc+j)*(nx+2*haloc)+haloc+i ); //index for the extended domain (including halo cells)
+inline _HOSTDEV int getHaloExtension(const int i, const int j, const int nx){
+  return( (hc+j)*(nx+2*hc)+hc+i ); //index for the extended domain (including halo cells)
 };
 
 class Domain {
@@ -71,10 +71,10 @@ public:
     return(iGlob);
   }
 
-  inline int getIndex(int iGlob) const{
+  inline _HOSTDEV int getIndex(int iGlob) const{
     int i,j;
     unpackIndices(iGlob,ny,nx,j,i);
-    int ii=(haloc+j)*(nx+2*haloc)+haloc+i; //index for the extended domain (including halo cells)
+    int ii=(hc+j)*(nx+2*hc)+hc+i; //index for the extended domain (including halo cells)
     return(ii);
   };
 
@@ -98,7 +98,7 @@ public:
     // physical cells onlys
     nCellDomain = nx*ny; // WARNING UCM
     // physical cells + halo cells
-		ncells=(ny+2*haloc)*(nx+2*haloc);
+		ncells=(ny+2*hc)*(nx+2*hc);
     domainArea();
   }
 
@@ -180,11 +180,11 @@ public:
 
 };
 
-inline int getIndex(const int iGlob, Domain const &dom){
+inline _HOSTDEV int getIndex(const int iGlob, Domain const &dom){
   int i,j;
   unpackIndices(iGlob,dom.ny,dom.nx,j,i);
   return ( getHaloExtension(i,j,dom.nx));
-//  int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i; //index for the extended domain (including halo cells)
+//  int ii=(hc+j)*(dom.nx+2*hc)+hc+i; //index for the extended domain (including halo cells)
 //  return(ii);
 };
 

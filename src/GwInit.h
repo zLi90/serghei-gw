@@ -201,6 +201,35 @@ public:
         });
         gmpi.mpi_sendrecv(gw.h, gdom, par);
         gmpi.mpi_sendrecv(gw.wc, gdom, par);
+        // Enforce boundary condition on lateral boundaries
+        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+            int ii, jj, kk, ii2, ii3, iGlob, ivg;
+            real n, alpha, wcr, wcs;
+            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+            ii2 = kk*gdom.ny_glob + (par.j_beg+jj);
+            ii3 = kk*gdom.nx_glob + (par.i_beg+ii);
+            ivg = gw.soilID(iGlob) * gw.nVGparam;
+            wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
+            n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
+            if (ii == 0 && par.px == 0 && gbc.bctypeXM != SUB_BC_NOFLOW)    {
+                gw.h(iGlob-1,1) = gw.hbcX(ii2,0);
+                gw.wc(iGlob-1,1) = h2wc(gw.h(iGlob-1,1), alpha, n, wcs, wcr);
+            }
+            else if (ii == gdom.nx-1 && par.px == par.nproc_x-1 && gbc.bctypeXP != SUB_BC_NOFLOW)    {
+                gw.h(iGlob+1,1) = gw.hbcX(ii2,1);
+                gw.wc(iGlob+1,1) = h2wc(gw.h(iGlob+1,1), alpha, n, wcs, wcr);
+            }
+            if (jj == 0 && par.py == 0 && gbc.bctypeYM != SUB_BC_NOFLOW)    {
+                gw.h(iGlob-gdom.nxhc,1) = gw.hbcY(ii3,0);
+                gw.wc(iGlob-gdom.nxhc,1) = h2wc(gw.h(iGlob-gdom.nxhc,1), alpha, n, wcs, wcr);
+            }
+            else if (jj == gdom.ny-1 && par.py == par.nproc_y-1 && gbc.bctypeYP != SUB_BC_NOFLOW)    {
+                gw.h(iGlob+gdom.nxhc,1) = gw.hbcY(ii3,1);
+                gw.wc(iGlob+gdom.nxhc,1) = h2wc(gw.h(iGlob+gdom.nxhc,1), alpha, n, wcs, wcr);
+            }
+        });
+
         // rainfall
         if (dom.isRain) {
             Kokkos::parallel_for( dom.ncells , KOKKOS_LAMBDA(int idom) {
@@ -595,6 +624,14 @@ public:
             tempStr = "hbcxp.input";
             readGwBCFileX(tempStr, inFolder, gw, gdom, par, 1);
         }
+        if (gbc.bctypeYM == 4)  {
+            tempStr = "hbcym.input";
+            readGwBCFileY(tempStr, inFolder, gw, gdom, par, -1);
+        }
+        if (gbc.bctypeYP == 4)  {
+            tempStr = "hbcyp.input";
+            readGwBCFileY(tempStr, inFolder, gw, gdom, par, 1);
+        }
         if (gbc.bctypeZM == 4)  {
             tempStr = "hbczm.input";
             readGwBCFileZ(tempStr, inFolder, gw, gdom, par);
@@ -825,6 +862,8 @@ public:
                     gw.wc(iGlob,1) = h2wc(gw.h(iGlob,1), alpha, n, wcs, wcr);
                     gw.h(iGlob,0) = gw.h(iGlob,1);
                     gw.wc(iGlob,0) = gw.wc(iGlob,1);
+
+                    gw.hbcX(ii2,1) = tmpVar(ii2);
                 }
             }
         }
@@ -846,11 +885,106 @@ public:
                     gw.wc(iGlob,1) = h2wc(gw.h(iGlob,1), alpha, n, wcs, wcr);
                     gw.h(iGlob,0) = gw.h(iGlob,1);
                     gw.wc(iGlob,0) = gw.wc(iGlob,1);
+
+                    gw.hbcX(ii2,0) = tmpVar(ii2);
                 }
             }
         }
         else    {
     	 	if (par.masterproc) {std::cerr<< RERROR "Error reading head BC (hbcx) file. File name might be wrong.\n"; return 0;}
+        }
+        if (par.masterproc)   {std::cerr<<GOK "Subsurface head BC set\n";}
+        return 1;
+    }
+
+    int readGwBCFileY(std::string fNameIn, std::string fDirIn, GwState &gw, GwDomain &gdom, Parallel &par, int dir)   {
+        std::string fname = fDirIn + fNameIn;
+        std::ifstream fInStream(fname);
+        std::string line;
+        int tnz, tnx, iGlob, idx, ivg, ii, jj, kk, ii2;
+        real tmp, wcs, wcr, n, alpha ;
+        int ndata = gdom.nz_glob*gdom.nx_glob;
+        realArr tmpVar = realArr("var", ndata);
+        std::string str;
+     	if (fInStream.is_open()) {
+            std::getline(fInStream,str,' ');
+            std::getline(fInStream,str);
+            std::stringstream(str) >> tnx;
+            std::getline(fInStream,str,' ');
+            std::getline(fInStream,str);
+            std::stringstream(str) >> tnz;
+     		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
+     		if (gdom.nx_glob !=tnx || gdom.nz_glob !=tnz) {
+                if (par.masterproc) {
+                    std::cerr<< RERROR "BC (hbcy) file parameters don't match DEM parameters. Unable to continue\n";
+                    if (par.masterproc) {
+                        std::cerr << BDASH "nx_glob: " 	<< gdom.nx_glob 	<< tnx <<"\n";
+                        std::cerr << BDASH "nz_glob: "<< gdom.nz_glob 	<< tnz << "\n";
+                    }
+                    return 0;
+                }
+            }
+            // read and store data into a temporary view
+            for (int ii = 0; ii < ndata; ii++)  {
+                if (!fInStream.fail() && !fInStream.eof()) {
+                    fInStream >> tmp;
+                    tmpVar(ii)=tmp;
+                }
+                else {
+                    if (par.masterproc) {std::cerr<< RERROR "Error reading BC (hbcy) file. Not enough data\n";  return 0;}
+                }
+            }
+            fInStream.close();
+        }
+        // Copy data into head or water content
+        if (!strcmp(fNameIn.c_str(), "hbcyp.input") && dir == 1) {
+            for (idx = 0; idx < gdom.nCellDomain; idx++)    {
+                unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+                if (jj == gdom.ny-1)    {
+                    // get global index
+                    iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+                    // get soil parameters
+                    ivg = gw.soilID(iGlob) * gw.nVGparam;
+                    wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
+                    n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
+                    // get index of the halo cell
+                    iGlob += gdom.nxhc;
+                    // get head and water content
+                    ii2 = kk*gdom.nx_glob + (par.i_beg+ii);
+                    gw.h(iGlob,1) = tmpVar(ii2);
+                    gw.wc(iGlob,1) = h2wc(gw.h(iGlob,1), alpha, n, wcs, wcr);
+                    gw.h(iGlob,0) = gw.h(iGlob,1);
+                    gw.wc(iGlob,0) = gw.wc(iGlob,1);
+
+                    gw.hbcY(ii2,1) = tmpVar(ii2);
+                }
+            }
+        }
+        else if (!strcmp(fNameIn.c_str(), "hbcym.input") && dir == -1)  {
+            for (idx = 0; idx < gdom.nCellDomain; idx++)    {
+                unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+                if (jj == 0)    {
+                    // get global index
+                    iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+                    // get soil parameters
+                    ivg = gw.soilID(iGlob) * gw.nVGparam;
+                    wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
+                    n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
+                    // get index of the halo cell
+                    iGlob -= gdom.nxhc;
+                    // get head and water content
+                    ii2 = kk*gdom.nx_glob + (par.i_beg+ii);
+                    gw.h(iGlob,1) = tmpVar(ii2);
+                    gw.wc(iGlob,1) = h2wc(gw.h(iGlob,1), alpha, n, wcs, wcr);
+                    gw.h(iGlob,0) = gw.h(iGlob,1);
+                    gw.wc(iGlob,0) = gw.wc(iGlob,1);
+
+                    gw.hbcY(ii2,0) = tmpVar(ii2);
+                }
+            }
+        }
+        else    {
+    	 	if (par.masterproc) {std::cerr<< RERROR "Error reading head BC (hbcy) file. File name might be wrong.\n"; return 0;}
         }
         if (par.masterproc)   {std::cerr<<GOK "Subsurface head BC set\n";}
         return 1;
