@@ -158,7 +158,7 @@ public:
                 int ii, jj, kk, ii2, ii3, iGlob, ivg;
                 real wcs, wcr, alpha, n;
                 unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
-                iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+                iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 ii2 = kk*gdom.ny_glob + (par.j_beg+jj);
                 ii3 = kk*gdom.nx_glob + (par.i_beg+ii);
                 ivg = gw.soilID(iGlob) * gw.nVGparam;
@@ -166,20 +166,19 @@ public:
                 n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
                 if (ii == 0 && par.px == 0 && gbc.bctypeXM != SUB_BC_NOFLOW)    {
                     gw.h(iGlob-1,1) = gw.hbcX(ii2,0);
-                    // printf(" -%d,%d,%d- : h=%f, alpha=%f, n=%f, wcs=%f, wcr=%f\n",ii,jj,kk,gw.h(iGlob-1,1),alpha,n,wcs,wcr);
-                    // gw.wc(iGlob-1,1) = h2wc(gw.h(iGlob-1,1), alpha, n, wcs, wcr);
+                    gw.wc(iGlob-1,1) = h2wc(gw.h(iGlob-1,1), alpha, n, wcs, wcr);
                 }
                 else if (ii == gdom.nx-1 && par.px == par.nproc_x-1 && gbc.bctypeXP != SUB_BC_NOFLOW)    {
                     gw.h(iGlob+1,1) = gw.hbcX(ii2,1);
-                    // gw.wc(iGlob+1,1) = h2wc(gw.h(iGlob+1,1), alpha, n, wcs, wcr);
+                    gw.wc(iGlob+1,1) = h2wc(gw.h(iGlob+1,1), alpha, n, wcs, wcr);
                 }
                 if (jj == 0 && par.py == 0 && gbc.bctypeYM != SUB_BC_NOFLOW)    {
                     gw.h(iGlob-gdom.nxhc,1) = gw.hbcY(ii3,0);
-                    // gw.wc(iGlob-gdom.nxhc,1) = h2wc(gw.h(iGlob-gdom.nxhc,1), alpha, n, wcs, wcr);
+                    gw.wc(iGlob-gdom.nxhc,1) = h2wc(gw.h(iGlob-gdom.nxhc,1), alpha, n, wcs, wcr);
                 }
                 else if (jj == gdom.ny-1 && par.py == par.nproc_y-1 && gbc.bctypeYP != SUB_BC_NOFLOW)    {
                     gw.h(iGlob+gdom.nxhc,1) = gw.hbcY(ii3,1);
-                    // gw.wc(iGlob+gdom.nxhc,1) = h2wc(gw.h(iGlob+gdom.nxhc,1), alpha, n, wcs, wcr);
+                    gw.wc(iGlob+gdom.nxhc,1) = h2wc(gw.h(iGlob+gdom.nxhc,1), alpha, n, wcs, wcr);
                 }
             });
         }
@@ -472,10 +471,16 @@ public:
                 gw.coef(idom,5) = gw.coef(idom,5) * 2.0;
                 gw.coef(idom,7) += gw.coef(idom,5) * gw.h(iGlob+gdom.nxhc*gdom.nyhc,1);
             }
-
             gw.coef(idom,0) -= (gw.coef(idom,1)+gw.coef(idom,2)+gw.coef(idom,3)+gw.coef(idom,4)+gw.coef(idom,5)+gw.coef(idom,6));
+
+            // real fac = 1e5;
+            // printf(" -%d,%d- : (%f, %f, %f, %f, %f) --> %f --> %f\n",ii,kk,fac*gw.coef(idom,2),
+            //     fac*gw.coef(idom,6),fac*gw.coef(idom,0),fac*gw.coef(idom,5),fac*gw.coef(idom,1),fac*gw.coef(idom,7),
+            //     gw.h(iGlob,1));
+            // if (ii == gdom.nx-1)    {printf(" ----- \n");}
+
         });
-        // printf(" \n\n");
+        // printf(" ----- \n\n");
         // Insert coefficients into Matrix A
         Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, irow = A.ptr(idom);
@@ -532,22 +537,22 @@ public:
                 m = 1.0 - 1.0 / n;
                 wcm = wcr + (wcs-wcr)*pow((1.0 + pow(fabs(gdom.aev)*alpha,n)), m);
 
-                if (gw.wc(iGlob,1) >= wcs - 1e-10)	{
+                if (gw.wc(iGlob,1) - wcs > TOL8NEG)	{
                     gw.wc(iGlob,2) = gw.wc(iGlob,1)-wcs;    gw.wc(iGlob,1) = wcs;
                 }
                 else    {
                     flag = 0;
-                    if (gw.wc(iGlob+1,1) >= wcs & gw.k(iGlob,0) > 0.0)    {flag = 1;}
-                    else if (gw.wc(iGlob-1,1) >= wcs & gw.k(iGlob-1,0) > 0.0) {flag = 1;}
-                    else if (gw.wc(iGlob+gdom.nxhc,1) >= wcs & gw.k(iGlob,1) > 0.0)  {flag = 1;}
-                    else if (gw.wc(iGlob-gdom.nxhc,1) >= wcs & gw.k(iGlob-gdom.nxhc,1) > 0.0)  {flag = 1;}
-                    else if (gw.wc(iGlob+gdom.nxhc*gdom.nyhc,1) >= wcs & gw.k(iGlob,2) > 0.0)  {flag = 1;}
-                    else if (gw.wc(iGlob-gdom.nxhc*gdom.nyhc,1) >= wcs & gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) > 0.0)  {flag = 1;}
+                    if (gw.wc(iGlob+1,1) - wcs > TOL8NEG & gw.k(iGlob,0) > 0.0)    {flag = 1;}
+                    else if (gw.wc(iGlob-1,1) - wcs > TOL8NEG & gw.k(iGlob-1,0) > 0.0) {flag = 1;}
+                    else if (gw.wc(iGlob+gdom.nxhc,1) - wcs > TOL8NEG & gw.k(iGlob,1) > 0.0)  {flag = 1;}
+                    else if (gw.wc(iGlob-gdom.nxhc,1) - wcs > TOL8NEG & gw.k(iGlob-gdom.nxhc,1) > 0.0)  {flag = 1;}
+                    else if (gw.wc(iGlob+gdom.nxhc*gdom.nyhc,1) - wcs > TOL8NEG & gw.k(iGlob,2) > 0.0)  {flag = 1;}
+                    else if (gw.wc(iGlob-gdom.nxhc*gdom.nyhc,1) - wcs > TOL8NEG & gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) > 0.0)  {flag = 1;}
 
                     // Use head form for the top layer
                     // Not sure if this works for impermeable top boundary ?
-                    if (ii == 0 && gw.h(iGlob-1,0) >= gdom.dz(iGlob)/2.0)  {flag = 1;}
-                    if (ii == gdom.nx-1 && gw.h(iGlob+1,0) >= gdom.dz(iGlob)/2.0)  {flag = 1;}
+                    if (ii == 0 && gw.h(iGlob-1,0) >= 0.0)  {flag = 1;}
+                    if (ii == gdom.nx-1 && gw.h(iGlob+1,0) >= 0.0)  {flag = 1;}
                     if (kk == 0)  {flag = 1;}
 
                     if (flag == 1)  {
@@ -559,7 +564,10 @@ public:
                     }
                     else    {
                         if (gw.wc(iGlob,1) < wcs)   {
-                            gw.h(iGlob,1) = -(1.0/alpha) * (pow(pow((wcm-wcr)/(gw.wc(iGlob,1)-wcr),(1/m)) - 1.0, 1/n));
+                            if (gw.wc(iGlob,1) < wcr)   {gw.wc(iGlob,1) = wcr;}
+                            else {
+                                gw.h(iGlob,1) = -(1.0/alpha) * (pow(pow((wcm-wcr)/(gw.wc(iGlob,1)-wcr),(1/m)) - 1.0, 1/n));
+                            }
                         }
                         else {gw.h(iGlob,1) = 0.0;}
                     }
@@ -670,7 +678,10 @@ public:
     	real dwc_max, dt_old;
     	dt_old = gdom.dt;
         Kokkos::parallel_reduce(gdom.nCellDomain, KOKKOS_LAMBDA (int idx, real &tmp) {
-            real dwc = fabs(gw.wc(idx,1) - gw.wc(idx,0));
+            int ii, jj, kk, iGlob;
+            unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+            real dwc = fabs(gw.wc(iGlob,1) - gw.wc(iGlob,0));
 			tmp = (dwc > tmp) ? dwc : tmp;
 		} , Kokkos::Max<real>(dwc_max) );
     	if (dwc_max > 0.02)	{gdom.dt = gdom.dt * 0.9;}

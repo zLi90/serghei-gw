@@ -7,6 +7,10 @@
 #include "Indexing.h"
 #include <set>
 
+#ifndef SERGHEI_MAXFLOOD
+#define SERGHEI_MAXFLOOD 0
+#endif
+
 typedef struct{
   real h=0;
   real hu=0;
@@ -24,7 +28,7 @@ void defineMPIswState(MPI_Datatype *tstype) {
     MPI_Aint     disps[count];
 
     for (int i=0; i < count; i++) {
-        types[i] = MPI_DOUBLE;
+        types[i] = SERGHEI_MPI_REAL;
         blocklens[i] = 1;
     }
 
@@ -83,6 +87,11 @@ public:
 
   intArr isBound; //positive values for inlet boundaries, negative values for outlet bvoundaries, 0 for inner cells
 
+  #if SERGHEI_MAXFLOOD
+    realArr hMax;
+    realArr momentumMax;
+    realArr time_hMax;
+  #endif
 
 
   inline void allocate(Domain &dom){
@@ -96,6 +105,18 @@ public:
     dsw0 			= realArr( "dsw0" , 3*dom.ncells );
     dsw1 			= realArr( "dsw1" , 3*dom.ncells );
     qss 				= realArr( "qss" , dom.ncells );
+    #if SERGHEI_MAXFLOOD
+      hMax = realArr("hMax",dom.ncells);
+      momentumMax = realArr("momMax",dom.ncells);
+      time_hMax = realArr("timehMax",dom.ncells);
+
+      Kokkos::parallel_for("initialise_maxflood",dom.nCellDomain,KOKKOS_CLASS_LAMBDA(int iGlob) {
+        int ii = dom.getIndex(iGlob);
+        hMax(ii) = 0;
+        momentumMax(ii)=0;
+        time_hMax(ii)=0;
+      });
+    #endif
   }
 };
 
@@ -105,11 +126,11 @@ public:
   std::string initialMode;
   std::string frictionModel;
   std::string roughnessInput;
+  std::set<std::string> initialModes = {"dry","h","h+z","file"};
+  std::set<std::string> frictionModels = {"none","manning","darcyweisbach","chezy"};
   real roughness = 0 ;
   real initialValue = 0;
   real hmin = -1;
-  std::set<std::string> initialModes = {"dry","h","h+z","file"};
-  std::set<std::string> frictionModels = {"none","manning","darcyweisbach","chezy"};
 };
 
 #endif

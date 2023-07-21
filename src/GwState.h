@@ -7,10 +7,6 @@
 #ifndef _GW_STATE_H_
 #define _GW_STATE_H_
 
-#ifndef SERGHEI_SUBSURFACE_MODEL
-#define SERGHEI_SUBSURFACE_MODEL 1
-#endif
-
 
 #if SERGHEI_SUBSURFACE_MODEL
 
@@ -78,7 +74,7 @@ public:
 /* --------------------------------------------------
     Soil constitutive functions
 -------------------------------------------------- */
-real wc2h(real wc, real alpha, real n, real wcs, real wcr) {
+KOKKOS_INLINE_FUNCTION real wc2h(real wc, real alpha, real n, real wcs, real wcr) {
     real h, m, eps=1e-7;
     if (n < 1.0)    {std::cerr<< RERROR "van Genuchten n should be > 1!!!\n";}
     m = 1.0 - 1.0 / n;
@@ -90,7 +86,7 @@ real wc2h(real wc, real alpha, real n, real wcs, real wcr) {
     else    {return 0.0;}
 }
 
-real h2wc(real h, real alpha, real n, real wcs, real wcr) {
+KOKKOS_INLINE_FUNCTION real h2wc(real h, real alpha, real n, real wcs, real wcr) {
     real wc, m, s;
     if (n < 1.0)    {std::cerr<< RERROR "van Genuchten n should be > 1!!!\n";}
     m = 1.0 - 1.0 / n;
@@ -103,7 +99,7 @@ real h2wc(real h, real alpha, real n, real wcs, real wcr) {
     return wc;
 }
 
-real h2kr(real h, real alpha, real n) {
+KOKKOS_INLINE_FUNCTION real h2kr(real h, real alpha, real n) {
     real m, s, kr;
     m = 1.0 - 1.0 / n;
     s = pow(1.0 + pow(fabs(alpha*h), n), -m);
@@ -112,7 +108,7 @@ real h2kr(real h, real alpha, real n) {
     return kr;
 }
 
-real h2dwcdh(real h, real alpha, real n, real wcs, real wcr)  {
+KOKKOS_INLINE_FUNCTION real h2dwcdh(real h, real alpha, real n, real wcs, real wcr)  {
     real dwcdh, wc1, wc2, dh=1e-3;
     wc1 = h2wc(h, alpha, n, wcs, wcr);
     wc2 = h2wc(h+dh, alpha, n, wcs, wcr);
@@ -121,7 +117,7 @@ real h2dwcdh(real h, real alpha, real n, real wcs, real wcr)  {
     return dwcdh;
 }
 
-real h2dKdh(real h, real alpha, real n, real Ks)  {
+KOKKOS_INLINE_FUNCTION real h2dKdh(real h, real alpha, real n, real Ks)  {
     real dkdh, k1, k2, dh=1e-3;
     k1 = h2kr(h, alpha, n);
     k2 = h2kr(h+dh, alpha, n);

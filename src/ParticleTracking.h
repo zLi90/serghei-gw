@@ -47,7 +47,7 @@ class ParticleTracker{
   inline void initalise(){
     // N needs to have been previously set
     particles = particleArr("particles",N);
-    Kokkos::parallel_for(N, KOKKOS_LAMBDA(int i){
+    Kokkos::parallel_for("initialiseParticles",N, KOKKOS_LAMBDA(int i){
       particles(i).t0 = particles(i).lifetime = 0.;
     });
   };
@@ -139,7 +139,7 @@ private:
   public:
     inline void update(const Domain &dom, const State &state){
       // TODO domain decomposition?
-      Kokkos::parallel_for(N, KOKKOS_LAMBDA(int i){
+      Kokkos::parallel_for("updateParticles",N, KOKKOS_LAMBDA(int i){
         while(particles(i).lifetime - particles(i).t0 < dom.etime){
           particleSupport ps = getParticleSupport(particles(i),dom,state);
           for(int kk=0; kk<N_SPATIAL_DIM; kk++) particles(i).x(kk)  = particles(i).x(kk) + ps.dt * ps.v(kk);

@@ -27,20 +27,19 @@
 #include "GwState.h"
 #endif
 
-
 int main(int argc, char** argv) {
-	#if DEBUG_WORKFLOW
-	std::cerr << GGD "Initialisation finished, starting to run main loop" << std::endl;
+	#if SERGHEI_DEBUG_WORKFLOW
+	std::cerr << GGD "Start" << std::endl;
 	#endif
 
-	SergheiTimers timers;
-	Kokkos::InitArguments args;
+
+	// InitArguments deprecated in Kokkos v4.0.0
+	// Kokkos::InitArguments args;
+	Kokkos::InitializationSettings kokkosSettings;
+
 	//these variables are needed to call  initializeMPI
 	Parallel       par;
 	Initializer    init;
-
-	//init the timer
-	timers.serghei.reset();
 
 	//Read input and create output
 	if (argc != 4){
@@ -51,32 +50,36 @@ int main(int argc, char** argv) {
 	std::string outFolder = argv[2];
 	par.nthreads=atoi(argv[3]);
 
-	#if DEBUG_WORKFLOW
+	#if SERGHEI_DEBUG_WORKFLOW
 	std::cerr << GGD "Initialising MPI AND CUDA" << std::endl;
 	#endif
 
-	// Initialize MPI According to the documentation, MPI_Init should be called befored Kokkos::initialize
+	// Initialize MPI According to the documentation, MPI_Init should be called before Kokkos::initialize
 	init.initializeMPI( &argc , &argv , par );
 
 	#ifdef __NVCC__
-		args.device_id=par.myrank%par.nthreads;
+		kokkosSettings.set_device_id(par.myrank%par.nthreads);
 	#else
 		if(par.nthreads!=0){
-			args.num_threads = par.nthreads;
+			kokkosSettings.set_num_threads(par.nthreads);
 		}
 	#endif
-	#if DEBUG_KOKKOS_SETUP
+	#if SERGHEI_DEBUG_KOKKOS_SETUP
 		printKokkosInitArguments(args,par);
 		#if __NVCC__
 			printKokkosCuda(args,par);
 		#endif
 	#endif
 
+	#if SERGHEI_DEBUG_WORKFLOW
+	std::cerr << GGD "Initialising Kokoks - rank " << par.myrank << std::endl;
+	#endif
 	// INITIALIZE KOKKOS
-	Kokkos::initialize(args);
+	Kokkos::initialize(kokkosSettings);
 
-	#if DEBUG_WORKFLOW
-		std::cerr << GGD "Program instantiated, creating objects" << std::endl;
+
+	#if SERGHEI_DEBUG_WORKFLOW
+		std::cerr << GGD "Program instantiated, creating objects - rank " << par.myrank << std::endl;
 	#endif
 
 	{ //these scope guards are needed to avoid annoying warnings
@@ -84,7 +87,7 @@ int main(int argc, char** argv) {
 		// Create the model objects, these are created one for each MPI rank (or subdomain)
 		State          state;
 		SourceSinkData ss;
-		std::vector<ExtBC> extbc;
+		ExternalBoundaries ebc;
 		Domain         dom;
 		Parser         parser;
 		FileIO         io;
@@ -106,12 +109,12 @@ int main(int argc, char** argv) {
 		GwInit ginit;
 		GwMPI gmpi;
 		#endif
-		int ierr;
-		real oldVolume,newVolume, diffVolume;
-		real accumDt=0.0;
+		double oldVolume,newVolume, diffVolume;
+		double accumDt=0.0;
+    	Kokkos::Timer timer; // auxiliary timer object
 
 		// Initialize the model
-		if(!init.initialize(state, ss, extbc, dom, par, tint, sint, bint, parser, exch, io, inFolder, outFolder)){
+		if(!init.initialize(state, ss, ebc, dom, par, tint, sint, bint, parser, exch, io, inFolder, outFolder)){
 			std::cerr << RERROR "Unable to start the simulation" << "\n";
 			return 0;
 		};
@@ -131,7 +134,7 @@ int main(int argc, char** argv) {
   		if(!obs.readInputFiles(inFolder,par)) return 0;
 		if(!obs.configure(dom,outFolder)) return 0;	// observations for surface domain
 		//obs.printGauges(dom);
-		obs.update(state,par,dom.dt);
+		obs.update(state,par,dom);
 
 		if( par.masterproc){
 			obs.writeLinesSamplingCoordinates(outFolder);
@@ -140,21 +143,21 @@ int main(int argc, char** argv) {
 		}
 		#endif
 
-		#if DEBUG_WORKFLOW
+		#if SERGHEI_DEBUG_WORKFLOW
 
-		for (int k = 0; k < extbc.size(); k ++) {
-		  std::cerr << GGD << __FILE__ << ":" << __LINE__ << "\tExtBC[" << k << "]: " << extbc[k].bcvals(0) << ", " << extbc[k].bcvals(1) << ", " << extbc[k].bcvals(2) << std::endl;
+		for (int k = 0; k < ebc.extbc.size(); k ++) {
+		  std::cout << GGD << GRAY << __FILE__ << ":" << __LINE__ << RESET << "\tExtBC[" << k << "]: " << ebc.extbc[k].bcvals(0) << ", " << ebc.extbc[k].bcvals(1) << ", " << ebc.extbc[k].bcvals(2) << std::endl;
 		}
 
-		std::cerr << GGD "Initialisation finished, starting to run main loop" << std::endl;
-		for(int i = 0; i < extbc.size(); i ++) {
-		  std::cerr << GGD "ncellsBC for segment " << i << ": " << extbc[i].ncellsBC << "\n";
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "Initialisation finished, starting to run main loop" << std::endl;
+		for(int i = 0; i < ebc.extbc.size(); i ++) {
+		  std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "ncellsBC for segment " << i << ": " << ebc.extbc[i].ncellsBC << "\n";
 		}
-		#if DEBUG_BOUNDARY
-		bint.integrate(extbc,1);
-		std::cerr << GGD "ncellsBC (integrated) " << bint.ncellsBC << "\n";
-		std::cerr << GGD "outflow discharge (integrated) " << bint.outflowDischarge << "\n";
-		std::cerr << GGD "outflow accumulated (integrated) " << bint.outflowAccumulated << std::endl;
+		#if SERGHEI_DEBUG_BOUNDARY
+		bint.integrate(ebc.extbc,dom,1);
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "ncellsBC (integrated) " << bint.ncellsBC << "\n";
+		std::cout << GGD<< GRAY << __PRETTY_FUNCTION__ << RESET <<  "outflow discharge (integrated) " << bint.outflowDischarge << "\n";
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "outflow accumulated (integrated) " << bint.outflowAccumulated << std::endl;
 		#endif
 		#endif
 
@@ -162,13 +165,13 @@ int main(int argc, char** argv) {
 		sint.integrate(state,dom,ss);
 
 		// Write initial time series data
-		io.writeTimeSeriesIni(state,dom,par,ss,sint,bint,extbc,outFolder);
+		io.writeTimeSeriesIni(state,dom,par,ss,sint,bint,ebc.extbc,outFolder);
 		#if SERGHEI_SUBSURFACE_MODEL
 		io.writeSubTimeSeriesIni(gw,gdom,dom,par,outFolder);
 		#endif
 
 		// capture initialisation time
-		if (par.masterproc) timers.Tinit = timers.serghei.seconds();
+		dom.timers.init = timer.seconds();
 
 		if (par.masterproc) std::cerr << "\n" << GOK "SIMULATION STARTS\n";
 
@@ -185,11 +188,9 @@ int main(int argc, char** argv) {
 			//previous mass
 			oldVolume=sint.surfaceVolumeG;
 
-			bint.integrate(extbc,1);//has to be called here (previous time step) with mode==1 (boundary flows)
+			bint.integrate(ebc.extbc,dom,1);//has to be called here (previous time step) with mode==1 (boundary flows)
 
-			tint.stepForward(state, ss, extbc, dom, exch, par, io, timers);
-
-			timers.swe.reset();
+			tint.stepForward(state, ss, ebc.extbc, dom, exch, par, io);
 
 			// run subsurface model
 			#if SERGHEI_SUBSURFACE_MODEL
@@ -216,14 +217,13 @@ int main(int argc, char** argv) {
 
 			oldVolume+=(bint.inflowDischargeG - bint.outflowDischargeG)*dom.dt; //Boundary fluxes with the new dt
 
-			bint.integrate(extbc,0);//called here with mode==0 (adjusted volume)
+			bint.integrate(ebc.extbc,dom,0);//called here with mode==0 (adjusted volume)
 
 			oldVolume+=bint.adjustedVolumeG; //Some mass changes can occur through the boundaries
 
 			sint.integrate(state,dom,ss); //new mass after the new time step integration
 			oldVolume+= (sint.rainFluxG-sint.infFluxG)*dom.dt; //after integrate, we have to sum the rain and inf mass
 
-			timers.Tintegrate += timers.swe.seconds();
 
 			//new mass
 			newVolume=sint.surfaceVolumeG;
@@ -241,7 +241,6 @@ int main(int argc, char** argv) {
 			if (dom.nIter%io.nScreen==0 || fabs(dom.etime - io.numOut*io.outFreq) <= 0.5*dom.dt) {
 			//if (fabs(dom.etime - io.numOut*io.outFreq) <= 0.5*dom.dt) {
 				if (par.masterproc) {
-					timers.out.reset();
 					std::cerr << std::fixed;
 					std::cerr << GSTAR "TIME: " << dom.etime << " average dt: " << accumDt/dom.countIterDt <<"\n";
 					std::cerr.precision(9);
@@ -251,6 +250,20 @@ int main(int argc, char** argv) {
 					std::cerr.precision(12);
 					std::cerr << "     Inflow Discharge: " << bint.inflowDischargeG <<"\n";
 					std::cerr << "     Outflow Discharge: " << bint.outflowDischargeG <<"\n";
+					if(fabs(diffVolume)>TOL_MASS_ERROR){
+						// std::cerr << YEXC "   Old Volume:\t" << oldVolume <<"\n";
+						// std::cerr << YEXC "   New Volume:\t" << newVolume <<"\n";
+						// std::cerr << YEXC "   Diff Volume:\t" << newVolume-oldVolume <<"\n";
+						// std::cerr << YEXC "   Inflow Volume:\t" << bint.inflowDischargeG*dom.dt <<"\n";
+						// std::cerr << YEXC "   Outflow Volume:\t" << bint.outflowDischargeG*dom.dt <<"\n";
+						// std::cerr << YEXC "   Adjusted Volume:\t" << bint.adjustedVolumeG <<"\n";
+						std::cerr << YEXC "   Rain Volume:\t" << sint.rainFluxG*dom.dt <<"\n";
+						// std::cerr << YEXC "   Inf Volume:\t" << sint.infFluxG*dom.dt <<"\n";
+						#if SERGHEI_DEBUG_MASS_CONS > 1
+                            getchar();
+                        #endif
+					}
+
 				}
 				// write output
 				if (fabs(dom.etime - io.numOut*io.outFreq) <= 0.5*dom.dt) {
@@ -263,7 +276,7 @@ int main(int argc, char** argv) {
 
 				// real nout = io.numOut;
 				// int ierr = MPI_Bcast(&io.numOut, 1, MPI_INT, 0, MPI_COMM_WORLD);
-				if(par.masterproc) timers.Tout+=timers.out.seconds();
+				// if(par.masterproc) dom.timers.Tout+=dom.timers.out.seconds();
 
 				if(par.masterproc) std::cerr << "-------------------------------------------------\n";
 				dom.countIterDt=0;
@@ -276,9 +289,8 @@ int main(int argc, char** argv) {
 			#endif
 
 			if (dom.etime >= io.numObs*io.obsFreq) {
-				timers.out.reset();
 				#if SERGHEI_TOOLS
-				obs.update(state,par,dom.dt);
+				obs.update(state,par,dom);
 				#endif
 				io.writeTimeSeries(state,dom,par,sint,bint);
 				#if SERGHEI_SUBSURFACE_MODEL
@@ -286,23 +298,19 @@ int main(int argc, char** argv) {
 				#endif
 			  if (par.masterproc){
 					#if SERGHEI_TOOLS
-					obs.writeGauges(dom.etime);
-					obs.writeLines(dom.etime);
+          obs.write(dom);
 					#endif
 			  }
-				timers.Tout += timers.out.seconds();
-			}
-			// std::cerr << " >>> TIME: " << dom.etime << " completed!\n\n";
-		}
 
+			}
+		} 		// end of time loop
+
+		dom.timers.total = timer.seconds();
 		if (par.masterproc){
 			std::cerr << GOK "SIMULATION FINISHED\n";
-			timers.total = timers.serghei.seconds();
-			timers.Texchange = exch.exchangeTime;
-			timers.Traininf = ss.timerRainInf;
-			std::cerr << GOK "Time elapsed: " << timers.total << "\n";
-			io.writeLogFile(dom,timers,outFolder);
+			std::cerr << GOK "Time elapsed: " << dom.timers.total << "\n";
 		}
+		io.writeLogFile(dom,par,outFolder);
 
 	io.closeOutputStreams();
 	#if SERGHEI_TOOLS
@@ -313,6 +321,6 @@ int main(int argc, char** argv) {
 
 	Kokkos::finalize();
 
-	int ierr = MPI_Finalize();
+	MPI_Finalize();
 
 }

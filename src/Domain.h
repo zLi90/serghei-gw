@@ -7,7 +7,7 @@
 #include "geometry.h"
 #include "Indexing.h"
 
-inline _HOSTDEV int getHaloExtension(const int i, const int j, const int nx){
+KOKKOS_INLINE_FUNCTION int getHaloExtension(const int i, const int j, const int nx){
   return( (hc+j)*(nx+2*hc)+hc+i ); //index for the extended domain (including halo cells)
 };
 
@@ -16,11 +16,13 @@ class Domain {
 public:
 
   real cfl;
-  real simLength;
+  double simLength;
 
-  real etime;
+  double etime;
 
   real dt;
+
+  SergheiTimers mutable timers;
 
   //raster variables
   int nx_glob;
@@ -29,11 +31,17 @@ public:
   int ny; // physical number of cells in y-direction
   int ncells;
   int nCellDomain;
+  int nCellValid;
   real xll; // southwest corner x-coordinate
   real yll; // southwest corner y-coordinate
   real dx;  // resolution
 
   int iE,iW,iS,iN; //flag to see if the subdomain touch with either a East, West, South or North boundaries
+
+  // global (reduced) variables
+  real areaGlobal;
+  int nCellValidGlobal;
+  int nCellDomainGlobal;
 
   // other variables
   int BCtype;
@@ -48,18 +56,34 @@ public:
   geometry::point extent[2];
 
   void domainArea(){
-       area = dx*dx*nCellDomain;  // WARNING UCM
-       // need to account for nodata cells?
-   }
+       area = cellArea()*nCellValid;
+   };
 
-  inline void getMatrixIndicesForPoint(const geometry::point &p, int &i, int &j) const{
+  KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int i, int j){
+    geometry::point p;
+    p(_X) = i*dx + extent[0](_X);
+    p(_Y) = j*dx + extent[0](_Y);
+    return(p);
+  }
+
+  KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int iGlob){
+    int i,j;
+    unpackIndices(iGlob,ny,nx,j,i);
+    return(getCellCenter(i,j));
+  }
+
+  KOKKOS_INLINE_FUNCTION real cellArea(){
+    return(dx*dx);  // WARNING UCM
+  }
+
+  KOKKOS_INLINE_FUNCTION void getMatrixIndicesForPoint(const geometry::point &p, int &i, int &j) const{
     // get i,j coordinates of the cell containing the point
     // this only works on a raster-order grid, where j is zero at NORTH boundary
     i = floor((p(_X)-extent[0](_X))/dx);
     j = floor((extent[1](_Y)-p(_Y))/dx);
-  }
+  };
 
-  inline int getCellForPoint(const geometry::point &p) const{
+  KOKKOS_INLINE_FUNCTION int getCellForPoint(const geometry::point &p) const{
     int i,j,iGlob;
     getMatrixIndicesForPoint(p,i,j);
     if(i < 0 || i >= nx || j < 0 || j >= ny){
@@ -69,16 +93,16 @@ public:
     }
     // note: domain decomposition is handled by the i,j coords
     return(iGlob);
-  }
+  };
 
-  inline _HOSTDEV int getIndex(int iGlob) const{
+  KOKKOS_INLINE_FUNCTION int getIndex(int iGlob) const{
     int i,j;
     unpackIndices(iGlob,ny,nx,j,i);
     int ii=(hc+j)*(nx+2*hc)+hc+i; //index for the extended domain (including halo cells)
     return(ii);
   };
 
-  inline int getIndexForPoint(const geometry::point &p) const{
+  KOKKOS_INLINE_FUNCTION int getIndexForPoint(const geometry::point &p) const{
     int i,j,ii;
     getMatrixIndicesForPoint(p,i,j);
     if(i < 0 || i >= nx || j < 0 || j >= ny){
@@ -87,9 +111,9 @@ public:
       ii  = getHaloExtension(i,j,nx);
     }
     return(ii);
-  }
+  };
 
-	void initialise() {
+void initialise() {
    	// Initialize the time
    	etime = 0;
    	nIter = 0;
@@ -99,8 +123,14 @@ public:
     nCellDomain = nx*ny; // WARNING UCM
     // physical cells + halo cells
 		ncells=(ny+2*hc)*(nx+2*hc);
+  };
+
+void getStatistics(){
     domainArea();
-  }
+    MPI_Allreduce(&area, &areaGlobal, 1, MPI_DOUBLE , MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&nCellValid, &nCellValidGlobal, 1, MPI_INT , MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&nCellDomain, &nCellDomainGlobal, 1, MPI_INT , MPI_SUM, MPI_COMM_WORLD);
+};
 
   int buildDomainDecomposition(Parallel &par) {
 
@@ -180,7 +210,7 @@ public:
 
 };
 
-inline _HOSTDEV int getIndex(const int iGlob, Domain const &dom){
+KOKKOS_INLINE_FUNCTION int getIndex(const int iGlob, Domain const &dom){
   int i,j;
   unpackIndices(iGlob,dom.ny,dom.nx,j,i);
   return ( getHaloExtension(i,j,dom.nx));

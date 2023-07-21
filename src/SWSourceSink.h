@@ -61,9 +61,13 @@ KOKKOS_INLINE_FUNCTION real interpolatePiecewise (TimeSeries const &ts, real con
 };
 
 KOKKOS_INLINE_FUNCTION real interpolateLinear(TimeSeries &ts, real const &t){
+  #if SERGHEI_DEBUG_WORKFLOW
+	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+  #endif
   int ii,jj;
   findTimeBlock(ts,t);
   ii = ts.timeIndex;
+  jj=ii+1;
   if(ii == ts.np - 1) jj = ii;
   real v = ts.value(ii) + (ts.value(jj) - ts.value(ii))/(ts.time(jj)-ts.time(ii))*(t-ts.time(ii));
   return(v);
@@ -99,7 +103,7 @@ private:
   }
 */
   // TODO need to program GreenAmpt model
-  real greenAmpt (const int ii,const real ) const{
+KOKKOS_INLINE_FUNCTION  real greenAmpt (const int ii,const real ) const{
     real infCap = 0.;
     return(infCap);
   }
@@ -107,7 +111,6 @@ private:
   realArr infTime;
 
 public:
-    std::string modelName;
     int model = -999;
     int nLabels = 0;
     realArr constCap ;
@@ -143,99 +146,6 @@ public:
     }
     */
 
-    int assignModel(Parallel &par){
-        int error = 0;
-
-	#if DEBUG_RAINFALL
-    std::cerr << GGD << "modelName: " << modelName << std::endl;
-	  std::cerr << GGD << "model: " << model << std::endl;
-  #endif
-        switch(model)
-            {
-            case INF_NONE:
-					 if(par.masterproc){
-                	std::cerr << BDASH << "No infiltration capacity" << std::endl;
-					 }
-                break;
-            case INF_CONSTANT:
-                //			capacity = &InfiltrationModel::constant;
-                std::cerr << BDASH << "Constant infiltration capacity" << std::endl;
-                for(int id=1; id<nLabels; id++){
-                  if(constCap(id) < 0){
-						  if(par.masterproc){
-                    		std::cerr << RERROR << "Infiltration rate not found for constant infiltration model" << std::endl;
-						  }
-                    error++;
-                  }
-                }
-                break;
-            case INF_HORTON:
-                //			capacity = &InfiltrationModel::horton;
-					 if(par.masterproc){
-                	std::cerr << BDASH << "Horton infiltration capacity" << std::endl;
-					 }
-                for(int ii=0; ii<nLabels; ii++){
-                  //std::cerr << ii << "\t" << k(ii) << "\t" << fc(ii) << "\t" << f0(ii) << std::endl;
-                  if(k(ii) < 0){
-							if(par.masterproc){
-                    		std::cerr << RERROR << "Shape factor not found for Horton infiltration model" << std::endl;
-						  }
-                    error++;
-                  }
-                  if(f0(ii) < 0){
-								if(par.masterproc){
-                        	std::cerr << RERROR << "Initial infiltration capacity not found for Horton infiltration model" << std::endl;
-								}
-                        error++;
-                  }
-                  if(fc(ii) < 0){
-							if(par.masterproc){
-                        std::cerr << RERROR << "Asymptotic infiltration capacity not found for Horton infiltration model" << std::endl;
-							}
-                        error++;
-                  }
-                }
-                break;
-            case INF_GREENAMPT:
-                //			capacity = &InfiltrationModel::greenAmpt;
-					 if(par.masterproc){
-                	std::cerr << BDASH << "Green-Ampt infiltration capacity" << std::endl;
-                	std::cerr << RERROR << "Not enabled yet" << std::endl;
-					 }
-                error++;
-                if(ks < 0)
-                    {
-						  	  	 if(par.masterproc){
-                        	std::cerr << RERROR << "Saturated hydraulic conductivity not found for Green-Ampt infiltration model" << std::endl;
-								}
-                        error++;
-                    }
-                if(psi < 0)
-                    {
-						  	   if(par.masterproc){
-                        	std::cerr << RERROR << "Average suction head not found for Green-Ampt infiltration model" << std::endl;
-								}
-                        error++;
-                    }
-                if(dtheta < 0)
-                    {
-						  	  	if(par.masterproc){
-                        	std::cerr << RERROR << "Water content difference not found for Green-Ampt infiltration model" << std::endl;
-								}
-                        error++;
-                    }
-                break;
-            default:
-					if(par.masterproc){
-                	std::cerr << RERROR << "Invalid infiltration model \'"<< modelName << "\' in infiltration.input" << std::endl;
-					}
-                error++;
-                break;
-            }
-
-        if(error > 0) return 0;
-        return 1;
-    }
 
     void allocate(const Domain &dom){
         if(model){
@@ -245,8 +155,100 @@ public:
         }
     }
 
+
+
+  int assignModel(Parallel &par){
+    int error = 0;
+
+	#if SERGHEI_DEBUG_INFILTRATION
+	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET <<  "model: " << model << std::endl;
+  	#endif
+    switch(model){
+      case INF_NONE:
+		 if(par.masterproc){
+                	std::cerr << BDASH << "No infiltration capacity" << std::endl;
+		 }
+         break;
+      case INF_CONSTANT:
+      	// capacity = &InfiltrationModel::constant;
+        std::cerr << BDASH << "Constant infiltration capacity" << std::endl;
+        for(int id=1; id<nLabels; id++){
+        	if(constCap(id) < 0){
+		  		if(par.masterproc){
+             		std::cerr << RERROR << "Infiltration rate not found for constant infiltration model" << std::endl;
+		  		}
+                error++;
+            }
+        }
+        break;
+      case INF_HORTON:
+      	// capacity = &InfiltrationModel::horton;
+		if(par.masterproc){
+        	std::cerr << BDASH << "Horton infiltration capacity" << std::endl;
+		}
+        for(int ii=0; ii<nLabels; ii++){
+        	//std::cerr << ii << "\t" << k(ii) << "\t" << fc(ii) << "\t" << f0(ii) << std::endl;
+            if(k(ii) < 0){
+				if(par.masterproc){
+                	std::cerr << RERROR << "Shape factor not found for Horton infiltration model" << std::endl;
+				}
+                error++;
+            }
+            if(f0(ii) < 0){
+				if(par.masterproc){
+               		std::cerr << RERROR << "Initial infiltration capacity not found for Horton infiltration model" << std::endl;
+				}	
+                error++;
+            }
+            if(fc(ii) < 0){
+				if(par.masterproc){
+        	    	std::cerr << RERROR << "Asymptotic infiltration capacity not found for Horton infiltration model" << std::endl;
+				}
+                error++;
+            }
+        }
+        break;
+      case INF_GREENAMPT:
+         //			capacity = &InfiltrationModel::greenAmpt;
+		 if(par.masterproc){
+         	std::cerr << BDASH << "Green-Ampt infiltration capacity" << std::endl;
+            std::cerr << RERROR << "Not enabled yet" << std::endl;
+		 }
+         error++;
+         if(ks < 0){
+		 	if(par.masterproc){
+            	std::cerr << RERROR << "Saturated hydraulic conductivity not found for Green-Ampt infiltration model" << std::endl;
+			}
+            error++;
+         }
+         if(psi < 0){
+		 	if(par.masterproc){
+          		std::cerr << RERROR << "Average suction head not found for Green-Ampt infiltration model" << std::endl;
+			}	
+            error++;
+         }
+         if(dtheta < 0){
+			if(par.masterproc){
+               	std::cerr << RERROR << "Water content difference not found for Green-Ampt infiltration model" << std::endl;
+			}
+         	error++;
+         }
+         break;
+      default:
+		if(par.masterproc){
+        	std::cerr << RERROR << "Error processing data in infiltration.input using infiltration model " << model << "." << std::endl;
+		}
+        error++;
+        break;
+      }
+	  if(error > 0) return 0;
+      return 1;
+    }
+
+
+
     inline void ComputeInfiltrationCapacity(const Domain &dom){
-      #if DEBUG_WORKFLOW
+      #if SERGHEI_DEBUG_WORKFLOW
         std::cerr << GGD << __PRETTY_FUNCTION__ << std::endl;
       #endif
         if(model){
@@ -256,7 +258,7 @@ public:
 
                 switch(model){
                     case INF_CONSTANT:
-                        Kokkos::parallel_for( dom.nCellDomain, KOKKOS_LAMBDA (int iGlob){
+                        Kokkos::parallel_for("inf_constant", dom.nCellDomain, KOKKOS_LAMBDA (int iGlob){
                             int ii = dom.getIndex(iGlob);
                             int id = infLabel(ii);
                             inf_p(ii) = constCap(id);
@@ -267,7 +269,7 @@ public:
                         realArr f0 = this->f0;
                         realArr k = this->k;
                         realArr &infTime_p = infTime;
-                        Kokkos::parallel_for( dom.nCellDomain, KOKKOS_LAMBDA (int iGlob)
+                        Kokkos::parallel_for("inf_horton", dom.nCellDomain, KOKKOS_LAMBDA (int iGlob)
                         {
                             int ii = dom.getIndex(iGlob);
                             int id = infLabel(ii);
@@ -281,6 +283,7 @@ public:
     }
 };
 
+
 class SourceSinkData{
 
 public:
@@ -289,7 +292,7 @@ public:
   InfiltrationModel inf;
   realArr rainRate;
 
-  real timerRainInf=0;
+  //real timerRainInf=0;
 
   void allocate (Domain const &dom){
     if (dom.isRain)
@@ -326,7 +329,7 @@ public:
   findTimeBlock(rain,dom.etime);
   TimeSeries rrain = rain;
 
-   Kokkos::parallel_for(dom.nCellDomain, KOKKOS_LAMBDA (int iGlob){
+   Kokkos::parallel_for("rain_interpolation",dom.nCellDomain, KOKKOS_LAMBDA (int iGlob){
 	    int ix;
 	    int iy;
 
@@ -343,7 +346,7 @@ public:
 
 	    rr_p(ii) = rainValue;
 
-	    #if DEBUG_RAINFALL
+	    #if SERGHEI_DEBUG_RAINFALL
         std::cerr << GGD "_x : " << _x << " _j: " << _y << " ix: " << ix << ", iy: " << iy << " ~> rainfall " << rr_p (iGlob) << std::endl;
         std::cerr << GGD "rain_glob " << rain_glob << std::endl;
       #endif
@@ -374,42 +377,21 @@ public:
 	**/
 
       }
-      if(DEBUG_RAINFALL) std::cerr << GGD "-----------" << std::endl;;
-
+	  #if SERGHEI_DEBUG_RAINFALL
+   		std::cerr << GGD "-----------" << std::endl;;
+	  #endif
   }
 
   inline void ComputeSWSourceSink(const State &state, const Domain &dom){
     Kokkos::Timer timer;
-    #if DEBUG_WORKFLOW
+    #if SERGHEI_DEBUG_WORKFLOW
     std::cerr << GGD << __PRETTY_FUNCTION__ << std::endl;
     #endif
     ComputeRain(dom);
     inf.ComputeInfiltrationCapacity(dom);
-
-     //not neccesary here beacuse the rate correction is done in ComputeNewState, according to the new water depth
-    /*if (inf.model){realArr &rr_p = rainRate;
-	      realArr &inf_p = inf.rate;
-	     real infDryThresh = inf.infDry;
-
-    Kokkos::parallel_for(dom.nCellDomain, KOKKOS_LAMBDA (int iGlob){
-      int ii = getIndex (iGlob,dom);
-      real hh = state.h (ii);
-      real rr = rr_p (ii);
-		  //real infCap = inf.constant(ii,dom.dt);
-		  real infCap = inf_p (ii);
-		  real infRate = infCap;
-      if(hh < infDryThresh && rr <= infCap){
-		    infRate = rr;
-		  }
-      else if( hh - (infRate - rr)*dom.dt < TOL12NEG  ){
-        // truncate infiltration rate to avoid negative depths
-        infRate = hh/dom.dt + rr;
-		  }
-		  //inf_p(ii) = computeRate(rr,hh,dom.dt,ii);
-		  inf_p(ii) = infRate;
-	   });
-   }*/
-   timerRainInf += timer.seconds();
+    //no rate correction is necessary here beacuse the rate correction is done in ComputeNewState, according to the new water depth
+   // timerRainInf += timer.seconds();
+   dom.timers.raininf += timer.seconds();
  }
 
 };

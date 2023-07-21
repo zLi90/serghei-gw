@@ -71,7 +71,7 @@ public:
    }
 
    void print(){
-     std::cout << "line: " << line << "\tkey: " << key << "\tvalue: " << value.str() << std::endl;
+     std::cout << GGD << "line: " << line << std::endl << "\tkey: " << key << "\tvalue: " << value.str() << std::endl;
    }
 };
 
@@ -102,7 +102,7 @@ public:
   }
 
   int readInputFiles (std::string fNameIn, Domain &dom, State &state, SourceSinkData &ss,
-		      std::vector<ExtBC> &extbc, Parallel &par, FileIO &io)
+		      ExternalBoundaries &ebc, Parallel &par, FileIO &io)
   {
 
     int const Nfiles = 6;
@@ -138,7 +138,7 @@ public:
 #endif
 
     tempStr = fNameIn + "extbc.input";
-    ierr[3] = readExtBCFile(tempStr, dom, extbc, par, state);
+    ierr[3] = readExtBCFile(tempStr, dom, ebc, par, state);
 
     tempStr = fNameIn + "infiltration.input";
     ierr[4] = readInfiltrationFile(tempStr, dom, ss.inf, par);
@@ -354,7 +354,9 @@ public:
 		}
 	}
 
-	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+	// Kokkos::parallel_for("init_z", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+
+	Kokkos::parallel_reduce("init_z", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob, int &ncell) {
  		int i,j;
 		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
@@ -364,8 +366,11 @@ public:
 			state.isnodata(ii1)=true;
 		}else{
 			state.isnodata(ii1)=false;
+			ncell++;
 		}
-	});
+	}, Kokkos::Sum<int>(dom.nCellValid));
+
+
 	if (par.masterproc){
 		std::cerr<< GOK "DEM file read\n";
 	}
@@ -444,7 +449,7 @@ public:
 
 		fInStream.close();
 
-	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+	Kokkos::parallel_for("init_roughness", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
  		int i,j;
 		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
@@ -546,7 +551,8 @@ public:
 				tmpVar(ii)=tmp;
 			}else{
 				if(par.masterproc){
-					std::cerr<< RERROR "Error reading initial depth file. Not enough data\n";
+					std::cerr<< RERROR "Error reading initial depth file. Not enough data." << std::endl;
+					std::cerr << RERROR << "Read " << ii+1 << " pixels, but expected " << ndata << std::endl;
 					return 0;
 				}
 			}
@@ -555,7 +561,8 @@ public:
 		fInStream.close();
 
 	}
-	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+
+	Kokkos::parallel_for("init_h", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
  		int i,j;
 		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
@@ -663,12 +670,12 @@ public:
 			std::cerr<< BDASH "A constant value of "<< constVel << " is used for initial x-velocity\n";
 		}
 
-		Kokkos::parallel_for( ndata , KOKKOS_LAMBDA (int iGlob) {
+		Kokkos::parallel_for("init_vel", ndata , KOKKOS_LAMBDA (int iGlob) {
 			tmpVar(iGlob)=constVel;
 		});
 	}
 
-	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+	Kokkos::parallel_for("init_hu", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
  		int i,j;
 		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
@@ -742,9 +749,10 @@ public:
 		// fInStream >> nodata;
 
 		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
-		if(dom.ny_glob !=tny || dom.nx_glob !=tny || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
+		if(dom.ny_glob !=tny || dom.nx_glob !=tnx || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
 			if(par.masterproc){
 			std::cerr<< RERROR "Initial y-velocity file parameters don't match DEM file parameters. Unable to continue\n";
+
 			return 0;
 			}
 		}
@@ -771,12 +779,12 @@ public:
 			std::cerr << YEXC << fNameIn << " not found\n";
 			std::cerr<<BDASH "A constant value of "<< constVel << " is used for initial y-velocity\n";
 		}
-		Kokkos::parallel_for( ndata , KOKKOS_LAMBDA (int iGlob) {
+		Kokkos::parallel_for("init_constVel", ndata , KOKKOS_LAMBDA (int iGlob) {
 			tmpVar(iGlob)=constVel;
 		});
  	}
 
-	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+	Kokkos::parallel_for("init_hv", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
  		int i,j;
 		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
@@ -798,145 +806,171 @@ public:
 }
 
 
-  // Reads infiltration data files
-  int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &inf, Parallel &par){
+// Reads infiltration data files
+int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &inf, Parallel &par){
+  std::string modelName;
+  // Read in colon-separated key: value file line by line
+  std::ifstream fInStream(fNameIn);
+  std::string line;
 
-    // Read in colon-separated key: value file line by line
-    std::ifstream fInStream(fNameIn);
-    std::string line;
+  ParserLine pline;
 
-    ParserLine pline;
+  int jk,jfc,jf0;
+  jk = jfc = jf0 = 1;
 
-    int jk,jfc,jf0;
-    jk = jfc = jf0 = 1;
+  if (fInStream.is_open()){
+    while (std::getline(fInStream, line)) {
+      pline.line = line;
+      pline.lowercase();
+      pline.parse();
 
-    if (fInStream.is_open()){
-      while (std::getline(fInStream, line)) {
-        pline.line = line;
-	      pline.lowercase();
-        pline.parse();
+      // If the line was valid and a key is stored
+      if(!pline.key.empty()){
+        // Match the key, and store the value
+        if(!strcmp("infmodel",pline.key.c_str())){
+          int check=0;
+          pline.value >> modelName ;
+          if(!modelName.compare("none")){
+            inf.model = INF_NONE;
+            check++;
+          }
+          if(!modelName.compare("constant")){
+            inf.model = INF_CONSTANT;
+            check++;
+          }
+          if(!modelName.compare("horton")){
+            inf.model = INF_HORTON;
+            check++;
+          }
+          if(!modelName.compare("greenampt")){
+            inf.model = INF_GREENAMPT;
+            check++;
+          }
+          #if SERGHEI_DEBUG_INFILTRATION
+          std::cout << GGD << "modelName: " << modelName << std::endl;
+          std::cout << GGD << "model: " << inf.model << std::endl;
+          #endif
+          if(check < 1){
+            if(par.masterproc){
+              std::cerr << RERROR << "Invalid infiltration model" << std::endl;
+              return 0;
+            }
+          }else{
+            if(par.masterproc)
+            std::cout << GOK << "Infiltration model set to " << modelName << std::endl;
+          }
+        }
 
-	      // If the line was valid and a key is stored
-	      if(!pline.key.empty()){
-	         // Match the key, and store the value
-           if(!strcmp("infmodel",pline.key.c_str())){
-             pline.value >> inf.modelName ;
-             if(!inf.modelName.compare("none")) inf.model = INF_NONE;
-             if(!inf.modelName.compare("constant")) inf.model = INF_CONSTANT;
-             if(!inf.modelName.compare("horton")) inf.model = INF_HORTON;
-             if(!inf.modelName.compare("greenampt")) inf.model = INF_GREENAMPT;
-           }
-
-           if(!strcmp("infiltrationclasses",pline.key.c_str())){pline.value >> inf.nLabels ;}
-         }
-       }
+        if(!strcmp("infiltrationclasses",pline.key.c_str())){pline.value >> inf.nLabels ;}
+      }
     }
-    else{
-      inf.model = INF_NONE;
-      if (par.masterproc){
-	       std::cerr << YEXC << fNameIn << " not found\n";
-	       std::cerr << BDASH "Impervious domain set\n";
-	    }
-	    inf.modelName = "none";
-      return 1;
+  }
+  else{
+    inf.model = INF_NONE;
+    if (par.masterproc){
+      std::cout << YEXC << fNameIn << " not found" << std::endl;
+      std::cout << BDASH "Impervious domain set" << std::endl;
     }
+    modelName = "none";
+    return 1;
+  }
 
-    // now that the headers have been read, allocate stuff
-    if(inf.model){
-      if(inf.nLabels <= 0){
-			if(par.masterproc){
+  // now that the headers have been read, allocate stuff
+  if(inf.model){
+    if(inf.nLabels <= 0){
+      if(par.masterproc){
         std::cerr << RERROR "Number of infiltration classes must be larger than 0" << std::endl;
         return 0;
-		  }
-      }
-      inf.nLabels++;  // to account for label value 0 as impervious
-      // allocate the infiltration map
-      inf.infLabel = intArr( "infLabel", dom.ncells);
-        // TODO parallelisation
-        if(inf.nLabels == 2){
-          for(int ii=0; ii<dom.ncells; ii++){
-            inf.infLabel(ii) = 1;
-          }
-        }
-    }
-
-    if(inf.model == INF_CONSTANT){
-      inf.constCap = realArr("constCap",inf.nLabels);
-      inf.constCap(0) = 0.;
-      for(int ii=1; ii<inf.nLabels; ii++) inf.constCap(ii) = NO_DATA;
-    }
-
-    if(inf.model == INF_HORTON){
-      inf.k = realArr("k",inf.nLabels);
-      inf.fc = realArr("fc",inf.nLabels);
-      inf.f0 = realArr("f0",inf.nLabels);
-      inf.k(0) = inf.fc(0) = inf.f0(0) = 0.;
-      for(int ii=1; ii<inf.nLabels; ii++){
-        inf.k(ii) = NO_DATA;
-        inf.fc(ii) = NO_DATA;
-        inf.f0(ii) = NO_DATA;
       }
     }
-
-    // now read the data
-    fInStream.clear();
-    fInStream.seekg(0);
-    if (fInStream.is_open()){
-      while (std::getline(fInStream, line)) {
-        pline.line = line;
-        //std::cout << pline.line << std::endl;
-	      pline.lowercase();
-        pline.parse();
-
-	      // If the line was valid and a key is stored
-	      if(!pline.key.empty()){
-	         // Match the key, and store the value
-           if(inf.model == INF_CONSTANT){
-	             if(!strcmp("rate",pline.key.c_str())){
-                 pline.value >> inf.constCap(jfc)  ; jfc++;
-               }
-           }
-           // Horton model
-           if(inf.model == INF_HORTON){
-             if(!strcmp("k",pline.key.c_str())){pline.value >> inf.k(jk); jk++;}
-	           if(!strcmp("fc",pline.key.c_str())){ pline.value >> inf.fc(jfc); jfc++;}
-	           if(!strcmp("f0",pline.key.c_str())){ pline.value >> inf.f0(jf0); jf0++;}
-           }
-           if(inf.model == INF_GREENAMPT){
-	         // Green-Ampt model
-	         if(!strcmp("ks",pline.key.c_str())){ pline.value >> inf.ks  ; }
-	         if(!strcmp("psi",pline.key.c_str())){ pline.value >> inf.psi  ; }
-	         if(!strcmp("dtheta",pline.key.c_str())){ pline.value >> inf.dtheta  ;}
-          }
-	      }
-	    }
+    inf.nLabels++;  // to account for label value 0 as impervious
+    // allocate the infiltration map
+    inf.infLabel = intArr( "infLabel", dom.ncells);
+    // TODO parallelisation
+    if(inf.nLabels == 2){
+      for(int ii=0; ii<dom.ncells; ii++){
+        inf.infLabel(ii) = 1;
+      }
     }
-
-    // at this point, everything has been read
-
-    // rate unit conversion from mm/s -> m/s
-    for(int ii=0; ii<inf.nLabels; ii++){
-	     if(inf.model == INF_CONSTANT) inf.constCap(ii) /= 1000.;
-        if(inf.model == INF_HORTON){
-            inf.fc(ii) /= 1000.;
-            inf.f0(ii) /= 1000.;
-        }
-    }
-
-    if(!inf.assignModel(par)){
-	 	if(par.masterproc){
-	     std::cerr << RERROR << "Error in infiltration input" << std::endl;
-	     return 0;
-		 }
-    }
-
-    if (par.masterproc){
-    std::cout << GOK << "Infiltration model set" << std::endl;
-    }
-
-    return 1;
-
   }
+
+  if(inf.model == INF_CONSTANT){
+    inf.constCap = realArr("constCap",inf.nLabels);
+    inf.constCap(0) = 0.;
+    for(int ii=1; ii<inf.nLabels; ii++) inf.constCap(ii) = NO_DATA;
+  }
+
+  if(inf.model == INF_HORTON){
+    inf.k = realArr("k",inf.nLabels);
+    inf.fc = realArr("fc",inf.nLabels);
+    inf.f0 = realArr("f0",inf.nLabels);
+    inf.k(0) = inf.fc(0) = inf.f0(0) = 0.;
+    for(int ii=1; ii<inf.nLabels; ii++){
+      inf.k(ii) = NO_DATA;
+      inf.fc(ii) = NO_DATA;
+      inf.f0(ii) = NO_DATA;
+    }
+  }
+
+  // now read the data
+  fInStream.clear();
+  fInStream.seekg(0);
+  if (fInStream.is_open()){
+    while (std::getline(fInStream, line)) {
+      pline.line = line;
+      //std::cout << pline.line << std::endl;
+      pline.lowercase();
+      pline.parse();
+
+      // If the line was valid and a key is stored
+      if(!pline.key.empty()){
+        // Match the key, and store the value
+        if(inf.model == INF_CONSTANT){
+          if(!strcmp("rate",pline.key.c_str())){
+            pline.value >> inf.constCap(jfc)  ; jfc++;
+          }
+        }
+        // Horton model
+        if(inf.model == INF_HORTON){
+          if(!strcmp("k",pline.key.c_str())){pline.value >> inf.k(jk); jk++;}
+          if(!strcmp("fc",pline.key.c_str())){ pline.value >> inf.fc(jfc); jfc++;}
+          if(!strcmp("f0",pline.key.c_str())){ pline.value >> inf.f0(jf0); jf0++;}
+        }
+        if(inf.model == INF_GREENAMPT){
+          // Green-Ampt model
+          if(!strcmp("ks",pline.key.c_str())){ pline.value >> inf.ks  ; }
+          if(!strcmp("psi",pline.key.c_str())){ pline.value >> inf.psi  ; }
+          if(!strcmp("dtheta",pline.key.c_str())){ pline.value >> inf.dtheta  ;}
+        }
+      }
+    }
+  }
+
+  // at this point, everything has been read
+
+  // rate unit conversion from mm/s -> m/s
+  for(int ii=0; ii<inf.nLabels; ii++){
+    if(inf.model == INF_CONSTANT) inf.constCap(ii) /= 1000.;
+    if(inf.model == INF_HORTON){
+      inf.fc(ii) /= 1000.;
+      inf.f0(ii) /= 1000.;
+    }
+  }
+
+  if(!inf.assignModel(par)){
+    if(par.masterproc){
+      std::cerr << RERROR << "Error when assigning infiltration model input." << std::endl;
+      return 0;
+    }
+  }
+
+  if (par.masterproc){
+    std::cout << GOK << "Infiltration model set" << std::endl;
+  }
+
+  return 1;
+
+}
 
 
   /* Reads rainfall data file */
@@ -1094,7 +1128,7 @@ public:
 
 
 
-  int readExtBCFile(std::string fNameIn, Domain &dom, std::vector<ExtBC> &extbc, Parallel &par, State &state) {
+  int readExtBCFile(std::string fNameIn, Domain &dom, ExternalBoundaries &ebc, Parallel &par, State &state) {
     std::ifstream fInStream(fNameIn);
     std::string dir;
     std::vector<std::string> polygonFile;
@@ -1128,33 +1162,46 @@ public:
       while (std::getline(fInStream, line)) {
         pline.line = line;
         pline.parse();
+				#if SERGHEI_DEBUG_BOUNDARY
+				pline.print();
+				#endif
         if(!pline.key.empty()){
           // we should read the number of boundaries here
-	  if (!strcmp("bccount", pline.key.c_str())){
-	    pline.value >> bccount;
-      bccountFound = 1;
-      if(bccount < 1){
-        std::cout << YEXC << "extbc.input indicates zero external boundaries." << std::endl;
-        return 1;
-      }
-	    extbc.resize(bccount);
-	    polygonFile.resize(bccount);
-	    fullPathPoly.resize(bccount);
-	    hydrographFile.resize(bccount);
-	    ibc ++;
-	  }
+	  			if (!strcmp("bccount", pline.key.c_str())){
+	    			pline.value >> bccount;
+            bccountFound = 1;
+            if(bccount < 1){
+              std::cout << YEXC << "extbc.input indicates zero external boundaries." << std::endl;
+              return 1;
+            }
+						#if SERGHEI_DEBUG_BOUNDARY
+	    				std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET;
+	    				std::cout << "Resizing boundary vector to " << bccount << " boundaries."  << std::endl;
+	    				std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET;
+	    				std::cout << "ibc = " << ibc << " boundaries."  << std::endl;
+						#endif
+            ebc.extbc.resize(bccount);
+            ebc.id.resize(bccount);
+            polygonFile.resize(bccount);
+	    			fullPathPoly.resize(bccount);
+	    			hydrographFile.resize(bccount);
+	    			ibc++;	// ibc should be set to -1
+						#if SERGHEI_DEBUG_BOUNDARY
+	    				std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET;
+							std::cout << "Resized to " << bccount << std::endl;
+						#endif
+	  			}
           else if(!strcmp("id",pline.key.c_str())){
             ibc++;
-            if(bccount > 0)
-            pline.value >> extbc[ibc].id;
+            if(bccount > 0 && ibc >= 0) pline.value >> ebc.id[ibc];
           }
-          else if(!strcmp("bctype", pline.key.c_str()) && ibc >=0 ) {if(bccount > 0) pline.value >> extbc[ibc].bctype;}
+          else if(!strcmp("bctype", pline.key.c_str()) && ibc >=0 ) {if(bccount > 0) pline.value >> ebc.extbc[ibc].bctype;}
           else if(!strcmp("polygon", pline.key.c_str()) && ibc >=0 ) {if(bccount > 0) pline.value >> polygonFile[ibc];}
-          else if (!strcmp("direction", pline.key.c_str()) && ibc >=0 ) {if(bccount > 0) pline.value >> extbc[ibc].normalx >> extbc[ibc].normaly;}
+          else if (!strcmp("direction", pline.key.c_str()) && ibc >=0 ) {if(bccount > 0) pline.value >> ebc.extbc[ibc].normalx >> ebc.extbc[ibc].normaly;}
           else if(!strcmp("bcvals", pline.key.c_str()) && ibc >=0 ){
               if(bccount > 0 ){
-                extbc[ibc].bcvals = realArr("bcvals", 3);
-                pline.value >> extbc[ibc].bcvals(0) >> extbc[ibc].bcvals(1) >> extbc[ibc].bcvals(2);
+                ebc.extbc[ibc].bcvals = realArr("bcvals", 3);
+                pline.value >> ebc.extbc[ibc].bcvals(0) >> ebc.extbc[ibc].bcvals(1) >> ebc.extbc[ibc].bcvals(2);
               }
           }
           else if(!strcmp("hydrograph",pline.key.c_str()) && ibc >=0){
@@ -1185,33 +1232,33 @@ public:
     	std::cerr << YEXC << "extbc.input not found. Default boundaries used." << std::endl;
     }
 
-    #if DEBUG_BOUNDARY
-      for (int k = 0; k < extbc.size(); k++) {
-        std::cerr << GGD "Boundary type for " << k << "th boundary: " << extbc[k].BoundaryTypes[extbc[k].bctype] << " (" << extbc[k].bctype << ")." << std::endl;
-        std::cerr << GGD << "Direction for " << k << "th boundary: (" << extbc[k].nx << "," << extbc[k].ny << ")" << std::endl;
+    #if SERGHEI_DEBUG_BOUNDARY
+      for (int k = 0; k < ebc.extbc.size(); k++) {
+        std::cerr << GGD "Boundary type for " << k << "th boundary: " << ebc.BoundaryTypes[ebc.extbc[k].bctype] << " (" << ebc.extbc[k].bctype << ")." << std::endl;
+        std::cerr << GGD << "Direction for " << k << "th boundary: (" << ebc.extbc[k].normalx << "," << ebc.extbc[k].normaly << ")" << std::endl;
         std::cerr << GGD << "Polygon file for " << k << "th boundary: " << polygonFile[k] << std::endl;
         std::cerr << GGD << "Hydrograph file for " << k << "th boundary: " << hydrographFile[k] << std::endl;
       }
     #endif
     if(par.masterproc){
-      if(ibc+1 < extbc.size()){
+      if(ibc+1 < ebc.extbc.size()){
 			 if(par.masterproc){
 
-        std::cerr << RERROR << "Expected " << extbc.size() << " boundary condition input blocks, but only found " << ibc+1 << " in extbc.input." << std::endl;
+        std::cerr << RERROR << "Expected " << ebc.extbc.size() << " boundary condition input blocks, but only found " << ibc+1 << " in extbc.input." << std::endl;
 		  	return 0;
 		  }
       }
-      for (int k = 0; k < extbc.size(); k++) {
+      for (int k = 0; k < ebc.extbc.size(); k++) {
 			if(par.masterproc){
-        std::cout << GOK <<  "External boundary " << k << " set to " << extbc[k].BoundaryTypes[extbc[k].bctype] << " (" << extbc[k].bctype << ")"<< std::endl;
+        std::cout << GOK <<  "External boundary " << k << " set to " << ebc.BoundaryTypes[ebc.extbc[k].bctype] << " (" << ebc.extbc[k].bctype << ")"<< std::endl;
 		  }
       }
     }
     // normalise BC normal vectors by magnitude
-    for (int k = 0; k < extbc.size(); k++) {
-      real mod = sqrt(extbc[k].normalx*extbc[k].normalx + extbc[k].normaly*extbc[k].normaly);
-      extbc[k].normalx /= mod;
-      extbc[k].normaly /= mod;
+    for (int k = 0; k < ebc.extbc.size(); k++) {
+      real mod = sqrt(ebc.extbc[k].normalx*ebc.extbc[k].normalx +ebc.extbc[k].normaly*ebc.extbc[k].normaly);
+      ebc.extbc[k].normalx /= mod;
+      ebc.extbc[k].normaly /= mod;
     }
 
     // read polygon files
@@ -1227,7 +1274,7 @@ public:
         for (int i=0; i<nPoly; i++) {
           if (!fPoly.fail() && !fPoly.eof()) {
             fPoly >> xPoly(i) >> yPoly(i);
-            #if DEBUG_BOUNDARY
+            #if SERGHEI_DEBUG_BOUNDARY
               std::cout << GGD << "extbc polygon " << k << ". Point " << i << "/" << nPoly << "\t" << xPoly(i) << "\t" << yPoly(i) << std::endl;
             #endif
           }
@@ -1238,7 +1285,7 @@ public:
 				       }
           }
         }
-        if(!extbc[k].find_bcells(state, extbc[k], dom, par, nPoly, xPoly, yPoly)) return 0;
+        if(!ebc.extbc[k].find_bcells(state, ebc.id[k], dom, par, nPoly, xPoly, yPoly)) return 0;
       }
       else{
         if(par.masterproc){
@@ -1255,38 +1302,65 @@ public:
         std::string fname = dir + hydrographFile[k];
         std::ifstream fHydro(fname);
         int ndata=0;
-        // read in kth polygon
-        if(fHydro.is_open()) {
-          fHydro.ignore(256,' ');
-          fHydro >> ndata;
-          if (ndata > 0){
-            extbc[k].hydrograph.initialise(ndata);
-          }
-          for(int i=0; i<ndata; i++) {
-            if (!fHydro.fail() && !fHydro.eof()) {
-              fHydro >> extbc[k].hydrograph.time(i) >> extbc[k].hydrograph.value(i);
-            }
-            else{
-              if(par.masterproc){
-                std::cerr<< RERROR "Error reading hydrograph file for boundary " << k << ": " << hydrographFile[k] << std::endl;
-                return 0;
-              }
-            }
-          } // end for ndata
-          fHydro.close();
-        }
+
+				// read in kth polygon
+				int readHydro=0;
+				switch(ebc.extbc[k].bctype){
+					case SWE_BC_Q_T:
+					case SWE_BC_HZ_T_INLET:
+					case SWE_BC_HZ_T_OUTLET:
+						readHydro = 1;
+						break;
+				}
+				if(readHydro){
+					#if SERGHEI_DEBUG_BOUNDARY
+						std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "Reading BC hydrograph file " << k << ": " << fname << std::endl;
+					#endif
+					if(fHydro.is_open()) {
+						fHydro.ignore(256,' ');
+						fHydro >> ndata;
+						if (ndata > 0){
+							ebc.extbc[k].hydrograph.initialise(ndata);
+						}
+						for(int i=0; i<ndata; i++) {
+							if (!fHydro.fail() && !fHydro.eof()) {
+								fHydro >> ebc.extbc[k].hydrograph.time(i) >> ebc.extbc[k].hydrograph.value(i);
+								#if SERGHEI_DEBUG_BOUNDARY
+									std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << ebc.extbc[k].hydrograph.time(i) << "\t" << ebc.extbc[k].hydrograph.value(i) << std::endl;
+								#endif
+							}
+							else{
+								if(par.masterproc){
+									std::cerr<< RERROR "Error reading hydrograph file for boundary " << k << ": " << hydrographFile[k] << std::endl;
+									return 0;
+								}
+							}
+						} // end for ndata
+						fHydro.close();
+					}else{
+						if(par.masterproc){
+							std::cerr << RERROR "Error opening hydrograph file " << fname << std::endl;
+							return 0;
+						}
+					}
+				}
       } // end for hydrogaph files
 
+/*
+	 for (int k = 0; k < ebc.extbc.size(); k ++){
+			if(ebc.extbc[k].bctype == SWE_BC_Q_T) ebc.extbc[k].computeLength(dom);
+	 }
+*/
 
-	Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
+	Kokkos::parallel_for("init_isBound", dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
         int ii = dom.getIndex(iGlob);
 		  state.isBound(ii)=0;
     });
 
 
-	 for (int k = 0; k < extbc.size(); k ++) { //should be done before the exchange (water depth might be modified).
+	 for (int k = 0; k < ebc.extbc.size(); k ++) {
 		  int value;
-		  switch (extbc[k].bctype){
+		  switch (ebc.extbc[k].bctype){
 			case SWE_BC_CRITICAL:
 			case SWE_BC_H_CONST:
 			case SWE_BC_WSE_CONST:
@@ -1302,21 +1376,21 @@ public:
 			break;
 
 		  default:
-			 std::cerr << RERROR " Boundary type: " << extbc[k].bctype << " not recognised." << std::endl;
+			 std::cerr << RERROR " Boundary type: " << ebc.extbc[k].bctype << " not recognised." << std::endl;
 			 exit(EXIT_FAILURE);
 
 		 }
 
-		 for(int iGlob=0;iGlob<extbc[k].ncellsBC;iGlob++){
-	 		int ii=extbc[k].bcells[iGlob];
+		 for(int iGlob=0;iGlob<ebc.extbc[k].ncellsBC;iGlob++){
+	 		int ii=ebc.extbc[k].bcells[iGlob];
 			state.isBound(ii)=value;
 		}
 
 	}
 
+  if(par.masterproc) std::cout << GOK << "External boundary file parsed and boundaries set" << std::endl;
   return 1;
 };
-
 
 
   int readSWFile(std::string fNameIn, Domain &dom, Parallel &par, State &state, std::string fDirIn){
@@ -1371,19 +1445,19 @@ public:
     int consistency=1;
     if(sw.frictionModel.compare("none") != 0){
       // consistency check
-      switch(FRICTION_MODEL){
-        case FRICTION_MANNING:
+      switch(SERGHEI_FRICTION_MODEL){
+        case SERGHEI_FRICTION_MANNING:
           if(sw.frictionModel.compare("manning")) consistency=0 ;
           break;
-        case FRICTION_DARCYWEISBACH:
+        case SERGHEI_FRICTION_DARCYWEISBACH:
           if(sw.frictionModel.compare("darcyweisbach")) consistency=0;
           break;
-        case FRICTION_CHEZY:
+        case SERGHEI_FRICTION_CHEZY:
           if(sw.frictionModel.compare("chezy")) consistency=0;
           break;
       }
       if(!consistency){
-        std::cerr << RERROR "Friction model in .sw file is inconsistent with FRICTION_MODEL compilation flag" << std::endl;
+        std::cerr << RERROR "Friction model in .sw file is inconsistent with SERGHEI_FRICTION_MODEL compilation flag" << std::endl;
         return 0;
       }
       sw.roughness  = atof(sw.roughnessInput.c_str());
@@ -1398,14 +1472,15 @@ public:
 			 	return 0;
 			 }
         }
-        Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
+	real roughness = sw.roughness;
+        Kokkos::parallel_for("init_roughness", dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
           int i,j;
           unpackIndices(iGlob,dom.ny,dom.nx,j,i);
           int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;
-          state.roughness(ii) = sw.roughness;
+          state.roughness(ii) = roughness;
         });
         if (par.masterproc){
-          std::cout << BDASH "Friction coefficient set constant to " << sw.roughness << std::endl;
+          std::cout << BDASH "Friction coefficient set constant to " << roughness << std::endl;
         }
       }
     }
@@ -1428,17 +1503,18 @@ public:
     }
     else{
       if(!sw.initialMode.compare("dry")) sw.initialValue = 0.;
-      Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
+      real initialValue = sw.initialValue;
+      Kokkos::parallel_for("set_init_dry", dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
         int i,j;
         unpackIndices(iGlob,dom.ny,dom.nx,j,i);
         int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;
-        state.h(ii) = sw.initialValue;
+        state.h(ii) = initialValue;
         state.hu(ii) = state.hv(ii) = 0.;
       });
     }
 
     if(!sw.initialMode.compare("h+z")){
-      Kokkos::parallel_for( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
+      Kokkos::parallel_for("set_init_h+z", dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
         int i,j;
         unpackIndices(iGlob,dom.ny,dom.nx,j,i);
         int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;

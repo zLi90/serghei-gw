@@ -131,11 +131,11 @@ public:
           	Kokkos::fence();	// ensure no kernels are running, we need everything available in host memory
 
             //Pre-post the receives
-            ierr = MPI_Irecv( haloRecvBufW.data() , nBufW , MPI_DOUBLE , par.neigh(1,0) , 0 , MPI_COMM_WORLD , &rReq[0] );
-            ierr = MPI_Irecv( haloRecvBufE.data() , nBufE , MPI_DOUBLE , par.neigh(1,2) , 1 , MPI_COMM_WORLD , &rReq[1] );
+            ierr = MPI_Irecv( haloRecvBufW.data() , nBufW , SERGHEI_MPI_REAL , par.neigh(1,0) , 0 , MPI_COMM_WORLD , &rReq[0] );
+            ierr = MPI_Irecv( haloRecvBufE.data() , nBufE , SERGHEI_MPI_REAL , par.neigh(1,2) , 1 , MPI_COMM_WORLD , &rReq[1] );
             //Send the data
-            ierr = MPI_Isend( haloSendBufW.data() , nBufW , MPI_DOUBLE , par.neigh(1,0) , 1 , MPI_COMM_WORLD , &sReq[0] );
-            ierr = MPI_Isend( haloSendBufE.data() , nBufE , MPI_DOUBLE , par.neigh(1,2) , 0 , MPI_COMM_WORLD , &sReq[1] );
+            ierr = MPI_Isend( haloSendBufW.data() , nBufW , SERGHEI_MPI_REAL , par.neigh(1,0) , 1 , MPI_COMM_WORLD , &sReq[0] );
+            ierr = MPI_Isend( haloSendBufE.data() , nBufE , SERGHEI_MPI_REAL , par.neigh(1,2) , 0 , MPI_COMM_WORLD , &sReq[1] );
 
           	//Wait for the sends and receives to finish
           	ierr = MPI_Waitall(2, sReq, sStat);
@@ -195,11 +195,11 @@ public:
           	Kokkos::fence();	// ensure no kernels are running, we need everything available in host memory
 
             //Pre-post the receives
-            ierr = MPI_Irecv( haloRecvBufN.data() , nBufN , MPI_DOUBLE , par.neigh(0,1) , 0 , MPI_COMM_WORLD , &rReq[0] );
-            ierr = MPI_Irecv( haloRecvBufS.data() , nBufS , MPI_DOUBLE , par.neigh(2,1) , 1 , MPI_COMM_WORLD , &rReq[1] );
+            ierr = MPI_Irecv( haloRecvBufN.data() , nBufN , SERGHEI_MPI_REAL , par.neigh(0,1) , 0 , MPI_COMM_WORLD , &rReq[0] );
+            ierr = MPI_Irecv( haloRecvBufS.data() , nBufS , SERGHEI_MPI_REAL , par.neigh(2,1) , 1 , MPI_COMM_WORLD , &rReq[1] );
             //Send the data
-            ierr = MPI_Isend( haloSendBufN.data() , nBufN , MPI_DOUBLE , par.neigh(0,1) , 1 , MPI_COMM_WORLD , &sReq[0] );
-            ierr = MPI_Isend( haloSendBufS.data() , nBufS , MPI_DOUBLE , par.neigh(2,1) , 0 , MPI_COMM_WORLD , &sReq[1] );
+            ierr = MPI_Isend( haloSendBufN.data() , nBufN , SERGHEI_MPI_REAL , par.neigh(0,1) , 1 , MPI_COMM_WORLD , &sReq[0] );
+            ierr = MPI_Isend( haloSendBufS.data() , nBufS , SERGHEI_MPI_REAL , par.neigh(2,1) , 0 , MPI_COMM_WORLD , &sReq[1] );
 
           	//Wait for the sends and receives to finish
           	ierr = MPI_Waitall(2, sReq, sStat);

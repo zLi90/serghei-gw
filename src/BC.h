@@ -32,14 +32,18 @@
 #define SUB_BC_H_SWE 5
 
 
-class ExtBC {
 
+KOKKOS_INLINE_FUNCTION real criticalDepth(real hu, real hv, real Fr){
+  return(cbrt((hu*hu+hv*hv)/(GRAV*Fr*Fr)));
+}
+
+class ExtBC {
+// this class is safe to invoke in a parallel region
 public:
-	std::string id;
 	int ncellsBC = 0; //number of bcells
 	intArr bcells; //array of indexes of boundary cells
 	real normalx, normaly; //direction set by user for inflow/outflow
-	int location; //1->west, 2->north, 3->east, 4-> south 
+	int location; //1->west, 2->north, 3->east, 4-> south
 	int bctype;
 	int isInDomain;
   realArr bcvals;
@@ -50,16 +54,25 @@ public:
 	real adjustedVolume = 0;
 	TimeSeries hydrograph;
 
-  std::string BoundaryTypes[13] = {"NONE","PERIODIC","REFLECTIVE","TRANSMISSIVE","NONE","CRITICAL","CONSTANT DEPTH","CONSTANT INFLOW","CONSTANT WSELEVATION","FREE OUTFLOW","STAGE HYDROGRAPH INLET","STAGE HYDROGRAPH OUTLET", "HYDROGRAPH"};
+  real hzMin=1E6; // lowest water surface in boundary cross section
+  real zMin=1E6; // lowest bed elevation in boundary cross section
+	real zMax=-1E6;
+  int nzMin=0;
 
-	inline int find_bcells(State &state, ExtBC &extbc, Domain &dom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly){
+	MPI_Comm comm;	// communicator for ranks associated to the BC
+
+
+
+	inline int find_bcells(State &state, std::string &id, Domain &dom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly){
+		int foundInSubdom; // to keep track of which subdomains are associated to this boundary
 		std::vector<int> tmpbcells; //array of indexes of boundary cells
+		std::vector<int> subdomains;	// keeps track of which subdomains are associated to the BC
 
-		for(int iGlob=0;iGlob<dom.nx*dom.ny;iGlob++){
+		for(int iGlob=0; iGlob<dom.nx*dom.ny; iGlob++){
 			int i,j;
 			unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 			int ii=(hc+j)*(dom.nx+2*hc)+hc+i;//index with the extended domain (including halo cells)
-
+			foundInSubdom = -1;
 			if(!state.isnodata(ii)){
 				if((j==0&&dom.iN) || (j==dom.ny-1&&dom.iS) || (i==0&&dom.iW) || (i==dom.nx-1&&dom.iE) ||
 				state.isnodata(ii+1) || state.isnodata(ii-1) ||
@@ -67,41 +80,73 @@ public:
 				//boundary domain || nodata neighbours
 					real xCoord = dom.xll + ( par.i_beg + i + 0.5) * dom.dx;
 					real yCoord = dom.yll + dom.ny_glob*dom.dx - ( par.j_beg + j + 0.5) * dom.dx;
-					if(isInsidePoly(nPoly,xPoly, yPoly, xCoord, yCoord)){
+					if(geometry::isInsidePoly(nPoly,xPoly, yPoly, xCoord, yCoord)){
 						tmpbcells.push_back(ii);
 						//it is important to add the outflow direction because there might be cells with double boundary walls
 						//the value of -3000.0 is set as a very low number value. First, the elevation of the contiguous cell was imposed, but when dealing with no data and sawtooth pattern with extbc there might be some problems because a ghost cell can be the neighbour of more than one boundary cells with different elevations. Therefore, it is not clear which elevation is the best (should be the minimum of them to avoid wet/dry/solid wall problems. In this case, a very low number is chosen (-3000.0)
-						if(state.isnodata(ii+1) && fabs(extbc.normalx)>0.0){
+						if(state.isnodata(ii+1) && fabs(normalx)>0.0){
 							state.z(ii+1)=-3000.0; //set the elevation of the neighbour (it was nodata) to allow the water to flow
 						}
-						if(state.isnodata(ii-1)&& fabs(extbc.normalx)>0.0){
+						if(state.isnodata(ii-1)&& fabs(normalx)>0.0){
 							state.z(ii-1)=-3000.0; //set the elevation of the neighbour (it was nodata) to allow the water to flow
 						}
-						if(state.isnodata(ii-(dom.nx+2*hc)) && fabs(extbc.normaly)>0.0){
+						if(state.isnodata(ii-(dom.nx+2*hc)) && fabs(normaly)>0.0){
 							state.z(ii-(dom.nx+2*hc))=-3000.0; //set the elevation of the neighbour (it was nodata) to allow the water to flow
 						}
-						if(state.isnodata(ii+(dom.nx+2*hc))&& fabs(extbc.normaly)>0.0){
+						if(state.isnodata(ii+(dom.nx+2*hc))&& fabs(normaly)>0.0){
 							state.z(ii+(dom.nx+2*hc))=-3000.0; //set the elevation of the neighbour (it was nodata) to allow the water to flow
 						}
-
 					}
 
 				}
 			}
 		}
-		extbc.ncellsBC=int(tmpbcells.size());
+		ncellsBC=int(tmpbcells.size());
+		if(ncellsBC > 0) foundInSubdom = par.myrank; // if at least one cell in this subdomain (rank) is in the BC, tag as found
 
 		int ncells_all;
-      MPI_Allreduce(&extbc.ncellsBC, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&ncellsBC, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+		int *subdoms;
+		subdoms = (int*) malloc(par.nranks * sizeof(int));
+		MPI_Allgather(&foundInSubdom,1,MPI_INT,subdoms,1,MPI_INT,MPI_COMM_WORLD);
+		#if SERGHEI_DEBUG_BOUNDARY
+			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "ncellsBC " << ncells_all << std::endl;
+			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "BC subdomains: " ;
+			for (int i=0; i<par.nranks; i++){
+				std::cout << GGD << " ";
+				if(subdoms[i]==par.myrank) std::cout << RED;
+				std::cout << subdoms[i] << "\t"<< RESET ;
+			}
+			std::cout << std::endl;
+		#endif
+
+		for(int i=0; i<par.nranks; i++){
+			if(subdoms[i] >= 0){
+				subdomains.push_back(subdoms[i]);
+			}
+		}
+		#if SERGHEI_DEBUG_BOUNDARY
+			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "Consolidated BC subdomains = ";
+			for(int i=0; i<subdomains.size(); i++){
+				std::cout << GGD << " " ;
+				std::cout << subdomains[i] << "\t";
+			}
+ 			std::cout << std::endl;
+		#endif
+		MPI_Group group, subgroup;
+		MPI_Comm_group(MPI_COMM_WORLD,&group);
+		MPI_Group_incl(group,subdomains.size(),subdomains.data(),&subgroup);
+		MPI_Comm_create(MPI_COMM_WORLD,subgroup,&comm);
 
 		//we need the total boundary cells detected by all subdomain to launch an error otherwise
 		if(ncells_all>0){
-			extbc.bcells=intArr("bcells", extbc.ncellsBC);
+			bcells=intArr("bcells", ncellsBC);
 			#ifdef __NVCC__
-				cudaMemcpyAsync( extbc.bcells.data() , tmpbcells.data() , extbc.ncellsBC*sizeof(int) , cudaMemcpyHostToDevice );
+				cudaMemcpyAsync( bcells.data() , tmpbcells.data() , ncellsBC*sizeof(int) , cudaMemcpyHostToDevice );
 				cudaDeviceSynchronize();
 			#else
-				std::memcpy(extbc.bcells.data(), tmpbcells.data(), extbc.ncellsBC*sizeof(int));
+				std::memcpy(bcells.data(), tmpbcells.data(), ncellsBC*sizeof(int));
 			#endif
 		}
 		else{
@@ -114,42 +159,403 @@ public:
 		return 1;
 	}
 
+  void inline getMinBedElevation(State &state){
+		Kokkos::parallel_reduce("swe_bc_z_min", ncellsBC, KOKKOS_CLASS_LAMBDA(int iGlob, real &zMin){
+		  int ii = bcells[iGlob];
+			real z = state.z(ii);
+			zMin = min(zMin,z);
+		}, Kokkos::Min<real>(zMin) );
+    real zMin_all;
+    MPI_Allreduce(&zMin, &zMin_all, 1, SERGHEI_MPI_REAL, MPI_MIN, comm);
+		zMin = zMin_all;
 
+		Kokkos::parallel_reduce("swe_bc_z_max", ncellsBC, KOKKOS_CLASS_LAMBDA(int iGlob, real &zMax){
+		  int ii = bcells[iGlob];
+			real z = state.z(ii);
+			zMax = max(zMax,z);
+		}, Kokkos::Max<real>(zMax) );
+    real zMax_all;
+    MPI_Allreduce(&zMax, &zMax_all, 1, SERGHEI_MPI_REAL, MPI_MAX, comm);
+		zMax = zMax_all;
 
-	//returns 1 if the coordinate is inside, 0 otherwise
-	int isInsidePoly(int np, realArr &xPoly, realArr &yPoly, real &xCoord, real &yCoord) {
+    nzMin=0;
+    Kokkos::parallel_reduce("swe_bc_z_min_count", ncellsBC, KOKKOS_CLASS_LAMBDA(int iGlob, int &nzMin){
+		  int ii = bcells[iGlob];
+			if(state.z(ii) == zMin) nzMin++;
+		}, Kokkos::Sum<int>(nzMin) );
+    int nzMin_all;
+    MPI_Allreduce(&nzMin, &nzMin_all, 1, MPI_INT, MPI_SUM, comm);
+		nzMin = nzMin_all;
 
-		int count;
-		int i;
-		double xInter;
-		real x1,x2,y1,y2;
+    #if SERGHEI_DEBUG_BOUNDARY
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "zMin = " << zMin << "\tnzMin = " << nzMin << std::endl;
+    #endif
+  }
 
-		count=0;
-		for (i=0;i<np;i++){
-			x1= xPoly(i);
-			y1= yPoly(i);
-			x2= xPoly((i+1)%np);
-			y2= yPoly((i+1)%np);
-			if ((yCoord > fmin(y1,y2)) && (yCoord <= fmax(y1,y2)) && (xCoord <= fmax(x1,x2))) {
-			  if (y1 != y2) {
-				 xInter = x1 + (yCoord-y1)*(x2-x1)/(y2-y1);
-				 if (x1 == x2 || xCoord <= xInter){
-						count++;
-				 }
-			  }
+	void inline flattenWaterSurface(State &state, Domain &dom){
+		#if SERGHEI_DEBUG_BOUNDARY
+		  std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+		#endif
+    hzMin=zMin=1E6;
+		real extraVol=0;
+		real extraArea=0;
+
+		// find the lowest water surface in the cross section
+		Kokkos::parallel_reduce("swe_bc_flatten_hz", ncellsBC, KOKKOS_CLASS_LAMBDA(int iGlob, real &hzMin){
+		  int ii = bcells[iGlob];
+			real h = state.h(ii);
+			real z = state.z(ii);
+			if(h > state.hmin) hzMin = min(hzMin,h+z);
+		}, Kokkos::Min<real>(hzMin) );
+
+		real hzMin_all;
+    MPI_Allreduce(&hzMin, &hzMin_all, 1, SERGHEI_MPI_REAL, MPI_MIN, comm);
+		hzMin = hzMin_all;
+
+		// find the volume above the lowest water surface
+		real area = dom.cellArea();	// WARNING assumes uniform mesh
+		Kokkos::parallel_reduce("swe_bc_vol_minhz", ncellsBC, KOKKOS_CLASS_LAMBDA(int iGlob, real &volume){
+			int ii = bcells[iGlob];
+			real h = state.h(ii);
+			real z = state.z(ii);
+			if(h > state.hmin){
+				if(z <= hzMin){
+					volume += area * (h + z - hzMin);
+				}else{
+					volume += area * h;
+				}
 			}
-		}
+		}, Kokkos::Sum<real>(extraVol) );
+		real extraVol_all;
 
-		if(count % 2 == 0){
-			return 0;
-		}else{
-			return 1;
+    MPI_Allreduce(&extraVol, &extraVol_all, 1, SERGHEI_MPI_REAL, MPI_SUM, comm);
+		extraVol = extraVol_all;
+
+		if(extraVol > ZERO){
+			// compute the surface area with water level higher than the cross-sectional minimum
+			Kokkos::parallel_reduce("swe_bc_area_minhz", ncellsBC, KOKKOS_CLASS_LAMBDA(int iGlob, real &sumarea){
+				int ii = bcells[iGlob];
+				real h = state.h(ii);
+				real z = state.z(ii);
+				if(h > state.hmin && z < hzMin && hzMin-z >0){
+					sumarea += area;
+				}
+			}, Kokkos::Sum<real>(extraArea) );
+			real extraArea_all;
+    			MPI_Allreduce(&extraArea, &extraArea_all, 1, SERGHEI_MPI_REAL, MPI_SUM, comm);
+			extraArea = extraArea_all;
+
+			// compute and assign homogenised water surface
+			real hz = hzMin + extraVol / extraArea;
+			Kokkos::parallel_for("swe_bc_h_minhz", ncellsBC, KOKKOS_CLASS_LAMBDA(int iGlob){
+				int ii = bcells[iGlob];
+				real h = state.h(ii);
+				real z = state.z(ii);
+				if(h > state.hmin){
+					state.h(ii) = 0.;
+					if(z <= hzMin) state.h(ii) = max(hz - z, (real) 0.);
+				}
+			});
 		}
+	}
+
+
+	void inline distributeDischarge(State &state, Domain const &dom, real Q){
+		#if SERGHEI_DEBUG_BOUNDARY
+		  std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+		#endif
+		real hsum;
+		Kokkos::parallel_reduce("swe_bc_h_weight", ncellsBC, KOKKOS_CLASS_LAMBDA(int iGlob, real &hsum){
+			int ii = bcells[iGlob];
+			hsum += state.h(ii);
+		}, Kokkos::Sum<real>(hsum) );
+		real hsum_all;
+    		MPI_Allreduce(&hsum, &hsum_all, 1, SERGHEI_MPI_REAL, MPI_SUM, comm);
+		hsum = hsum_all;
+
+    int dryxs = 0;
+		real dz, hz;
+    if(hsum <= ZERO){ // dry cross section
+      getMinBedElevation(state);
+      dryxs=1;
+			dz = zMax-zMin;
+			hz = zMin + 0.10*dz;	// initialise with 10% of the elevation difference in the cross section
+			#if SERGHEI_DEBUG_BOUNDARY
+				std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "zMin = " << zMin << "\tzMax = " << zMax << "\tdz = " << dz << "\thz = " << hz << std::endl;
+			#endif
+    }
+		Kokkos::parallel_for("swe_bc_h_minhz", ncellsBC, KOKKOS_CLASS_LAMBDA(int iGlob){
+			int ii = bcells[iGlob];
+			real h = state.h(ii);
+      real z = state.z(ii);
+      real weight = 0;
+			if(!dryxs){ // wet cross section
+        weight = h/hsum;
+      }else{
+				h = max(hz,z) - z;
+				state.h(ii) = h;
+        if(z == zMin) weight = 1./nzMin; // dry cross section
+      }
+			real ds = dom.dx; // WARNING UCM
+			state.hu(ii) = Q * weight / ds * normalx;
+			state.hv(ii) = Q * weight / ds * normaly;
+
+			#if SERGHEI_DEBUG_BOUNDARY > 1
+				std::cout << GGD  << GRAY << __PRETTY_FUNCTION__ << RESET << "Q = " << Q << "\tii = " << ii << "\tz = " << z << "\t h = " << h << "\tweight = " << weight << "\tds = " << ds  << "\t(hu,hv) = " << state.hu(ii) << " " << state.hv(ii) << std::endl;
+			#endif
+		});
+
+	}
+
+  inline void apply(State &state, Domain &dom) {
+    #if SERGHEI_DEBUG_WORKFLOW
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
+    Kokkos::Timer timer;
+
+    real extraMass=0.0;
+
+    if(ncellsBC > 0){
+	  	switch (bctype){
+      	default:
+	      	std::cerr << RERROR "Boundary type: " << bctype << " not recognised." << std::endl;
+	        std::cerr << RERROR "No boundary condition applied." << std::endl;
+	        exit(EXIT_FAILURE);
+          break;
+
+        case SWE_BC_CRITICAL: // critical flow boundary condition
+	#if SERGHEI_DEBUG_BOUNDARY
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "SWE_BC_CRITICAL" << std::endl;
+	#endif
+	      	Kokkos::parallel_for("swe_bc_critical",ncellsBC , KOKKOS_CLASS_LAMBDA (int iGlob){
+		      	int ii=bcells[iGlob];
+		        real h=state.h(ii);
+		        if( h>=state.hmin) {
+            	real hu=state.hu(ii);
+		          real hv=state.hv(ii);
+		          real vel=1.0*sqrt(GRAV*h); //Froude 1.0 (critical)
+		          hu=vel*h*normalx;
+		          hv=vel*h*normaly;
+		          state.hu(ii)=hu;
+		          state.hv(ii)=hv;
+		        }
+				  });
+        	break;
+
+        case SWE_BC_WSE_CONST: // constant free surface elevation
+	#if SERGHEI_DEBUG_BOUNDARY
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "SWE_BC_WSE_CONST" << std::endl;
+	#endif
+          Kokkos::parallel_reduce("swe_bc_swe_const",ncellsBC, KOKKOS_CLASS_LAMBDA (int iGlob, real &sumM){
+            int ii = bcells[iGlob];
+            real h = state.h(ii);
+	    real hu= state.hu(ii);
+	    real hv= state.hv(ii);
+            real z = state.z(ii);
+            state.h(ii) = max(bcvals(0) - z, (real) 0.0); // enforce water depth positivity
+            sumM += (state.h(ii)-h)*dom.dx*dom.dx;
+		        //orientation wrt to the outflow normal direction
+						real modQ=sqrt(hu*hu+hv*hv);
+		        state.hu(ii)=normalx*modQ;
+		        state.hv(ii)=normaly*modQ;
+          }, Kokkos::Sum<real>(extraMass));
+	      break;
+
+	      case SWE_BC_H_CONST: // constant depth boundary condition
+	#if SERGHEI_DEBUG_BOUNDARY
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "SWE_BC_H_CONST" << std::endl;
+	#endif
+	        Kokkos::parallel_reduce("swe_bc_h_const",ncellsBC, KOKKOS_CLASS_LAMBDA (int iGlob, real &sumM){
+	          int ii = bcells[iGlob];
+			      real h = state.h(ii);
+					 	real hu= state.hu(ii);
+					 	real hv= state.hv(ii);
+
+            state.h(ii) = bcvals(0);
+		       	sumM += (state.h(ii)-h)*dom.dx*dom.dx;
+			      //orientation wrt to the outflow normal direction
+						real modQ=sqrt(hu*hu+hv*hv);
+		        state.hu(ii)=normalx*modQ;
+		        state.hv(ii)=normaly*modQ;
+
+          }, Kokkos::Sum<real>(extraMass) );
+        break;
+
+        case SWE_BC_Q_CONST: // constant inflow discharge boundary condition
+	#if SERGHEI_DEBUG_BOUNDARY
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "SWE_BC_Q_CONST" << std::endl;
+	#endif
+          Kokkos::parallel_reduce("swe_bc_q_const",ncellsBC, KOKKOS_CLASS_LAMBDA (int iGlob, real &sumM){
+          int ii = bcells[iGlob];
+          real h = state.h(ii);
+          real qbc_x = bcvals(1);
+ 			    real qbc_y = bcvals(2);
+
+			    //check if water depth is subcritical (Froude
+			    //number less than 0.99). Otherwise impose
+			    //boundary condition water depth
+			    real inletFr=0.99;
+			    //real hcr=cbrt((qbc_x*qbc_x+qbc_y*qbc_y)/(GRAV*inletFr*inletFr));
+          real hcr = criticalDepth(qbc_x,qbc_y,inletFr);
+
+			    //TODO: add this mass in case h is less than hcr
+			    //state.h(ii) = max(h, hcr);
+			    if (hcr > h) state.h(ii) = bcvals(0);
+
+          sumM += (state.h(ii)-h)*dom.dx*dom.dx;
+
+			    state.hu(ii) = qbc_x;
+			    state.hv(ii) = qbc_y;
+        }, Kokkos::Sum<real>(extraMass));
+        break;
+
+        case SWE_BC_FREE_OUTFLOW: // zero gradient or free boundary
+	#if SERGHEI_DEBUG_BOUNDARY
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "SWE_BC_FREE_OUTFLOW" << std::endl;
+	#endif
+          /*Kokkos::parallel_for(ncellsBC , KOKKOS_LAMBDA (int iGlob){
+            int ii=bcells[iGlob];
+				    //orientation wrt to the outflow direction
+					 real hu= state.hu(ii);
+				 	 real hv= state.hv(ii);
+					 real modQ=sqrt(hu*hu+hv*hv);
+		          state.hu(ii)=normalx*modQ;
+		          state.hv(ii)=normaly*modQ;
+
+          });*/
+        break;
+
+        case SWE_BC_HZ_T_INLET: // stage hydrograph inlet
+        {
+	#if SERGHEI_DEBUG_BOUNDARY
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "SWE_BC_HZ_T_INLET" << std::endl;
+	#endif
+          real hzBC = interpolateLinear(hydrograph,dom.etime);
+          #if SERGHEI_DEBUG_BOUNDARY
+            std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "time = " << dom.etime << "\th+z = " << hzBC << std::endl;
+          #endif
+	        Kokkos::parallel_reduce("swe_bc_hz_t_inlet",ncellsBC, KOKKOS_CLASS_LAMBDA (int iGlob, real &sumM){
+            int ii = bcells[iGlob];
+            real h = state.h(ii);
+				 		real hu= state.hu(ii);
+				 		real hv= state.hv(ii);
+
+			    	state.h(ii) = max(hzBC-state.z(ii), 0.0);
+            sumM += (state.h(ii)-h)*dom.dx*dom.dx;
+
+            /*
+			    	//orientation wrt to the outflow normal direction
+				 		real modQ=sqrt(hu*hu+hv*hv);
+		       	state.hu(ii)=normalx*modQ;
+		       	state.hv(ii)=normaly*modQ;
+            */
+
+					}, Kokkos::Sum<real>(extraMass) );
+        	break;
+        }
+
+        case SWE_BC_HZ_T_OUTLET: // stage hydrograph outlet
+      	{
+	#if SERGHEI_DEBUG_BOUNDARY
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "SWE_BC_HZ_T_OUTLET" << std::endl;
+	#endif
+          real hzBC = interpolateLinear(hydrograph,dom.etime);
+          #if SERGHEI_DEBUG_BOUNDARY
+            std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "time = " << dom.etime << "\th+z = " << hzBC << std::endl;
+          #endif
+	        Kokkos::parallel_reduce("swe_bc_hz_t_outlet",ncellsBC, KOKKOS_CLASS_LAMBDA (int iGlob, real &sumM){
+            int ii = bcells[iGlob];
+            real h = state.h(ii);
+			    	state.h(ii) = max(hzBC-state.z(ii),(real) 0.0);
+            sumM += (state.h(ii)-h)*dom.dx*dom.dx;
+
+			    	//no orientation wrt to the outflow normal direction to allow tidal wave coming into the domain
+					}, Kokkos::Sum<real>(extraMass) );
+        	break;
+        }
+
+				case SWE_BC_Q_T:	// hydrograph
+				{
+	#if SERGHEI_DEBUG_BOUNDARY
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "SWE_BC_Q_T" << std::endl;
+	#endif
+					real Q = interpolateLinear(hydrograph,dom.etime);
+					#if SERGHEI_DEBUG_BOUNDARY
+            std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "HYDROGRAPH BC: time = " << dom.etime << "\tQ = " << Q << std::endl;
+					#endif
+					flattenWaterSurface(state,dom);
+					distributeDischarge(state,dom,Q);
+					//extraMass = Q;
+					break;
+				}
+	  	} // end switch
+  	} // endif ncellsBC
+
+	 	adjustedVolume=extraMass; //extraMass per bc
+  	dom.timers.swe += timer.seconds();
+  }
+
+
+  inline void integrate(State &state, Domain &dom) {
+    #if SERGHEI_DEBUG_WORKFLOW
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
+    Kokkos::Timer timer;
+    real outDischarge=0.0;
+    real inDischarge=0.0;
+    real totalDischarge=0.0;
+
+    if(ncellsBC > 0){
+			//discharge integration
+			Kokkos::parallel_reduce("reduceDischargeBC",ncellsBC, KOKKOS_CLASS_LAMBDA (int iGlob, real &sumD){
+				int ii = bcells[iGlob];
+		    if( state.h(ii)>=state.hmin) {
+					//the integration is done over all boundary walls according to the outflow direction
+					sumD += (state.hu(ii)*sgn(normalx) + state.hv(ii)*sgn(normaly)) * dom.dx;
+				}
+			}, Kokkos::Sum<real>(totalDischarge));
+
+	    switch (bctype){
+				case SWE_BC_CRITICAL:
+				case SWE_BC_H_CONST:
+				case SWE_BC_WSE_CONST:
+				case SWE_BC_FREE_OUTFLOW:
+      	case SWE_BC_HZ_T_OUTLET:
+					outDischarge=totalDischarge;
+					break;
+				case SWE_BC_Q_CONST:
+				case SWE_BC_HZ_T_INLET:
+				case SWE_BC_Q_T:
+					inDischarge=totalDischarge;
+					break;
+			  default:
+					std::cerr << RERROR " Boundary type: " << bctype << " not recognized." << std::endl;
+			 		std::cerr << RERROR " No boundary condition applied." << std::endl;
+			 		exit(EXIT_FAILURE);
+		  }
+			#if SERGHEI_DEBUG_BOUNDARY
+				std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "totalDischarge = " << totalDischarge << std::endl;
+				std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "inDischarge = " << inDischarge << std::endl;
+				std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "outDischarge = " << outDischarge << std::endl;
+			#endif
+		}
+    inflowDischarge = inDischarge; //inflowdischarge local per bc
+    outflowDischarge = outDischarge; //outflowdischarge local per bc
+    inflowAccumulated += inDischarge*dom.dt; //inflowAccumulated local per bc
+	 	outflowAccumulated += outDischarge * dom.dt; //outflowaccumulated local per bc
+
+    dom.timers.swe += timer.seconds();
 	}
 
 
 
 };
 
-
+class ExternalBoundaries{
+// This class should not be invoked form a parallel region as it contains strings
+public:
+  	std::string BoundaryTypes[13] = {"NONE","PERIODIC","REFLECTIVE","TRANSMISSIVE","NONE","CRITICAL","CONSTANT DEPTH","CONSTANT INFLOW","CONSTANT WSELEVATION","FREE OUTFLOW","STAGE HYDROGRAPH INLET","STAGE HYDROGRAPH OUTLET", "HYDROGRAPH"};
+	std::vector<std::string> id;
+	std::vector<ExtBC> extbc;
+};
 #endif

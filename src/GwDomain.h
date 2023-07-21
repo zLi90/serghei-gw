@@ -20,7 +20,6 @@ public:
 class GwBC {
 
 public:
-	std::string id;
 	int ncellsBC = 0; //number of bcells
 	intArr bcells; //array of indexes of boundary cells
 	real normalx, normaly; //direction set by user for inflow/outflow
@@ -31,14 +30,6 @@ public:
 	real hbcXP, hbcXM, hbcYP, hbcYM, hbcZP, hbcZM;
 	int isInDomain;
   	realArr bcvals;
-	real outflowDischarge;
-	real outflowAccumulated = 0;
-	real inflowDischarge;
-	real inflowAccumulated = 0;
-	real adjustedVolume = 0;
-	TimeSeries hydrograph;
-    std::string BoundaryTypes[13] = {"NONE","PERIODIC","REFLECTIVE","TRANSMISSIVE","NONE","CRITICAL","CONSTANT DEPTH","CONSTANT INFLOW","CONSTANT WSELEVATION","FREE OUTFLOW","STAGE HYDROGRAPH INLET","STAGE HYDROGRAPH OUTLET", "HYDROGRAPH"};
-
 
 };
 

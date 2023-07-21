@@ -27,21 +27,20 @@ public:
   SArray<int,3,3> neigh;
 };
 
-inline void printKokkosInitArguments(Kokkos::InitArguments const &args, Parallel const &par){
-  std::cout << "MPI Rank " << par.myrank << "\tnum_threads " << args.num_threads << std::endl;
-  std::cout << "MPI Rank " << par.myrank << "\tnum_numa " << args.num_numa << std::endl;
-  std::cout << "MPI Rank " << par.myrank << "\tdevice_id " << args.device_id << std::endl;
-  std::cout << "MPI Rank " << par.myrank << "\tndevices " << args.ndevices << std::endl;
-  std::cout << "MPI Rank " << par.myrank << "\tskip_device " << args.skip_device << std::endl;
+inline void printKokkosInitArguments(Kokkos::InitializationSettings const &args, Parallel const &par){
+  std::cout << "MPI Rank " << par.myrank << "\tnum_threads " << args.get_num_threads() << std::endl;
+  std::cout << "MPI Rank " << par.myrank << "\tdevice_id " << args.get_device_id() << std::endl;
+  std::cout << "MPI Rank " << par.myrank << "\tndevices " << args.get_num_devices() << std::endl;
+  std::cout << "MPI Rank " << par.myrank << "\tskip_device " << args.get_skip_device() << std::endl;
 }
 
 #ifdef __NVCC__
-inline int printKokkosCuda(Kokkos::InitArguments const &args, Parallel const &par){
+inline int printKokkosCuda(Kokkos::InitializationSettings const &args, Parallel const &par){
 	int deviceCount = 0;
 	cudaGetDeviceCount(&deviceCount);
 	std::cout << "MPI Rank " << par.myrank << "\tcudaGetDeviceCount = " << deviceCount << std::endl;
 
-  int device = args.device_id;
+  int device = args.get_device_id();
   cudaDeviceProp deviceProp;
   cudaError_t result = cudaGetDeviceProperties(&deviceProp, device);
   if (cudaSuccess != result) {

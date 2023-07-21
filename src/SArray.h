@@ -23,17 +23,17 @@ protected:
 
 public :
 
-  _HOSTDEV SArray() { }
-  _HOSTDEV ~SArray() { }
+  KOKKOS_INLINE_FUNCTION SArray() { }
+  KOKKOS_INLINE_FUNCTION ~SArray() { }
 
-  inline _HOSTDEV T &operator()(ulong const i0)       {
+  KOKKOS_INLINE_FUNCTION T &operator()(ulong const i0)       {
     #ifdef ARRAY_DEBUG
       if (D1*D2*D3 > 1) {std::cout << "SArray: Using 2D or higher array as 1D array\n";}
       if (i0>D0-1) { printf("i0 > D0-1"); exit(-1); }
     #endif
     return data[i0];
   }
-  inline _HOSTDEV T &operator()(ulong const i0, ulong const i1)       {
+  KOKKOS_INLINE_FUNCTION T &operator()(ulong const i0, ulong const i1)       {
     #ifdef ARRAY_DEBUG
       if (D2*D3 > 1) {std::cout << "SArray: Using 3D or higher array as 2D array\n";}
       if (i0>D0-1) { printf("i0 > D0-1"); exit(-1); }
@@ -41,7 +41,7 @@ public :
     #endif
     return data[i0*D1 + i1];
   }
-  inline _HOSTDEV T &operator()(ulong const i0, ulong const i1, ulong const i2)       {
+  KOKKOS_INLINE_FUNCTION T &operator()(ulong const i0, ulong const i1, ulong const i2)       {
     #ifdef ARRAY_DEBUG
       if (D3 > 1) {std::cout << "SArray: Using 4D or higher array as 3D array\n";}
       if (i0>D0-1) { printf("i0 > D0-1"); exit(-1); }
@@ -50,7 +50,7 @@ public :
     #endif
     return data[i0*D1*D2 + i1*D2 + i2];
   }
-  inline _HOSTDEV T &operator()(ulong const i0, ulong const i1, ulong const i2, ulong const i3)       {
+  KOKKOS_INLINE_FUNCTION T &operator()(ulong const i0, ulong const i1, ulong const i2, ulong const i3)       {
     #ifdef ARRAY_DEBUG
       if (i0>D0-1) { printf("i0 > D0-1"); exit(-1); }
       if (i1>D1-1) { printf("i1 > D1-1"); exit(-1); }
@@ -60,14 +60,14 @@ public :
     return data[i0*D1*D2*D3 + i1*D2*D3 + i2*D3 + i3];
   }
 
-  inline _HOSTDEV T  operator()(ulong const i0) const {
+  KOKKOS_INLINE_FUNCTION T  operator()(ulong const i0) const {
     #ifdef ARRAY_DEBUG
       if (D1*D2*D3 > 1) {std::cout << "SArray: Using 2D or higher array as 1D array\n";}
       if (i0>D0-1) { printf("i0 > D0-1"); exit(-1); }
     #endif
     return data[i0];
   }
-  inline _HOSTDEV T  operator()(ulong const i0, ulong const i1) const {
+  KOKKOS_INLINE_FUNCTION T  operator()(ulong const i0, ulong const i1) const {
     #ifdef ARRAY_DEBUG
       if (D2*D3 > 1) {std::cout << "SArray: Using 3D or higher array as 2D array\n";}
       if (i0>D0-1) { printf("i0 > D0-1"); exit(-1); }
@@ -75,7 +75,7 @@ public :
     #endif
     return data[i0*D1 + i1];
   }
-  inline _HOSTDEV T  operator()(ulong const i0, ulong const i1, ulong const i2) const {
+  KOKKOS_INLINE_FUNCTION T  operator()(ulong const i0, ulong const i1, ulong const i2) const {
     #ifdef ARRAY_DEBUG
       if (D3 > 1) {std::cout << "SArray: Using 4D or higher array as 3D array\n";}
       if (i0>D0-1) { printf("i0 > D0-1"); exit(-1); }
@@ -84,7 +84,7 @@ public :
     #endif
     return data[i0*D1*D2 + i1*D2 + i2];
   }
-  inline _HOSTDEV T  operator()(ulong const i0, ulong const i1, ulong const i2, ulong const i3) const {
+  KOKKOS_INLINE_FUNCTION T  operator()(ulong const i0, ulong const i1, ulong const i2, ulong const i3) const {
     #ifdef ARRAY_DEBUG
       if (i0>D0-1) { printf("i0 > D0-1"); exit(-1); }
       if (i1>D1-1) { printf("i1 > D1-1"); exit(-1); }
@@ -94,7 +94,7 @@ public :
     return data[i0*D1*D2*D3 + i1*D2*D3 + i2*D3 + i3];
   }
 
-  template <class I, ulong E0> inline _HOSTDEV SArray<T,E0> operator*(SArray<I,D0> const &rhs) {
+  template <class I, ulong E0>  KOKKOS_INLINE_FUNCTION SArray<T,E0> operator*(SArray<I,D0> const &rhs) {
     //This template could match either vector-vector or matrix-vector multiplication
     if ( (D1*D2*D3 == 1) ) {
       // Both 1-D Arrays --> Element-wise multiplication
@@ -117,7 +117,7 @@ public :
     }
   }
 
-  template <class I, ulong E0> inline _HOSTDEV SArray<T,E0,D1> operator*(SArray<I,E0,D0> const &rhs) {
+  template <class I, ulong E0> KOKKOS_INLINE_FUNCTION SArray<T,E0,D1> operator*(SArray<I,E0,D0> const &rhs) {
     //This template matches Matrix-Matrix multiplication
     SArray<T,E0,D1> ret;
     for (ulong j=0; j<E0; j++) {
@@ -132,14 +132,14 @@ public :
     return ret;
   }
 
-  inline _HOSTDEV void operator=(T rhs) {
+  KOKKOS_INLINE_FUNCTION void operator=(T rhs) {
     //Scalar assignment
     for (ulong i=0; i<D0*D1*D2*D3; i++) {
       data[i] = rhs;
     }
   }
 
-  inline _HOSTDEV T sum() {
+  KOKKOS_INLINE_FUNCTION T sum() {
     //Scalar division
     T sum = 0.;
     for (ulong i=0; i<D0*D1*D2*D3; i++) {
@@ -148,21 +148,21 @@ public :
     return sum;
   }
 
-  inline _HOSTDEV void operator/=(T rhs) {
+  KOKKOS_INLINE_FUNCTION void operator/=(T rhs) {
     //Scalar division
     for (ulong i=0; i<D0*D1*D2*D3; i++) {
       data[i] = data[i] / rhs;
     }
   }
 
-  inline _HOSTDEV void operator*=(T rhs) {
+  KOKKOS_INLINE_FUNCTION void operator*=(T rhs) {
     //Scalar multiplication
     for (ulong i=0; i<D0*D1*D2*D3; i++) {
       data[i] = data[i] * rhs;
     }
   }
 
-  inline _HOSTDEV SArray<T,D0,D1,D2> operator*(T rhs) {
+  KOKKOS_INLINE_FUNCTION SArray<T,D0,D1,D2> operator*(T rhs) {
     //Scalar multiplication
     SArray<T,D0,D1,D2> ret;
     for (ulong i=0; i<D0*D1*D2*D3; i++) {
@@ -171,7 +171,7 @@ public :
     return ret;
   }
 
-  inline _HOSTDEV SArray<T,D0,D1,D2> operator/(T rhs) {
+  KOKKOS_INLINE_FUNCTION SArray<T,D0,D1,D2> operator/(T rhs) {
     //Scalar division
     SArray<T,D0,D1,D2> ret;
     for (ulong i=0; i<D0*D1*D2*D3; i++) {
@@ -200,14 +200,14 @@ public :
     return os;
   }
 
-inline _HOSTDEV  const SArray<T,D0,D1,D2> operator+(SArray<T,D0,D1,D2> const rhs) {
+KOKKOS_INLINE_FUNCTION  const SArray<T,D0,D1,D2> operator+(SArray<T,D0,D1,D2> const rhs) {
     SArray<T,D0,D1,D2> ret;
     for (ulong i=0; i<D0*D1*D2*D3; i++) {
       ret.data[i] = data[i] + rhs.data[i];
     }
     return ret;
   }
-inline _HOSTDEV  const SArray<T,D0,D1,D2> operator-(SArray<T,D0,D1,D2> const rhs) {
+KOKKOS_INLINE_FUNCTION  const SArray<T,D0,D1,D2> operator-(SArray<T,D0,D1,D2> const rhs) {
     SArray<T,D0,D1,D2> ret;
     for (ulong i=0; i<D0*D1*D2*D3; i++) {
       ret.data[i] = data[i] - rhs.data[i];
@@ -215,7 +215,7 @@ inline _HOSTDEV  const SArray<T,D0,D1,D2> operator-(SArray<T,D0,D1,D2> const rhs
     return ret;
   }
 
-  inline _HOSTDEV SArray<T,D0,D1,D2> unit() {
+  KOKKOS_INLINE_FUNCTION SArray<T,D0,D1,D2> unit() {
     // Unit vector
     T sum = 0.;
     for (ulong i=0; i<D0*D1*D2*D3; i++){

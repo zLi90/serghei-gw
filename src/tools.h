@@ -35,13 +35,13 @@ class ObservationGauge{
     int ic; // to store the physical cell index
     int id; // to store the subdomain where to find the gauge
 
-    inline void linkDomain(const Domain &dom){
+    KOKKOS_INLINE_FUNCTION void linkDomain(const Domain &dom){
       ii = dom.getIndexForPoint(x);
       ic = dom.getCellForPoint(x);
       id = dom.id;
     };
 
-    inline void fetchSurfaceState(const State &state){
+    KOKKOS_INLINE_FUNCTION void fetchSurfaceState(const State &state){
       if(ii < 0){  // gauge is undefined, therefore values should be zero, so they can be reduced with MPI_SUM
         sw.h = sw.hu = sw.hv = sw.z = 0.;
       }else{
@@ -106,16 +106,16 @@ class ObservationLine{
         ts = s[ip-1];   // distance to first segment point
         q[ig]=p[ip-1];  // coords of first segment point
         #if SERGHEI_DEBUG_LINE_RESAMPLE
-        std::cout << GGD << "ts= " << ts << std::endl;
-        std::cout << GGD << "q[" << ig << "]_x= " << q[ig](_X) << std::endl;
+        std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "ts= " << ts << std::endl;
+        std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "q[" << ig << "]_x= " << q[ig](_X) << std::endl;
         #endif
         ig++;
         while(ts+ds < s[ip]){   // while in the same segment from p[ip-1] to p[ip]
           q[ig] = q[ig-1] + dv*ds;
           ts += ds;   // accumulate distance from segment start
           #if SERGHEI_DEBUG_LINE_RESAMPLE
-          std::cout << GGD << "ts= " << ts << std::endl;
-          std::cout << GGD << "q[" << ig << "]_x= " << q[ig](_X) << std::endl;
+          std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "ts= " << ts << std::endl;
+          std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "q[" << ig << "]_x= " << q[ig](_X) << std::endl;
           #endif
           ig++;
         }
@@ -133,7 +133,7 @@ class ObservationLine{
         sg[ig] = sg[ig-1] + geometry::distance(g(ig).x,g(ig-1).x);
       }
       #if SERGHEI_DEBUG_LINE_RESAMPLE
-        std::cout << GGD << "Ng = " << Ng << std::endl;
+        std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "Ng = " << Ng << std::endl;
         for(int ig=0; ig<Ng; ig++) std::cout << ig << "\t" << g(ig).x(_X) << "," << g(ig).x(_Y) << std::endl;
         for(int ig=0; ig<Ng; ig++) std::cout << ig << "\t" << sg[ig] << std::endl;
       #endif
@@ -149,7 +149,7 @@ class ObservationLine{
 
     inline void computeFlux(const real &dt){
       #if SERGHEI_DEBUG_TOOLS
-      std::cout << GGD << __PRETTY_FUNCTION__ << std::endl;
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
       #endif
       real v,ds=0;
       swflow = 0;
@@ -165,6 +165,8 @@ class ObservationLine{
 
 
 class Observations{
+Kokkos::Timer timer;
+
 public:
   int nGauge=0;
   int nLines=0;
@@ -233,7 +235,7 @@ public:
         fInStream >> lines[il].Np;
         #if SERGHEI_DEBUG_TOOLS
           if(par.masterproc){
-            std::cout << GGD << "il=" << il << "\tds=" << lines[il].ds << "\tmode=" << lines[il].mode << "\tNp=" << lines[il].Np <<  std::endl;
+            std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "il=" << il << "\tds=" << lines[il].ds << "\tmode=" << lines[il].mode << "\tNp=" << lines[il].Np <<  std::endl;
           }
         #endif
         lines[il].p = new geometry::point[lines[il].Np];
@@ -280,12 +282,12 @@ public:
   int configureGauges(const Domain &dom, const std::string outdir){
     int err=0;
       #if SERGHEI_DEBUG_TOOLS
-        std::cout << __PRETTY_FUNCTION__ << "\tnGauge=" << nGauge << std::endl;
+        std::cout <<GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "\tnGauge=" << nGauge << std::endl;
       #endif
     for(int ig=0; ig<nGauge; ig++){
       gauges(ig).linkDomain(dom);
       #if SERGHEI_DEBUG_TOOLS
-        std::cout << "ig=" << ig << "\tii=" << gauges(ig).ii << "\tic=" << gauges(ig).ic << std::endl;
+        std::cout << GGD << GRAY <<__PRETTY_FUNCTION__ << RESET <<  "ig=" << ig << "\tii=" << gauges(ig).ii << "\tic=" << gauges(ig).ic << std::endl;
       #endif
     }
 	if(nGauge){
@@ -329,7 +331,7 @@ public:
     int err=0;
 
     #if SERGHEI_DEBUG_TOOLS
-      std::cout << GGD << "Entering " << __func__ << std::endl;
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
     #endif
 
     gii = new int[N];
@@ -401,7 +403,7 @@ public:
     int mode_b=0;
 
     #if SERGHEI_DEBUG_TOOLS
-      std::cout << GGD << "Entering " << __func__ << std::endl;
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
     #endif
 
     for(int il=0; il<nLines; il++){
@@ -504,6 +506,9 @@ public:
   };
 
   void writeGauges(const real &time){
+    #if SERGHEI_DEBUG_TOOLS
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
 		if (gaugeOut.is_open()){
       std::cout.precision(OUTPUT_PRECISION);
       gaugeOut << time << "\t";
@@ -516,6 +521,9 @@ public:
 
 
   void writeLines(const real &time){
+    #if SERGHEI_DEBUG_TOOLS
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
     int jj=0;
     for(int il=0; il<nLines; il++){
       if(lines[il].mode == OBSLINE_MODE_STATE ){
@@ -541,7 +549,20 @@ public:
     }
   };
 
+  void write(Domain const &dom){
+    #if SERGHEI_DEBUG_TOOLS
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
+    timer.reset();
+    writeGauges(dom.etime);
+    writeLines(dom.etime);
+    dom.timers.out += timer.seconds();
+  }
+
   inline void writeLinesSamplingCoordinates(std::string outdir){
+    #if SERGHEI_DEBUG_TOOLS
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
     for(int il=0; il<nLines; il++){
       std::string fname = outdir + "line" + std::to_string(il) + ".gout";
       std::ofstream fileout;
@@ -558,6 +579,9 @@ public:
   };
 
   inline void gaugeStateReduction(obsGaugeView &gauges, const int N, const Parallel &par){
+    #if SERGHEI_DEBUG_TOOLS
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
     // DCV: TODO this can be done more elegantly, by using an MPI struct reduction
     // This idea may also be more efficient than the current implementation
     //defineMPIswState(&structtype);
@@ -565,30 +589,38 @@ public:
     //MPI_Reduce(local,global,lines[il].Ng,structtyp,MPISUM_swState,MASTERPROC,MPI_COMM_WORLD);
 
     // perform reductions so that all data is in the line instance in the master process
-    double *out,*in;
-    out = new double[N];
-    in = new double[N];
+    real *out,*in;
+    out = new real[N];
+    in = new real[N];
 
     for(int ig = 0; ig < N; ig++) in[ig] = gauges(ig).sw.h;
-    MPI_Reduce(in, out, N, MPI_DOUBLE, MPI_SUM, MASTERPROC, MPI_COMM_WORLD);
+    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM, MASTERPROC, MPI_COMM_WORLD);
     for(int ig = 0; ig < N; ig++){
       if(par.masterproc) gauges(ig).sw.h = out[ig];
       in[ig] = gauges(ig).sw.hu;
     }
-    MPI_Reduce(in, out,N, MPI_DOUBLE, MPI_SUM,MASTERPROC, MPI_COMM_WORLD);
+    MPI_Reduce(in, out,N, SERGHEI_MPI_REAL, MPI_SUM,MASTERPROC, MPI_COMM_WORLD);
     for(int ig = 0; ig < N; ig++){
       if(par.masterproc) gauges(ig).sw.hu = out[ig];
       in[ig] = gauges(ig).sw.hv;
     }
-    MPI_Reduce(in, out, N, MPI_DOUBLE, MPI_SUM,MASTERPROC, MPI_COMM_WORLD);
+    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM,MASTERPROC, MPI_COMM_WORLD);
     for(int ig = 0; ig < N; ig++){
       if(par.masterproc) gauges(ig).sw.hv = out[ig];
+	in[ig] = gauges(ig).sw.z;
+    }
+    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM,MASTERPROC, MPI_COMM_WORLD);
+    for(int ig = 0; ig < N; ig++){
+      if(par.masterproc) gauges(ig).sw.z = out[ig];
     }
     delete out,in;
   };
 
   inline void updateGauges(const State &state, const Parallel &par){
-  //  Kokkos::parallel_for(nGauge, KOKKOS_LAMBDA (int ig){
+    #if SERGHEI_DEBUG_TOOLS
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
+  //  Kokkos::parallel_for("get_state_for_gauges",nGauge, KOKKOS_LAMBDA (int ig){
     for(int ig=0; ig <nGauge ; ig++)
       gauges(ig).fetchSurfaceState(state);
    // });
@@ -598,8 +630,11 @@ public:
   };
 
   inline void updateLines(const State &state, const Parallel &par, const real &dt){
+    #if SERGHEI_DEBUG_TOOLS
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
     for(int il=0; il < nLines; il++){
-      //  Kokkos::parallel_for(nGauge, KOKKOS_LAMBDA (int ig){
+      //  Kokkos::parallel_for("get_state_for_lines",nGauge, KOKKOS_LAMBDA (int ig){
       for(int ig=0; ig < lines[il].Ng ; ig++){
         lines[il].g(ig).fetchSurfaceState(state);
       }
@@ -611,9 +646,15 @@ public:
     }
   };
 
-  inline void update(const State &state, const Parallel &par, const real &dt){
+  inline void update(const State &state, const Parallel &par, const Domain &dom){
+    #if SERGHEI_DEBUG_TOOLS
+      std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
+      timer.reset();
       updateGauges(state,par);
-      updateLines(state,par,dt);
+      updateLines(state,par,dom.dt);
+      dom.timers.out += timer.seconds();
+      
   };
 
   inline void closeOutputStreams(){

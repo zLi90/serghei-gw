@@ -78,8 +78,8 @@ public:
         // allocate domain
         gdom.etime = 0;
         gdom.nCellDomain = dom.nx * dom.ny * gdom.nz;
-        gdom.ncells = gdom.nxhc*gdom.nyhc*(gdom.nz+2*haloc);
-        gdom.nhalo = 2*(gdom.nxhc*gdom.nyhc + (gdom.nxhc)*(gdom.nz+2*haloc) + (gdom.nyhc)*(gdom.nz+2*haloc));
+        gdom.ncells = gdom.nxhc*gdom.nyhc*(gdom.nz+2*hc);
+        gdom.nhalo = 2*(gdom.nxhc*gdom.nyhc + (gdom.nxhc)*(gdom.nz+2*hc) + (gdom.nyhc)*(gdom.nz+2*hc));
         gdom.z = realArr("z", gdom.ncells);
         gdom.dz = realArr("dz", gdom.ncells);
         gdom.sinx = realArr("sinx", gdom.ncells);
@@ -101,19 +101,19 @@ public:
             if (ii == 0 & jj > 0 & jj < gdom.ny+1 & kk > 0 & kk < gdom.nz+1)    {
                 gdom.hpair(idx,0) = iGlob;   gdom.hpair(idx,1) = iGlob+1; gdom.hpair(idx,2) = -1; idx += 1;
             }
-            else if (ii == gdom.nx+haloc & jj > 0 & jj < gdom.ny+1 & kk > 0 & kk < gdom.nz+1)    {
+            else if (ii == gdom.nx+hc & jj > 0 & jj < gdom.ny+1 & kk > 0 & kk < gdom.nz+1)    {
                 gdom.hpair(idx,0) = iGlob;   gdom.hpair(idx,1) = iGlob-1; gdom.hpair(idx,2) = 1; idx += 1;
             }
             if (jj == 0 & ii > 0 & ii < gdom.nx+1 & kk > 0 & kk < gdom.nz+1)    {
                 gdom.hpair(idx,0) = iGlob;   gdom.hpair(idx,1) = iGlob+gdom.nxhc; gdom.hpair(idx,2) = -2; idx += 1;
             }
-            else if (jj == gdom.ny+haloc & ii > 0 & ii < gdom.nx+1 & kk > 0 & kk < gdom.nz+1)    {
+            else if (jj == gdom.ny+hc & ii > 0 & ii < gdom.nx+1 & kk > 0 & kk < gdom.nz+1)    {
                 gdom.hpair(idx,0) = iGlob;   gdom.hpair(idx,1) = iGlob-gdom.nxhc; gdom.hpair(idx,2) = 2; idx += 1;
             }
             if (kk == 0 & ii > 0 & ii < gdom.nx+1 & jj > 0 & jj < gdom.ny+1)    {
                 gdom.hpair(idx,0) = iGlob;   gdom.hpair(idx,1) = iGlob+gdom.nxhc*gdom.nyhc; gdom.hpair(idx,2) = -3; idx += 1;
             }
-            else if (kk == gdom.nz+haloc & ii > 0 & ii < gdom.nx+1 & jj > 0 & jj < gdom.ny+1)    {
+            else if (kk == gdom.nz+hc & ii > 0 & ii < gdom.nx+1 & jj > 0 & jj < gdom.ny+1)    {
                 gdom.hpair(idx,0) = iGlob;   gdom.hpair(idx,1) = iGlob-gdom.nxhc*gdom.nyhc; gdom.hpair(idx,2) = 3; idx += 1;
             }
         }
@@ -124,7 +124,7 @@ public:
             //if (state.z(iGlobSW) <= gdom.bottomZ) {std::cerr<< RERROR "GwDomain bottom must be lower than DEM!\n";}
             //gdom.dz(iGlob) = (state.z(iGlobSW) - gdom.bottomZ) / gdom.nz_glob;
             gdom.dz(iGlob) = gdom.thickH / gdom.nz_glob;
-            gdom.z(iGlob) = state.z(iGlobSW) - (kk-haloc+0.5)*gdom.dz(iGlob);
+            gdom.z(iGlob) = state.z(iGlobSW) - (kk-hc+0.5)*gdom.dz(iGlob);
         }
         for (iGlob = 0; iGlob < gdom.ncells; iGlob++) {
             unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
@@ -206,7 +206,7 @@ public:
             int ii, jj, kk, ii2, ii3, iGlob, ivg;
             real n, alpha, wcr, wcs;
             unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
-            iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+            iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             ii2 = kk*gdom.ny_glob + (par.j_beg+jj);
             ii3 = kk*gdom.nx_glob + (par.i_beg+ii);
             ivg = gw.soilID(iGlob) * gw.nVGparam;
@@ -601,7 +601,7 @@ public:
                 switch (gbc.bctypeZM) {
                     case SUB_BC_H_SWE:
                         //unpackIndices(icell, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
-                        //i2d = (haloc+jj)*gdom.nxhc + ii + haloc;
+                        //i2d = (hc+jj)*gdom.nxhc + ii + hc;
                         //h_h(gdom.hpair(idx,0),1) = state.h(i2d);
                         gw.h(gdom.hpair(idx,0),1) = gbc.hbcZM;
                     case SUB_BC_Q_CONST:
@@ -689,7 +689,7 @@ public:
             for (idx = 0; idx < gdom.nCellDomain; idx++)    {
                 unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 // get global index
-                iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+                iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 // get soil parameters
                 ivg = gw.soilID(iGlob) * gw.nVGparam;
                 wcs = gw.vgTable(ivg+2);
@@ -708,7 +708,7 @@ public:
             for (idx = 0; idx < gdom.nCellDomain; idx++)    {
                 unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 // get global index
-                iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+                iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 // get soil parameters
                 ivg = gw.soilID(iGlob) * gw.nVGparam;
                 wcs = gw.vgTable(ivg+2);
@@ -780,7 +780,7 @@ public:
                 unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 if (kk == 0)    {
                     // get global index
-                    iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+                    iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                     // get soil parameters
                     ivg = gw.soilID(iGlob) * gw.nVGparam;
                     wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
@@ -849,7 +849,7 @@ public:
                 unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 if (ii == gdom.nx-1)    {
                     // get global index
-                    iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+                    iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                     // get soil parameters
                     ivg = gw.soilID(iGlob) * gw.nVGparam;
                     wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
@@ -872,7 +872,7 @@ public:
                 unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 if (ii == 0)    {
                     // get global index
-                    iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+                    iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                     // get soil parameters
                     ivg = gw.soilID(iGlob) * gw.nVGparam;
                     wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
@@ -942,7 +942,7 @@ public:
                 unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 if (jj == gdom.ny-1)    {
                     // get global index
-                    iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+                    iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                     // get soil parameters
                     ivg = gw.soilID(iGlob) * gw.nVGparam;
                     wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
@@ -965,7 +965,7 @@ public:
                 unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 if (jj == 0)    {
                     // get global index
-                    iGlob = (haloc+kk)*gdom.nxhc*gdom.nyhc + (haloc+jj)*gdom.nxhc + ii + haloc;
+                    iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                     // get soil parameters
                     ivg = gw.soilID(iGlob) * gw.nVGparam;
                     wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);

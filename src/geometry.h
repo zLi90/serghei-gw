@@ -43,5 +43,38 @@ namespace geometry{
     c(1) = b(0) - a(0);
     return(c);
   };
+
+
+	//returns 1 if the coordinate is inside, 0 otherwise
+	int isInsidePoly(int np, realArr &xPoly, realArr &yPoly, real &xCoord, real &yCoord) {
+		int count;
+		int i;
+		double xInter;
+		real x1,x2,y1,y2;
+
+		count=0;
+		for (i=0;i<np;i++){
+			x1= xPoly(i);
+			y1= yPoly(i);
+			x2= xPoly((i+1)%np);
+			y2= yPoly((i+1)%np);
+			if ((yCoord > fmin(y1,y2)) && (yCoord <= fmax(y1,y2)) && (xCoord <= fmax(x1,x2))) {
+			  if (y1 != y2) {
+				 xInter = x1 + (yCoord-y1)*(x2-x1)/(y2-y1);
+				 if (x1 == x2 || xCoord <= xInter){
+						count++;
+				 }
+			  }
+			}
+		}
+
+		if(count % 2 == 0){
+			return 0;
+		}else{
+			return 1;
+		}
+	}
+
+
 };
 #endif

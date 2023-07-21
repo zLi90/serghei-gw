@@ -13,14 +13,17 @@
 
 class Edges {
 
+Kokkos::Timer timer;
 
 
 public :
 
 
 	inline void computeDeltaStateSW(State &state, Domain &dom, Exchange &exch, Parallel &par){
+    	timer.reset();
 	 	solve(state, dom, exch, par);
 		// computeTimeStepReduction(dom, state);
+    	dom.timers.sweflux += timer.seconds();
 	}
 
 
@@ -37,7 +40,7 @@ public :
 
   inline void computeDeltaFluxXRoe(State &state, Domain const &dom,  Parallel &par) {
 
-    Kokkos::parallel_for( dom.ncells , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for("computeDeltaFluxXRoe", dom.ncells , KOKKOS_LAMBDA (int iGlob) {
       int i, j, ncells;
 		int id1,id2;
       unpackIndices(iGlob,dom.ny+2*hc,dom.nx+2*hc,j,i);
@@ -54,7 +57,7 @@ public :
 
 			bool nodata = state.isnodata(id1) || state.isnodata(id2);
 
-			if((s1(idH)>TOL12 || s2(idH)>TOL12) && !nodata && !(dom.iW&&i==hc-1) && !(dom.iE&&i==dom.nx+hc-1)){ //avoid dry-pair, nodata and boundary cells
+			if((s1(idH)>0. || s2(idH)>0.) && !nodata && !(dom.iW&&i==hc-1) && !(dom.iE&&i==dom.nx+hc-1)){ //avoid dry-pair, nodata and boundary cells
 				s1(idHU)=state.hu(id1);
 				s2(idHU)=state.hu(id2);
 				s1(idHV)=state.hv(id1);
@@ -83,7 +86,7 @@ public :
 
   inline void computeDeltaFluxYRoe(State &state, Domain const &dom,  Parallel &par) {
 
-    Kokkos::parallel_for( dom.ncells , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for( "computeDeltaFluxYRoe",dom.ncells , KOKKOS_LAMBDA (int iGlob) {
       int i, j, ncells;
 		int id1,id2;
       unpackIndices(iGlob,dom.ny+2*hc,dom.nx+2*hc,j,i);
@@ -100,7 +103,7 @@ public :
 
 			bool nodata = state.isnodata(id1) || state.isnodata(id2);
 
-			if((s1(idH)>TOL12 || s2(idH)>TOL12) && !nodata && !(dom.iN&&j==hc-1) && !(dom.iS&&j==dom.ny+hc-1)){ //avoid dry-pair, nodata and boundary cells
+			if((s1(idH)>0. || s2(idH)>0.) && !nodata && !(dom.iN&&j==hc-1) && !(dom.iS&&j==dom.ny+hc-1)){ //avoid dry-pair, nodata and boundary cells
 				s1(idHU)=state.hu(id1);
 				s2(idHU)=state.hu(id2);
 				s1(idHV)=state.hv(id1);
@@ -131,22 +134,22 @@ public :
 	inline void computeTimeStepReduction(Domain &dom, State &state) {
 
 		real dtloc=dom.dt;
-		Kokkos::parallel_reduce( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob, real &dt) {
+		Kokkos::parallel_reduce("computeTimeStepReduction", dom.nCellDomain , KOKKOS_LAMBDA (int iGlob, real &dt) {
     		int ii = dom.getIndex(iGlob);
 
-			dt=fmin(dt,dom.dt);
+			dt=min(dt,dom.dt);
 			real h=state.h(ii);
 			real dh=state.dsw0(ii)+state.dsw1(ii);
-			if(dh>TOL12){ //only positive dh can make negative water depths
-				dt=fmin(dt,(h+TOL12)*dom.dx/dh);
+			if(dh>TOLDRY){ //only positive dh can make negative water depths
+				dt=min(dt,(h+TOLDRY)*dom.dx/dh);
 			}
 
 		} , Kokkos::Min<real>(dtloc) );
 
 	  Kokkos::fence();
 
-	  int ierr = MPI_Allreduce(&dtloc, &dom.dt, 1, MPI_DOUBLE , MPI_MIN, MPI_COMM_WORLD);
-#if DEBUG_DT
+	  int ierr = MPI_Allreduce(&dtloc, &dom.dt, 1, SERGHEI_MPI_REAL , MPI_MIN, MPI_COMM_WORLD);
+#if SERGHEI_DEBUG_DT
 	std::cout << "time = " << dom.etime << "\tdt_neg = " << dom.dt << std::endl;
 #endif
 

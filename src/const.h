@@ -13,10 +13,15 @@
 #define GRAV 9.81
 #define SQRTGRAV 3.132091953
 
-// subsurface
 #define NVG 7
 
+//#define GRAV 9.807
+//#define SQRTGRAV 3.13161300291
+
+
 //Some tolerances
+#define TOL4 1e-4
+#define TOL5 1e-5
 #define TOL6 1e-6
 #define TOL8 1e-8
 #define TOL8NEG -1e-8
@@ -29,14 +34,16 @@
 #define TOL15 1e-15
 #define TOL15NEG -1e-15
 
+#define ZERO TOL12
+
 //friction model (0-->upwind or 1-->pointwise-centered)
 #define POINTWISE_FRICTION 0
 
-#define FRICTION_MANNING 1
-#define FRICTION_DARCYWEISBACH 2
-#define FRICTION_CHEZY 3
-#ifndef FRICTION_MODEL
-#define FRICTION_MODEL FRICTION_MANNING
+#define SERGHEI_FRICTION_MANNING 1
+#define SERGHEI_FRICTION_DARCYWEISBACH 2
+#define SERGHEI_FRICTION_CHEZY 3
+#ifndef SERGHEI_FRICTION_MODEL
+#define SERGHEI_FRICTION_MODEL SERGHEI_FRICTION_MANNING
 #endif
 
 //min depth from which water is stopped
@@ -50,26 +57,42 @@
 #define hc 1
 
 //program options
-#ifndef DEBUG_PARALLEL_DECOMPOSITION
-#define DEBUG_PARALLEL_DECOMPOSITION 0 //debug the subdomains ranks and neighbours
+#ifndef SERGHEI_SUBSURFACE_MODEL
+#define SERGHEI_SUBSURFACE_MODEL 1
 #endif
-#ifndef DEBUG_SUBSURFACE
-#define DEBUG_SUBSURFACE 0
+
+#ifndef SERGHEI_DEBUG_PARALLEL_DECOMPOSITION
+#define SERGHEI_DEBUG_PARALLEL_DECOMPOSITION 0 //debug the subdomains ranks and neighbours
 #endif
-#ifndef DEBUG_WORKFLOW
-#define DEBUG_WORKFLOW 0
+#ifndef SERGHEI_DEBUG_SUBSURFACE
+#define SERGHEI_DEBUG_SUBSURFACE 0
 #endif
-#ifndef DEBUG_BOUNDARY
-#define DEBUG_BOUNDARY 0
+#ifndef SERGHEI_DEBUG_WORKFLOW
+#define SERGHEI_DEBUG_WORKFLOW 0
 #endif
-#ifndef DEBUG_RAINFALL
-#define DEBUG_RAINFALL 0
+#ifndef SERGHEI_DEBUG_BOUNDARY
+#define SERGHEI_DEBUG_BOUNDARY 0
 #endif
-#ifndef DEBUG_KOKKOS_SETUP
-#define DEBUG_KOKKOS_SETUP 0
+#ifndef SERGHEI_SERGHEI_DEBUG_RAINFALL
+#define SERGHEI_SERGHEI_DEBUG_RAINFALL 0
 #endif
-#ifndef DEBUG_DT
-#define DEBUG_DT 0
+#ifndef SERGHEI_DEBUG_INFILTRATION
+#define SERGHEI_DEBUG_INFILTRATION 0
+#endif
+#ifndef SERGHEI_DEBUG_KOKKOS_SETUP
+#define SERGHEI_DEBUG_KOKKOS_SETUP 0
+#endif
+#ifndef SERGHEI_DEBUG_DT
+#define SERGHEI_DEBUG_DT 0
+#endif
+#ifndef SERGHEI_DEBUG_MASS_CONS
+#define SERGHEI_DEBUG_MASS_CONS 0
+#endif
+#ifndef SERGHEI_VEGETATION_MODEL
+#define SERGHEI_VEGETATION_MODEL 0
+#endif
+#ifndef SERGHEI_DEBUG_MPI
+#define SERGHEI_DEBUG_MPI 0
 #endif
 
 //colors

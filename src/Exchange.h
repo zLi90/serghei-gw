@@ -58,7 +58,7 @@ public:
   }
   inline void haloPack_x_ext(Domain &dom, realArr &a, realArr &haloSendBufW, realArr &haloSendBufE, int const nPack) {
 	// span the x-halo columns
-    Kokkos::parallel_for( dom.ny*haloc , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for("haloPack_x_span", dom.ny*haloc , KOKKOS_LAMBDA (int iGlob) {
 		int rx,ry;
 		int nGlob = dom.ny*haloc;
 	 	unpackIndices(iGlob,dom.ny,haloc,ry,rx);
@@ -76,7 +76,7 @@ public:
   }
   inline void haloPack_y_ext(Domain &dom, realArr &a, realArr &haloSendBufS, realArr &haloSendBufN, int const nPack) {
 	  	// span the y-halo rows
-    Kokkos::parallel_for( haloc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for("haloPack_y_span", haloc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
 	 	int rx,ry;
 		int nGlob = haloc*dom.nx;
 		unpackIndices(iGlob,haloc,dom.nx,ry,rx);
@@ -94,7 +94,7 @@ public:
     nUnpack = nUnpack + 1;
   }
   inline void haloUnpack_x_ext(Domain &dom, realArr &a, realArr &haloRecvBufW, realArr &haloRecvBufE, int const nUnpack) {
-    Kokkos::parallel_for( dom.ny*haloc , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for("haloUnpack_x_span", dom.ny*haloc , KOKKOS_LAMBDA (int iGlob) {
 	 	int rx,ry;
 	 	int nGlob = dom.ny*haloc;
 		unpackIndices(iGlob,dom.ny,haloc,ry,rx);
@@ -112,7 +112,7 @@ public:
     nUnpack = nUnpack + 1;
   }
   inline void haloUnpack_y_ext(Domain &dom, realArr &a, realArr &haloRecvBufS, realArr &haloRecvBufN, int const nUnpack) {
-    Kokkos::parallel_for( haloc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for( "haloUnpack_y_span",haloc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
 		int rx,ry;
 		int nGlob = haloc*dom.nx;
 		unpackIndices(iGlob,haloc,dom.nx,ry,rx);
@@ -126,6 +126,9 @@ public:
 
 	// MPI wrapper to exchange east/west halo regions
 	inline int haloExchange_x(Domain &dom, Parallel &par) {
+	#if SERGHEI_DEBUG_MPI
+	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+	#endif
     	int ierr;
 		ierr=1;
 
@@ -133,12 +136,12 @@ public:
     	if (par.nproc_x > 1) {
       	Kokkos::fence();	// ensure no kernels are running, we need everything available in host memory
       	//Pre-post the receives
-      	ierr = MPI_Irecv( haloRecvBufW.data() , nPack*dom.ny*haloc , MPI_DOUBLE , par.neigh(1,0) , 0 , MPI_COMM_WORLD , &rReq[0] );
-      	ierr = MPI_Irecv( haloRecvBufE.data() , nPack*dom.ny*haloc , MPI_DOUBLE , par.neigh(1,2) , 1 , MPI_COMM_WORLD , &rReq[1] );
+      	ierr = MPI_Irecv( haloRecvBufW.data() , nPack*dom.ny*haloc , SERGHEI_MPI_REAL , par.neigh(1,0) , 0 , MPI_COMM_WORLD , &rReq[0] );
+      	ierr = MPI_Irecv( haloRecvBufE.data() , nPack*dom.ny*haloc , SERGHEI_MPI_REAL , par.neigh(1,2) , 1 , MPI_COMM_WORLD , &rReq[1] );
 
      	//Send the data
-      	ierr = MPI_Isend( haloSendBufW.data() , nPack*dom.ny*haloc , MPI_DOUBLE , par.neigh(1,0) , 1 , MPI_COMM_WORLD , &sReq[0] );
-      	ierr = MPI_Isend( haloSendBufE.data() , nPack*dom.ny*haloc , MPI_DOUBLE , par.neigh(1,2) , 0 , MPI_COMM_WORLD , &sReq[1] );
+      	ierr = MPI_Isend( haloSendBufW.data() , nPack*dom.ny*haloc , SERGHEI_MPI_REAL , par.neigh(1,0) , 1 , MPI_COMM_WORLD , &sReq[0] );
+      	ierr = MPI_Isend( haloSendBufE.data() , nPack*dom.ny*haloc , SERGHEI_MPI_REAL , par.neigh(1,2) , 0 , MPI_COMM_WORLD , &sReq[1] );
 
       	//Wait for the sends and receives to finish
       	ierr = MPI_Waitall(2, sReq, sStat);
@@ -173,6 +176,9 @@ public:
 
 
 	inline int haloExchange_y(Domain &dom, Parallel &par) {
+	#if SERGHEI_DEBUG_MPI
+	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+	#endif
    	int ierr;
 		ierr=1;
 
@@ -180,12 +186,12 @@ public:
       	Kokkos::fence();
 
 			//Pre-post the receives
-			ierr = MPI_Irecv( haloRecvBufN.data() , nPack*haloc*dom.nx , MPI_DOUBLE , par.neigh(0,1) , 0 , MPI_COMM_WORLD , &rReq[0] );
-			ierr = MPI_Irecv( haloRecvBufS.data() , nPack*haloc*dom.nx , MPI_DOUBLE , par.neigh(2,1) , 1 , MPI_COMM_WORLD , &rReq[1] );
+			ierr = MPI_Irecv( haloRecvBufN.data() , nPack*haloc*dom.nx , SERGHEI_MPI_REAL , par.neigh(0,1) , 0 , MPI_COMM_WORLD , &rReq[0] );
+			ierr = MPI_Irecv( haloRecvBufS.data() , nPack*haloc*dom.nx , SERGHEI_MPI_REAL , par.neigh(2,1) , 1 , MPI_COMM_WORLD , &rReq[1] );
 
 			//Send the data
-			ierr = MPI_Isend( haloSendBufN.data() , nPack*haloc*dom.nx , MPI_DOUBLE , par.neigh(0,1) , 1 , MPI_COMM_WORLD , &sReq[0] );
-			ierr = MPI_Isend( haloSendBufS.data() , nPack*haloc*dom.nx , MPI_DOUBLE , par.neigh(2,1) , 0 , MPI_COMM_WORLD , &sReq[1] );
+			ierr = MPI_Isend( haloSendBufN.data() , nPack*haloc*dom.nx , SERGHEI_MPI_REAL , par.neigh(0,1) , 1 , MPI_COMM_WORLD , &sReq[0] );
+			ierr = MPI_Isend( haloSendBufS.data() , nPack*haloc*dom.nx , SERGHEI_MPI_REAL , par.neigh(2,1) , 0 , MPI_COMM_WORLD , &sReq[1] );
 
 			//Wait for the sends and receives to finish
 			ierr = MPI_Waitall(2, sReq, sStat);
@@ -218,25 +224,28 @@ public:
 
 
   /*inline void haloPeriodic(const int ncells, realArr const &haloSendBuf1, realArr const &haloSendBuf2, realArr &haloRecvBuf1, realArr &haloRecvBuf2) {
-    Kokkos::parallel_for( ncells , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for("haloPeriodic", ncells , KOKKOS_LAMBDA (int iGlob) {
 		haloRecvBuf1(iGlob) = haloSendBuf2(iGlob);
       haloRecvBuf2(iGlob) = haloSendBuf1(iGlob);
     });
   }*/
 
   inline void haloReflective(const int ncells, realArr &haloRecv) {
-    Kokkos::parallel_for( ncells , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for("haloReflective", ncells , KOKKOS_LAMBDA (int iGlob) {
       haloRecv(iGlob) = 0.0;
     });
   }
   inline void haloTransmissive(const int ncells, realArr const &haloSend, realArr &haloRecv) {
-    Kokkos::parallel_for( ncells , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for("haloTransmissive", ncells , KOKKOS_LAMBDA (int iGlob) {
 		haloRecv(iGlob) = haloSend(iGlob);
     });
   }
 
 	// high level wrapper to do the initial exchange of surface parameters
 	inline void exchangeIniMPI(State &state, Domain &dom, Exchange &exch, Parallel &par){
+	#if SERGHEI_DEBUG_MPI
+	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+	#endif
 	    // Allocate the MPI exchange buffers
     	exch.allocate(dom);
 
@@ -264,6 +273,9 @@ public:
 
 	// high level wrapper for water depth
 	inline void exchangeMPIh(State &state, Domain &dom, Exchange &exch, Parallel &par){
+	#if SERGHEI_DEBUG_MPI
+	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+	#endif
 		Kokkos::Timer timer;	// only to keep track of time
 
 		 // Exchange depth in x-direction
@@ -277,14 +289,17 @@ public:
 		 exch.haloPack_y   (dom, state.h);		// re-orders the entries in state.h array which are on the north/south halo regions into data packs which will be sent north and south
 		 exch.haloExchange_y(dom, par);			// MPI send/receives the data packs, and handles boundaries
 		 exch.haloUnpack_y (dom, state.h);		// re-order the updated data packs back into the state.h array
-
-		 if(par.masterproc) exchangeTime += timer.seconds();
+    dom.timers.exchange += timer.seconds();
 	}
 
 	// high level wrapper for momentum
 	inline void exchangeMPIhuhv(State &state, Domain &dom, Exchange &exch, Parallel &par){
+	#if SERGHEI_DEBUG_MPI
+	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+	#endif
 
 		Kokkos::Timer timer;
+
 		 // Exchange momentum in x-direction
 		 exch.haloInit      ();
 		 exch.haloPack_x   (dom, state.hu);
@@ -301,7 +316,7 @@ public:
 		 exch.haloUnpack_y (dom, state.hu);
 		 exch.haloUnpack_y (dom, state.hv);
 
-		 if(par.masterproc) exchangeTime += timer.seconds();
+		 dom.timers.exchange += timer.seconds();
 	}
 
 

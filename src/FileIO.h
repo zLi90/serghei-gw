@@ -19,6 +19,56 @@
 #include "GwState.h"
 #include "GwDomain.h"
 
+#ifndef SERGHEI_NC_MODE
+#define SERGHEI_NC_MODE NC_CLOBBER
+#endif
+
+#ifndef SERGHEI_WRITE_HZ
+#define SERGHEI_WRITE_HZ 0
+#endif
+
+#ifndef SERGHEI_NC_REAL
+  #if SERGHEI_REAL == SERGHEI_DOUBLE
+    #define SERGHEI_NC_REAL NC_DOUBLE
+  #elif SERGHEI_REAL == SERGHEI_FLOAT
+    #define SERGHEI_NC_REAL NC_FLOAT
+  #endif
+#endif
+
+#if SERGHEI_NC_REAL == NC_DOUBLE
+	#define ncmpi_put_vara_real_all ncmpi_put_vara_double_all
+#endif
+#if SERGHEI_NC_REAL == NC_FLOAT
+	#define ncmpi_put_vara_real_all ncmpi_put_vara_float_all
+#endif
+
+#define SERGHEI_NC_ENABLE_MISSING_VALUE 0
+#define SERGHEI_NC_MISSING_VALUE "missing_value"
+
+#ifdef __NVCC__
+	#if SERGHEI_NC_REAL==NC_FLOAT && SERGHEI_REAL==SERGHEI_DOUBLE
+  	typedef Kokkos::View<float*     ,Kokkos::LayoutRight,Kokkos::Device<Kokkos::Cuda,Kokkos::CudaUVMSpace>> ncArr;
+	#else
+  	typedef Kokkos::View<real*     ,Kokkos::LayoutRight,Kokkos::Device<Kokkos::Cuda,Kokkos::CudaUVMSpace>> ncArr;
+	#endif
+#else
+	#if SERGHEI_NC_REAL==NC_FLOAT && SERGHEI_REAL==SERGHEI_DOUBLE
+  	typedef Kokkos::View<float*     ,Kokkos::LayoutRight> ncArr;
+	#else
+  	typedef Kokkos::View<real*     ,Kokkos::LayoutRight> ncArr;
+	#endif
+#endif
+
+/*
+#define EMPTY()
+#define DEFER(x) x EMPTY()
+#define PASTER(x,y) x ## y
+#define EVALUATOR(x,y) PASTER(x,y)
+#define CHOOSE_BACKEND(name,id) EVALUATOR(name,id)
+*/
+
+
+
 class FileIO {
 
 protected:
@@ -30,12 +80,36 @@ protected:
   std::ofstream domainOutputFile;
   std::ofstream SubsurfaceOutputFile;
   std::ofstream logFile;
+	int nOut; // expected number of spatial outputs
+	#if SERGHEI_MAXFLOOD > 0
+	int hMaxVar, momMaxVar, timehMaxVar;
+	#endif
+
+private:
+  Kokkos::Timer timer;
+
+/*
+	//TODO probably should be a C++ template
+	inline int ncmpi_put_vara_real_all( int ncid , int varid , const MPI_Offset start[], const MPI_Offset count[], const real *buf){
+		#if SERGHEI_NC_REAL == NC_DOUBLE
+    	return( ncmpi_put_vara_double_all( ncid , varid, start , count , buf ));
+		#endif
+		#if SERGHEI_NC_REAL == NC_FLOAT
+			#if SERGHEI_REAL == SERGHEI_DOUBLE
+
+				return( ncmpi_put_vara_float_all( ncid , varid, start , count , (float*) buf));
+			#else
+				return( ncmpi_put_vara_float_all( ncid , varid, start , count , buf));
+			#endif
+		#endif
+	}
+*/
 
 public:
 
   real outFreq;
   int outFormat;
-  int numOut;
+  int numOut; // spatial output counter
 
   real obsFreq;
   int numObs = 0;
@@ -43,6 +117,7 @@ public:
 
 // Writes spatial fields for initial state
 	void outputIni(const State &state, Domain const &dom, SourceSinkData &ss, Parallel const &par, std::string dir){
+		nOut = floor(dom.simLength / outFreq);
 		numOut=0;
 		if(outFormat==OUT_NETCDF){
 			outputInitNETCDF(state,dom,ss,par,dir);
@@ -83,6 +158,8 @@ public:
 
 	// Writes spatial fields
 	void output(const State &state, Domain const &dom, SourceSinkData &ss, Parallel const &par,std::string dir){
+    timer.reset();
+
 		if(outFormat==OUT_NETCDF){
 			outputNETCDF(state,dom,ss,par,dir);
 		}
@@ -94,6 +171,7 @@ public:
 		}
 
 		numOut++;
+    dom.timers.out += timer.seconds();
 	}
 
 
@@ -103,16 +181,13 @@ public:
     MPI_Offset st[3], ct[3];
     realArr xCoord = realArr("xCoord",dom.nx);
     realArr yCoord = realArr("yCoord",dom.ny);
-    realArr data   = realArr("data",dom.ny*dom.nx);
-	static char title[] = "seconds" ;
+    ncArr data   = ncArr("data",dom.ny*dom.nx);
+		static char timeUnits[] = "seconds" ;
 	std::string filename;
 
 	filename=dir+"output.nc";
-
-
-
     // Create the file
-    ncwrap( ncmpi_create( MPI_COMM_WORLD , filename.c_str() , NC_CLOBBER , MPI_INFO_NULL , &ncid ) , __LINE__ );
+    ncwrap( ncmpi_create( MPI_COMM_WORLD , filename.c_str() , SERGHEI_NC_MODE , MPI_INFO_NULL , &ncid ) , __LINE__ );
 
     // Create the dimensions
     ncwrap( ncmpi_def_dim( ncid , "t" , (MPI_Offset) NC_UNLIMITED , &tDim ) , __LINE__ );
@@ -121,34 +196,52 @@ public:
     // Create the variables
     dimids[0] = tDim;
     ncwrap( ncmpi_def_var( ncid , "t"      , NC_DOUBLE , 1 , dimids , &tVar ) , __LINE__ );
-	 ncwrap( ncmpi_put_att_text (ncid, tVar, "units",strlen(title), title), __LINE__ );
+	 	ncwrap( ncmpi_put_att_text (ncid, tVar, "units",strlen(timeUnits), timeUnits), __LINE__ );
     dimids[0] = xDim;
     ncwrap( ncmpi_def_var( ncid , "x"      , NC_DOUBLE , 1 , dimids , &xVar ) , __LINE__ );
     dimids[0] = yDim;
     ncwrap( ncmpi_def_var( ncid , "y"      , NC_DOUBLE , 1 , dimids , &yVar ) , __LINE__ );
+		// time dependend variables
     dimids[0] = tDim; dimids[1] = yDim; dimids[2] = xDim;
-    ncwrap( ncmpi_def_var( ncid , "h" , NC_DOUBLE , 3 , dimids , &hVar  ) , __LINE__ );
-    ncwrap( ncmpi_def_var( ncid , "h+z" , NC_DOUBLE , 3 , dimids , &hzVar  ) , __LINE__ );
-    ncwrap( ncmpi_def_var( ncid , "u"      , NC_DOUBLE , 3 , dimids , &uVar  ) , __LINE__ );
-    ncwrap( ncmpi_def_var( ncid , "v"      , NC_DOUBLE , 3 , dimids , &vVar  ) , __LINE__ );
+    ncwrap( ncmpi_def_var( ncid , "h" , SERGHEI_NC_REAL , 3 , dimids , &hVar  ) , __LINE__ );
+#if SERGHEI_WRITE_HZ
+    ncwrap( ncmpi_def_var( ncid , "h+z" , SERGHEI_NC_REAL , 3 , dimids , &hzVar  ) , __LINE__ );
+#endif
+    ncwrap( ncmpi_def_var( ncid , "u"      , SERGHEI_NC_REAL , 3 , dimids , &uVar  ) , __LINE__ );
+    ncwrap( ncmpi_def_var( ncid , "v"      , SERGHEI_NC_REAL , 3 , dimids , &vVar  ) , __LINE__ );
     if(ss.inf.model){
-      ncwrap( ncmpi_def_var( ncid , "inf" , NC_DOUBLE , 3 , dimids , &infVar  ) , __LINE__ );
-      ncwrap( ncmpi_def_var( ncid , "infVol" , NC_DOUBLE , 3 , dimids , &infVolVar  ) , __LINE__ );
+      ncwrap( ncmpi_def_var( ncid , "inf" , SERGHEI_NC_REAL , 3 , dimids , &infVar  ) , __LINE__ );
+      ncwrap( ncmpi_def_var( ncid , "infVol" , SERGHEI_NC_REAL , 3 , dimids , &infVolVar  ) , __LINE__ );
     }
-    dimids[0] = yDim; dimids[1] = xDim;
-    ncwrap( ncmpi_def_var( ncid , "z"    , NC_DOUBLE , 2 , dimids , &zVar ) , __LINE__ );
 
+		#if SERGHEI_MAXFLOOD > 0
+		int nc_ndims = 2+SERGHEI_MAXFLOOD-1;
+		if(nc_ndims==2){
+			dimids[0] = yDim;
+			dimids[1] = xDim;
+		}
+		ncwrap( ncmpi_def_var( ncid , "hMax"    , NC_DOUBLE , nc_ndims , dimids , &hMaxVar ) , __LINE__ );
+		ncwrap( ncmpi_def_var( ncid , "momMax"    , NC_DOUBLE , nc_ndims , dimids , &momMaxVar ) , __LINE__ );
+		ncwrap( ncmpi_def_var( ncid , "timehMax"    , NC_DOUBLE , nc_ndims , dimids , &timehMaxVar ) , __LINE__ );
+		#endif
+
+		dimids[0] = yDim; dimids[1] = xDim;
+    ncwrap( ncmpi_def_var( ncid , "z"    , SERGHEI_NC_REAL , 2 , dimids , &zVar ) , __LINE__ );
+
+		// define global attributes
+		static char title[] = "SERGHEI simulation";
+		ncwrap( ncmpi_put_att(ncid, NC_GLOBAL, "title", NC_CHAR,strlen(title)+1,title), __LINE__);
 
     // End "define" mode
     ncwrap( ncmpi_enddef( ncid ) , __LINE__ );
 
     // Compute x, y coordinates
     // for (int i=0; i<dom.nx; i++) {
-    Kokkos::parallel_for( dom.nx , KOKKOS_LAMBDA(int i) {
+    Kokkos::parallel_for("compute_grid_coord_x", dom.nx , KOKKOS_LAMBDA(int i) {
       xCoord(i) = dom.xll + ( par.i_beg + i + 0.5) * dom.dx;
     });
     // for (int j=0; j<dom.ny; j++) {
-    Kokkos::parallel_for( dom.ny , KOKKOS_LAMBDA(int j) {
+    Kokkos::parallel_for("compute_grid_coord_x", dom.ny , KOKKOS_LAMBDA(int j) {
       yCoord(j) = dom.yll + dom.ny_glob*dom.dx - ( par.j_beg + j + 0.5) * dom.dx;
     });
     Kokkos::fence();
@@ -164,16 +257,21 @@ public:
     st[0] = par.j_beg; st[1] = par.i_beg;
     ct[0] = dom.ny   ; ct[1] = dom.nx   ;
 
-    // for (int j=0; j<dom.ny; j++) {
-    //   for (int i=0; i<dom.nx; i++) {
-    Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+		// write elevation
+		Kokkos::parallel_for("ncwrap_z", dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+
 	 	int i,j;
 		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
       data(iGlob) = state.z(ii);
     });
     Kokkos::fence();
-    ncwrap( ncmpi_put_vara_double_all( ncid , zVar  , st , ct , data.data() ) , __LINE__ );
+    ncwrap( ncmpi_put_vara_real_all( ncid , zVar  , st , ct , data.data() ) , __LINE__ );
+
+		#if SERGHEI_NC_ENABLE_MISSING_VALUE
+		real missing_value = dom.MISSING_VALUE;
+  	ncwrap(nc_put_att_float(ncid, zVar, SERGHEI_NC_MISSING_VALUE, SERGHEI_NC_REAL, 1, &missing_value));
+		#endif
 
     writeStateNETCDF(state, dom, ss, par);
 
@@ -182,6 +280,7 @@ public:
 
   }
 
+/////////////////////////////////////////////////////////
 	// NetCDF writer - requires the initialisation
   void outputNETCDF(const State &state, Domain const &dom, SourceSinkData &ss, Parallel const &par, std::string dir) {
 
@@ -193,7 +292,9 @@ public:
     // Create the file
     ncwrap( ncmpi_open( MPI_COMM_WORLD , filename.c_str() , NC_WRITE , MPI_INFO_NULL , &ncid ) , __LINE__ );
     ncwrap( ncmpi_inq_varid( ncid , "h" , &hVar  ) , __LINE__ );
+#if SERGHEI_WRITE_HZ
     ncwrap( ncmpi_inq_varid( ncid , "h+z" , &hzVar  ) , __LINE__ );
+#endif
     ncwrap( ncmpi_inq_varid( ncid , "u"      , &uVar  ) , __LINE__ );
     ncwrap( ncmpi_inq_varid( ncid , "v"      , &vVar  ) , __LINE__ );
     if(ss.inf.model){
@@ -201,7 +302,13 @@ public:
       ncwrap( ncmpi_inq_varid( ncid , "infVol"      , &infVolVar  ) , __LINE__ );
     }
 
-    writeStateNETCDF(state, dom, ss, par);
+		#if SERGHEI_MAXFLOOD > 0
+    	ncwrap( ncmpi_inq_varid( ncid , "hMax" , &hMaxVar  ) , __LINE__ );
+    	ncwrap( ncmpi_inq_varid( ncid , "momMax" , &momMaxVar ) , __LINE__ );
+    	ncwrap( ncmpi_inq_varid( ncid , "timehMax" , &timehMaxVar  ) , __LINE__ );
+		#endif
+
+	  writeStateNETCDF(state, dom, ss, par);
 
     ncwrap( ncmpi_close(ncid) , __LINE__ );
 
@@ -209,7 +316,8 @@ public:
 
 	// Builds the NetCDF dataset for the state
   void writeStateNETCDF(const State &state, Domain const &dom, SourceSinkData &ss, Parallel const &par) {
-  	realArr data = realArr("data",dom.ny*dom.nx);
+  	ncArr data = ncArr("data",dom.ny*dom.nx);
+
     MPI_Offset st[3], ct[3];
 	 	double timeIter[numOut+1];
 
@@ -225,29 +333,31 @@ public:
     ct[0] = 1     ; ct[1] = dom.ny   ; ct[2] = dom.nx   ;
 
     // Write out depth
-    // for (int j=0; j<dom.ny; j++) {
-    //   for (int i=0; i<dom.nx; i++) {
-    Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+    Kokkos::parallel_for("ncwrap_h", dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
 	 	int i,j;
 		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
       data(iGlob) = state.h(ii);
     });
     Kokkos::fence();
-    ncwrap( ncmpi_put_vara_double_all( ncid , hVar , st , ct , data.data() ) , __LINE__ );
+    ncwrap( ncmpi_put_vara_real_all( ncid , hVar , st , ct , data.data() ) , __LINE__ );
 
-    Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+
+
+#if SERGHEI_WRITE_HZ
+    Kokkos::parallel_for("ncwrap_h+z", dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
 	 	 int i,j;
 		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
       data(iGlob) = state.h(ii)+state.z(ii);
     });
     Kokkos::fence();
-    ncwrap( ncmpi_put_vara_double_all( ncid , hzVar , st , ct , data.data() ) , __LINE__ );
+    ncwrap( ncmpi_put_vara_real_all( ncid , hzVar , st , ct , data.data() ) , __LINE__ );
+#endif
 
     // Write out x-velocity
 
-    Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+    Kokkos::parallel_for("ncwrap_u", dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
 	 	 int i,j;
 		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
@@ -258,10 +368,10 @@ public:
 		}
     });
     Kokkos::fence();
-    ncwrap( ncmpi_put_vara_double_all( ncid , uVar , st , ct , data.data() ) , __LINE__ );
+    ncwrap( ncmpi_put_vara_real_all( ncid , uVar , st , ct , data.data() ) , __LINE__ );
 
     // Write out y-velocity
-	 Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+	 Kokkos::parallel_for("ncwrap_v", dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
 	 	int i,j;
 		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
@@ -274,13 +384,13 @@ public:
 
     });
     Kokkos::fence();
-    ncwrap( ncmpi_put_vara_double_all( ncid , vVar , st , ct , data.data() ) , __LINE__ );
+    ncwrap( ncmpi_put_vara_real_all( ncid , vVar , st , ct , data.data() ) , __LINE__ );
 
 //    realArr &infVol_p = state.ss->inf.infVol;
 //    realArr &infRate_p = state.ss->inf.rate;
     if(ss.inf.model){
       // infiltration rates
-	     Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+	     Kokkos::parallel_for("ncwrap_inf_rate",dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
 	 	      int i,j;
 		      unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		      int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
@@ -288,9 +398,9 @@ public:
       	  //data(iGlob) = infRate_p(ii);
         });
         Kokkos::fence();
-        ncwrap( ncmpi_put_vara_double_all( ncid , infVar , st , ct , data.data() ) , __LINE__ );
+        ncwrap( ncmpi_put_vara_real_all( ncid , infVar , st , ct , data.data() ) , __LINE__ );
       // accumulated infiltration
-	     Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+	     Kokkos::parallel_for("ncwrap_inf_cum", dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
 	 	      int i,j;
 		      unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		      int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
@@ -298,12 +408,48 @@ public:
           data(iGlob) = ss.inf.infVol(ii); // GPU unsafe
         });
         Kokkos::fence();
-        ncwrap( ncmpi_put_vara_double_all( ncid , infVolVar , st , ct , data.data() ) , __LINE__ );
+        ncwrap( ncmpi_put_vara_real_all( ncid , infVolVar , st , ct , data.data() ) , __LINE__ );
     }
 
+			#if SERGHEI_MAXFLOOD > 0
+				#if SERGHEI_MAXFLOOD == 1		// write only at the end, otherwise writes at every time step
+				if(numOut == nOut){
+    			st[0] = par.j_beg; st[1] = par.i_beg;
+    			ct[0] = dom.ny   ; ct[1] = dom.nx   ;
+				#endif
+	    	Kokkos::parallel_for("ncwrap_hMax",dom.nCellDomain , KOKKOS_LAMBDA(int iGlob) {
+	 	  		int i,j;
+		    	unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+		    	int ii=(hc+j)*(dom.nx+2*hc)+hc+i;//index with the extended domain (including halo cells)
+       		data(iGlob) = state.hMax(ii);
+      	});
+      	Kokkos::fence();
+    		ncwrap( ncmpi_put_vara_double_all( ncid , hMaxVar , st , ct , data.data() ) , __LINE__ );
 
+	    	Kokkos::parallel_for("ncwrap_momMax",dom.nCellDomain, KOKKOS_LAMBDA(int iGlob) {
+	 	  		int i,j;
+		    	unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+		    	int ii=(hc+j)*(dom.nx+2*hc)+hc+i;//index with the extended domain (including halo cells)
+       		data(iGlob) = state.momentumMax(ii);
+      	});
+      	Kokkos::fence();
+				ncwrap( ncmpi_put_vara_double_all( ncid , momMaxVar , st , ct , data.data() ) , __LINE__ );
+
+	    	Kokkos::parallel_for("ncwrap_timehMax",dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+	 	  		int i,j;
+		    	unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+		    	int ii=(hc+j)*(dom.nx+2*hc)+hc+i;//index with the extended domain (including halo cells)
+       		data(iGlob) = state.time_hMax(ii);
+      	});
+      	Kokkos::fence();
+	  		ncwrap( ncmpi_put_vara_double_all( ncid , timehMaxVar , st , ct , data.data() ) , __LINE__ );
+			#if SERGHEI_MAXFLOOD == 1
+			}
+			#endif
+		#endif
 }
 
+/////////////////////////////////////////
 
   //Error reporting routine for the PNetCDF I/O
   void ncwrap( int ierr , int line ) {
@@ -320,13 +466,18 @@ public:
 		//filename = dir+"result_."+std::to_string(par.myrank)+".vtk";
 		filename = dir+"result"+std::to_string(numOut)+".vtk";
 	 	real *xCoord;
-  	 	real *yCoord;
+  	real *yCoord;
 		real *data_cpu;
 
 		int ncells=dom.ny*dom.nx;
 
-		int nVars=4; //4 variables to write: z, h, hu, hv
-
+		int nVars=3; //z, h, (u,v)
+		#if SERGHEI_WRITE_HZ
+		nVars++;
+		#endif
+		#if SERGHEI_DEBUG_BOUNDARY
+		nVars++;
+		#endif
     if(ss.inf.model) nVars = nVars+2;  // 2 more variables: inf, infVol
 
 		realArr data  = realArr("data",nVars*ncells);
@@ -349,20 +500,35 @@ public:
     	};
 
 		int nnodes=(dom.nx+1)*(dom.ny+1);
-
-    	Kokkos::parallel_for( ncells , KOKKOS_LAMBDA(int iGlob) {
+			int of_sw = 3;
+			int offset_z = 0;
+			int offset_h = ncells;
+			int offset_hu = 2*ncells;
+			int offset_hv = 3*ncells;
+			int of_bc = of_sw;
+			#if SERGHEI_DEBUG_BOUNDARY
+			of_bc++;
+			#endif
+			int offset_bc = of_bc*ncells;
+			int of_inf = of_bc + 1;
+			int offset_infrate = of_inf * ncells;
+			int offset_infVol = (of_inf+1) * ncells;
+    	Kokkos::parallel_for("vtkwrap_all", ncells , KOKKOS_LAMBDA(int iGlob) {
 			int i,j;
 			unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 			int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
-			data(iGlob) = state.z(ii);
-			data(iGlob+ncells) = state.h(ii);
-			data(iGlob+2*ncells) = state.hu(ii);
-			data(iGlob+3*ncells) = state.hv(ii);
+			data(iGlob+offset_z) = state.z(ii);
+			data(iGlob+offset_h) = state.h(ii);
+			data(iGlob+offset_hu) = state.hu(ii);
+			data(iGlob+offset_hv) = state.hv(ii);
       if(ss.inf.model){
-        data(iGlob+4*ncells) = ss.inf.rate(ii);
-        data(iGlob+5*ncells) = ss.inf.infVol(ii);
+        data(iGlob+offset_infrate) = ss.inf.rate(ii);
+        data(iGlob+offset_infVol) = ss.inf.infVol(ii);
       }
-      // WARNING if you implement a new variable, you have to handle the iGlob+4 in a general case (yes, you!), to handle the possibility of different variable combinations
+			#if SERGHEI_DEBUG_BOUNDARY
+			data(iGlob + offset_bc) = state.isBound(ii);
+			#endif
+      // WARNING if you implement a new variable, you have to handle the offsets in a general case (yes, you!), to handle the possibility of different variable combinations
     	});
     	Kokkos::fence();
 
@@ -378,7 +544,7 @@ public:
 			//fOutStream << "# vtk DataFile Version 3.0.\nOutput file " << filename <<"\nASCII\nDATASET UNSTRUCTURED_GRID\n";
 			fOutStream << "# vtk DataFile Version 3.0.\nOutputfile\nASCII\nDATASET UNSTRUCTURED_GRID\n";
 
-			fOutStream << "POINTS " << nnodes  << " double\n";
+			fOutStream << "POINTS " << nnodes  << SERGHEI_VTK_REAL << "\n";
 			for(j=0;j<=dom.ny;j++){
 				for(i=0;i<=dom.nx;i++){
 					fOutStream << std::setprecision(9) << xCoord[i] << " " << yCoord[j]  << " 0.0\n";
@@ -397,47 +563,57 @@ public:
 			}
 
 			fOutStream << "CELL_DATA " << ncells << "\n";
-			fOutStream << "SCALARS z double\n";
+			fOutStream << "SCALARS z " << SERGHEI_VTK_REAL << "\n";
 			fOutStream << "LOOKUP_TABLE default\n";
 			for(iGlob=0;iGlob<ncells;iGlob++){
 				fOutStream << std::setprecision(9) << data_cpu[iGlob] << "\n";
 			}
 
-			fOutStream << "SCALARS h double\n";
+			fOutStream << "SCALARS h " << SERGHEI_VTK_REAL <<"\n";
 			fOutStream << "LOOKUP_TABLE default\n";
 			for(iGlob=0;iGlob<ncells;iGlob++){
-				fOutStream << std::setprecision(9) << data_cpu[iGlob+ncells]  << "\n";
+				fOutStream << std::setprecision(9) << data_cpu[iGlob+offset_h]  << "\n";
 			}
 
-			fOutStream << "SCALARS h+z double\n";
+#if SERGHEI_WRITE_HZ
+			fOutStream << "SCALARS h+z "<< SERGHEI_VTK_REAL << "\n";
 			fOutStream << "LOOKUP_TABLE default\n";
 			for(iGlob=0;iGlob<ncells;iGlob++){
-				fOutStream << std::setprecision(9) << data_cpu[iGlob] + data_cpu[iGlob+ncells] << "\n";
+				fOutStream << std::setprecision(9) << data_cpu[iGlob] + data_cpu[iGlob+offset_h] << "\n";
 			}
+#endif
 
-
-			fOutStream << "VECTORS velocity double\n";
+			fOutStream << "VECTORS velocity " << SERGHEI_VTK_REAL << "\n";
 			for(iGlob=0;iGlob<ncells;iGlob++){
 				if(data_cpu[iGlob+ncells]>TOL12){
-					fOutStream << std::setprecision(9) << data_cpu[iGlob+2*ncells]/data_cpu[iGlob+ncells] << " " << data_cpu[iGlob+3*ncells]/data_cpu[iGlob+ncells] << " 0.0\n";
+					fOutStream << std::setprecision(9) << data_cpu[iGlob+offset_hu]/data_cpu[iGlob+offset_h] << " " << data_cpu[iGlob+offset_hv]/data_cpu[iGlob+offset_h] << " 0.0\n";
 				}else{
 					fOutStream << "0.0 0.0 0.0\n" ;
 				}
 			}
 
       if(ss.inf.model){
-        fOutStream << "SCALARS inf double\n";
+        fOutStream << "SCALARS inf " << SERGHEI_VTK_REAL << "\n";
         fOutStream << "LOOKUP_TABLE default\n";
         for(iGlob=0;iGlob<ncells;iGlob++){
-          fOutStream << std::setprecision(9) << data_cpu[iGlob+4*ncells]  << "\n";
+          fOutStream << std::setprecision(9) << data_cpu[iGlob+offset_infrate]  << "\n";
         }
 
-        fOutStream << "SCALARS infVol double\n";
+        fOutStream << "SCALARS infVol " << SERGHEI_VTK_REAL << "\n";
         fOutStream << "LOOKUP_TABLE default\n";
         for(iGlob=0;iGlob<ncells;iGlob++){
-          fOutStream << std::setprecision(9) << data_cpu[iGlob+5*ncells]  << "\n";
+          fOutStream << std::setprecision(9) << data_cpu[iGlob+offset_infVol]  << "\n";
         }
       }
+
+			#if SERGHEI_DEBUG_BOUNDARY
+        fOutStream << "SCALARS bc int\n";
+        fOutStream << "LOOKUP_TABLE default\n";
+        for(iGlob=0;iGlob<ncells;iGlob++){
+          fOutStream << data_cpu[iGlob+offset_bc]  << "\n";
+        }
+
+			#endif
       fOutStream.close();
 		}
 
@@ -494,7 +670,7 @@ public:
 
 
 		//z
-    	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+    	Kokkos::parallel_for("binwrap_init_z", dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
 	 		int i,j;
 			unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 			int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
@@ -515,7 +691,7 @@ public:
 
 
 		//h
-    	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+    	Kokkos::parallel_for("binwrap_init_h", dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
 	 		int i,j;
 			unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 			int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
@@ -544,7 +720,7 @@ public:
 		std::string filename;
     	realArr data   = realArr("data",dom.ny*dom.nx);
 
-    Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+    Kokkos::parallel_for("binwrap_h", dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
 	 	int i,j;
 		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
 		int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
@@ -553,12 +729,12 @@ public:
 
     Kokkos::fence();
 
-		//MPI_Gatherv(&data[0],cur_proc_data_size, MPI_DOUBLE, total_data_arr, recvcounts, displs, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		//MPI_Gatherv(&data[0],cur_proc_data_size, SERGHEI_MPI_REAL, total_data_arr, recvcounts, displs, SERGHEI_MPI_REAL, 0, MPI_COMM_WORLD);
 
 		/*if (rank_ == 0){
-			MPI_Gatherv(state.h.get_address_at(0, 0), cur_proc_data_size, MPI_DOUBLE, total_data_arr, recvcounts, displs, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+			MPI_Gatherv(state.h.get_address_at(0, 0), cur_proc_data_size, SERGHEI_MPI_REAL, total_data_arr, recvcounts, displs, SERGHEI_MPI_REAL, 0, MPI_COMM_WORLD);
 		}else{
-			MPI_Gatherv(state.h.get_address_at(1, 0), cur_proc_data_size, MPI_DOUBLE, total_data_arr, recvcounts, displs, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+			MPI_Gatherv(state.h.get_address_at(1, 0), cur_proc_data_size, SERGHEI_MPI_REAL, total_data_arr, recvcounts, displs, SERGHEI_MPI_REAL, 0, MPI_COMM_WORLD);
 		}*/
 
 		filename = dir+std::to_string(par.myrank)+"result"+std::to_string(numOut)+".bin";
@@ -589,15 +765,15 @@ public:
 
 
 
-#if DEBUG_BOUNDARY
+#if SERGHEI_DEBUG_BOUNDARY
 
-	std::cerr << GGD "Hello from rank: " << par.myrank << "/" << par.nranks << "\n";
+	std::cerr << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "Hello from rank: " << par.myrank << "/" << par.nranks << "\n";
 	for (int i = 0; i < extbc.size(); i++) {
-	  std::cerr << GGD "boundary cells: " << extbc[i].ncellsBC << "\n";
-	  std::cerr << GGD "inflow discharge: " << extbc[i].inflowDischarge << "\n";
-	  std::cerr << GGD "inflow accumulated: " << extbc[i].inflowAccumulated << "\n";
-	  std::cerr << GGD "outflow discharge: " << extbc[i].outflowDischarge << "\n";
-	  std::cerr << GGD "outflow accumulated: " << extbc[i].outflowAccumulated << "\n";
+	  std::cerr << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "boundary cells: " << extbc[i].ncellsBC << "\n";
+	  std::cerr << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "inflow discharge: " << extbc[i].inflowDischarge << "\n";
+	  std::cerr << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "inflow accumulated: " << extbc[i].inflowAccumulated << "\n";
+	  std::cerr << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "outflow discharge: " << extbc[i].outflowDischarge << "\n";
+	  std::cerr << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "outflow accumulated: " << extbc[i].outflowAccumulated << "\n";
 	}
 
 #endif
@@ -605,20 +781,20 @@ public:
 
 
 	int _ncellsBC = 0;
-	bint.integrate(extbc,1);
+	bint.integrate(extbc,dom,1);
 	_ncellsBC = bint.ncellsBC;
 
 
 
 
-#if DEBUG_BOUNDARY
+#if SERGHEI_DEBUG_BOUNDARY
 	if (par.masterproc)
 	  {
-	    std::cerr << GGD "boundary cells (reduced): " << _ncellsBC << "\n";
-	    std::cerr << GGD "inflow discharge (integrated) " << bint.inflowDischargeG << "\n";
-	    std::cerr << GGD "inflow accumulated (integrated) " << bint.inflowAccumulatedG << "\n";
-	    std::cerr << GGD "outflow discharge (integrated) " << bint.outflowDischargeG << "\n";
-	    std::cerr << GGD "outflow accumulated (integrated) " << bint.outflowAccumulatedG << std::endl;
+	    std::cerr << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "boundary cells (reduced): " << _ncellsBC << "\n";
+	    std::cerr << GGD  << GRAY << __PRETTY_FUNCTION__ << RESET << "inflow discharge (integrated) " << bint.inflowDischargeG << "\n";
+	    std::cerr << GGD  << GRAY << __PRETTY_FUNCTION__ << RESET << "inflow accumulated (integrated) " << bint.inflowAccumulatedG << "\n";
+	    std::cerr << GGD  << GRAY << __PRETTY_FUNCTION__ << RESET << "outflow discharge (integrated) " << bint.outflowDischargeG << "\n";
+	    std::cerr << GGD  << GRAY << __PRETTY_FUNCTION__ << RESET << "outflow accumulated (integrated) " << bint.outflowAccumulatedG << std::endl;
 	  }
 #endif
 
@@ -664,11 +840,11 @@ public:
 
 
   // Writes time series files
-  void writeTimeSeries (const State &state, Domain const &dom,
-		   Parallel const &par, surfaceIntegrator &sint,
-		   boundaryIntegrator &bint){
-         if(par.masterproc) writeDomainTimeSeries(state,dom,par,sint,bint);
+  void writeTimeSeries (const State &state, Domain const &dom, Parallel const &par, surfaceIntegrator &sint, boundaryIntegrator &bint){
+    timer.reset();
+    if(par.masterproc) writeDomainTimeSeries(state,dom,par,sint,bint);
     numObs++;
+    dom.timers.out += timer.seconds();
   }
 
   void
@@ -709,61 +885,119 @@ public:
 	}
 
 
-  void writeLogFile(Domain const &dom, SergheiTimers &timers, std::string dir){
-    std::string filename = dir + "log.out";
-    logFile.open(filename);
-    if (domainOutputFile.is_open()){
-      logFile << "DomainArea : " << dom.area << std::endl;
-      logFile << "nCellDomain : " << dom.nCellDomain << std::endl;
-      real ratio = timers.total/timers.total;
-      logFile << "runTime : " << timers.total << " : " << ratio << std::endl;
-      real sim = timers.total-timers.Tinit;
-      ratio = sim/timers.total;
+
+  void writeTimerRank(const Parallel &par, const real &time, const std::string &name){
+          real *logdata;
+          logdata = (real*) malloc(par.nranks * sizeof(real));
+
+          MPI_Gather(&time,1,MPI_DOUBLE,logdata,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+          if(par.masterproc) logFile << name <<"\t\t"  ; for(int ii=0; ii<par.nranks; ii++) logFile << " :\t"<< logdata[ii] ; logFile << std::endl;
+          real avg=0;
+          for(int ii=0; ii<par.nranks; ii++) avg += logdata[ii];
+          avg = avg/par.nranks;
+          if(par.masterproc) logFile << name << "_lb\t\t"  ; for(int ii=0; ii<par.nranks; ii++) logFile << " :\t"<< logdata[ii]/avg; logFile << std::endl;
+
+  }
+
+void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
+      real sim, ratio;
+
+      if(par.masterproc){
+      std::string filename = dir + "log.out";
+      logFile.open(filename);
+      if (domainOutputFile.is_open()){
+      logFile << "DomainArea [m2]: " << dom.areaGlobal << std::endl;
+      logFile << "nCellDomain : " << dom.nCellDomainGlobal << std::endl;
+      logFile << "nCellValid : " << dom.nCellValidGlobal << std::endl;
+
+      ratio = dom.timers.total/dom.timers.total;
+      logFile << "runTime : " << dom.timers.total << " : " << ratio << std::endl;
+      sim = dom.timers.total-dom.timers.init;
+      ratio = sim/dom.timers.total;
       logFile << "simTime : " << sim << " : " << ratio << std::endl;
-      ratio = timers.Tinit/timers.total;
-      logFile << "initTime : " << timers.Tinit << " : " <<ratio << std::endl;
-      ratio = timers.Tout/timers.total;
-      logFile << "outputTime : " << timers.Tout << " : " << ratio <<std::endl;
-      ratio = timers.Tsweflux/timers.total;
-      logFile << "sweFluxTime : " << timers.Tsweflux << " : " << ratio << std::endl;
-      ratio = timers.Traininf/timers.total;
-      logFile << "rainInfTime : " << timers.Traininf << " : " << ratio << std::endl;
-      ratio = timers.Tswe/timers.total;
-      logFile << "sweNotFluxTime : " << timers.Tswe << " : " << ratio << std::endl;
-      ratio = timers.Texchange / timers.total;
-      logFile << "exchangeTime : " << timers.Texchange << " : " << ratio << std::endl;
-      ratio = timers.Tintegrate / timers.total;
-      logFile << "integrateTime : " << timers.Tintegrate << " : " << ratio << std::endl;
+      ratio = dom.timers.init/dom.timers.total;
+      logFile << "initTime : " << dom.timers.init << " : " <<ratio << std::endl;
+      ratio = dom.timers.out/dom.timers.total;
+      logFile << "outputTime : " << dom.timers.out << " : " << ratio <<std::endl;
+      ratio = dom.timers.sweflux/dom.timers.total;
+      logFile << "sweFluxTime : " << dom.timers.sweflux << " : " << ratio << std::endl;
+      ratio = dom.timers.raininf/dom.timers.total;
+      logFile << "rainInfTime : " << dom.timers.raininf << " : " << ratio << std::endl;
+      ratio = dom.timers.swe/dom.timers.total;
+      logFile << "sweNotFluxTime : " << dom.timers.swe << " : " << ratio << std::endl;
+      ratio = dom.timers.exchange / dom.timers.total;
+      logFile << "exchangeTime : " << dom.timers.exchange << " : " << ratio << std::endl;
+      ratio = dom.timers.integrate / dom.timers.total;
+      logFile << "integrateTime : " << dom.timers.integrate << " : " << ratio << std::endl;
+      ratio = dom.timers.dt / dom.timers.total;
+      logFile << "dtComputeTime : " << dom.timers.dt << " : " << ratio << std::endl;
+          }
+      }
 
+          logFile << "TIMERS PER RANK" << std::endl;
+          // timers per rank
+          writeTimerRank(par,dom.timers.total,"runTime");
+    sim = dom.timers.total-dom.timers.init;
+          writeTimerRank(par,sim,"simTime");
+          writeTimerRank(par,dom.timers.init,"initTime");
+          writeTimerRank(par,dom.timers.out,"outputTime");
+          writeTimerRank(par,dom.timers.sweflux,"sweFluxTime");
+          writeTimerRank(par,dom.timers.raininf,"rainInfTime");
+          writeTimerRank(par,dom.timers.swe,"sweNotFluxTime");
+          writeTimerRank(par,dom.timers.exchange,"exchangeTime");
+          writeTimerRank(par,dom.timers.dt,"dtComputeTime");
+          if(par.masterproc){
+              auto nowtime = std::chrono::system_clock::now();
+              std::time_t now_time = std::chrono::system_clock::to_time_t(nowtime);
 
-      auto nowtime = std::chrono::system_clock::now();
-      std::time_t now_time = std::chrono::system_clock::to_time_t(nowtime);
+              logFile << std::endl << "DateTime : " << std::ctime(&now_time) << std::endl;
 
-      logFile << "DateTime : " << std::ctime(&now_time) << std::endl;
+              char hostbuffer[256];
+              int hostname = gethostname(hostbuffer, sizeof(hostbuffer));
+              logFile << "Machine : " << hostbuffer << std::endl;
+              #ifdef __NVCC__
+              cudaDeviceProp deviceProp;
+              cudaError_t result = cudaGetDeviceProperties(&deviceProp, 0);
+              logFile << "GPU : " << deviceProp.name << std::endl;
+              #else
+              std::string CPUBrandString;
+              CPUBrandString.resize(49);
+              uint *CPUInfo = reinterpret_cast<uint*>(CPUBrandString.data());
+              for (uint i=0; i<3; i++) __cpuid(0x80000002+i, CPUInfo[i*4+0], CPUInfo[i*4+1], CPUInfo[i*4+2], CPUInfo[i*4+3]);
+              CPUBrandString.assign(CPUBrandString.data()); // correct null terminator
+              logFile << "CPU: " << CPUBrandString << std::endl;
+              #endif
+              logFile << "nTasks : " << par.nranks << std::endl;
 
-      char hostbuffer[256];
-      int hostname = gethostname(hostbuffer, sizeof(hostbuffer));
-      logFile << "Machine : " << hostbuffer << std::endl;
-      #ifdef __NVCC__
-      cudaDeviceProp deviceProp;
-      cudaError_t result = cudaGetDeviceProperties(&deviceProp, 0);
-      logFile << "GPU : " << deviceProp.name << std::endl;
-      #else
-      std::string CPUBrandString;
-      CPUBrandString.resize(49);
-      // uint *CPUInfo = reinterpret_cast<uint*>(CPUBrandString.data());
-      // for (uint i=0; i<3; i++) __cpuid(0x80000002+i, CPUInfo[i*4+0], CPUInfo[i*4+1], CPUInfo[i*4+2], CPUInfo[i*4+3]);
-      CPUBrandString.assign(CPUBrandString.data()); // correct null terminator
-      logFile << "CPU: " << CPUBrandString << std::endl;
-      #endif
+              // write compilation setup
+      // logFile << "\nSERGHEI_GIT_VERSION " << SERGHEI_GIT_VERSION << std::endl;
+              logFile << "\n-------------------------\nMODEL COMPONENT SETUP" <<std::endl;
+              logFile << "SERGHEI_TOOLS " << SERGHEI_TOOLS << std::endl;
+              logFile << "SERGHEI_SUBSURFACE_MODEL " << SERGHEI_SUBSURFACE_MODEL << std::endl;
+              logFile << "SERGHEI_PARTICLE_TRACKING " << SERGHEI_PARTICLE_TRACKING << std::endl;
+              logFile << "SERGHEI_VEGETATION_MODEL " << SERGHEI_VEGETATION_MODEL << std::endl;
+              logFile << "SERGHEI_FRICTION_MODEL " << SERGHEI_FRICTION_MODEL << std::endl;
+              logFile << "SERGHEI_MAXFLOOD " << SERGHEI_MAXFLOOD << std::endl;
+      logFile << "SERGHEI_REAL " << SERGHEI_REAL << std::endl;
+      logFile << "SERGHEI_NC_MODE " << SERGHEI_NC_MODE << std::endl;
+      logFile << "SERGHEI_NC_REAL " ;
+        if(SERGHEI_NC_REAL == NC_FLOAT) logFile << "NC_FLOAT";
+        if(SERGHEI_NC_REAL == NC_DOUBLE) logFile << "NC_DOUBLE";
+        logFile << std::endl;
+      logFile << "SERGHEI_WRITE_HZ " << SERGHEI_WRITE_HZ << std::endl;
 
-      // write compilation setup
-      logFile << "\n-------------------------\nMODEL COMPONENT SETUP" <<std::endl;
-      logFile << "SERGHEI_TOOLS " << SERGHEI_TOOLS << std::endl;
-      //logFile << "SERGHEI_SUBSURFACE_MODEL " << SERGHEI_SUBSURFACE_MODEL << std::endl;
-      logFile << "SERGHEI_PARTICLE_TRACKING " << SERGHEI_PARTICLE_TRACKING << std::endl;
+      logFile << "\n-------------------------\nDEBUG FLAGS" <<std::endl;
+      logFile << "SERGHEI_DEBUG_PARALLEL_DECOMPOSITION " << SERGHEI_DEBUG_PARALLEL_DECOMPOSITION << std::endl;
+      logFile << "SERGHEI_DEBUG_WORKFLOW " << SERGHEI_DEBUG_WORKFLOW << std::endl;
+      logFile << "SERGHEI_DEBUG_KOKKOS_SETUP " << SERGHEI_DEBUG_KOKKOS_SETUP << std::endl;
+      logFile << "SERGHEI_DEBUG_BOUNDARY " << SERGHEI_DEBUG_BOUNDARY << std::endl;
+      logFile << "SERGHEI_DEBUG_DT " << SERGHEI_DEBUG_DT << std::endl;
+      logFile << "SERGHEI_DEBUG_TOOLS " << SERGHEI_DEBUG_TOOLS << std::endl;
+      logFile << "SERGHEI_DEBUG_MASS_CONS " << SERGHEI_DEBUG_MASS_CONS << std::endl;
+      logFile << "SERGHEI_DEBUG_INFILTRATION " << SERGHEI_DEBUG_INFILTRATION << std::endl;
+      logFile << "SERGHEI_DEBUG_MPI " << SERGHEI_DEBUG_MPI << std::endl;
+          }
 
-    }
   }
 
 

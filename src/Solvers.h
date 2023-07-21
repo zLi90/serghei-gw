@@ -7,7 +7,7 @@
 
 
 
-inline _HOSTDEV void roeSolver(const SArray<real,5> &s1, const SArray<real,5> &s2,
+KOKKOS_INLINE_FUNCTION void roeSolver(const SArray<real,5> &s1, const SArray<real,5> &s2,
 										SArray<real,3> &upwM, SArray<real,3> &upwP,
 										real const &dt, real const &dx, real const &nx, real const &ny) {
 
@@ -126,16 +126,16 @@ inline _HOSTDEV void roeSolver(const SArray<real,5> &s1, const SArray<real,5> &s
 
 	#if POINTWISE_FRICTION==0
 		real gamma, hbeta, frictionSlope;
-		#if FRICTION_MODEL == FRICTION_MANNING
+		#if SERGHEI_FRICTION_MODEL == SERGHEI_FRICTION_MANNING
 			gamma = n*n;
 			hbeta = h*cbrt(h);
 		#endif
-		#if FRICTION_MODEL == FRICTION_DARCYWEISBACH
+		#if SERGHEI_FRICTION_MODEL == SERGHEI_FRICTION_DARCYWEISBACH
 			// n represents friction factor f
 			gamma = n/(8*GRAV);
 			hbeta = h;
 		#endif
-		#if FRICTION_MODEL == FRICTION_CHEZY
+		#if SERGHEI_FRICTION_MODEL == SERGHEI_FRICTION_CHEZY
 			// n represents chezy roughness C
 			gamma = 1./(n*n);
 			hbeta = h;
@@ -146,7 +146,7 @@ inline _HOSTDEV void roeSolver(const SArray<real,5> &s1, const SArray<real,5> &s
 		//betaF=0.5*c*n*n*un*sqrt(u*u+v*v)/(h*cbrt(h))*dx;
 		betaF=0.5*c*frictionSlope*dx;
 
-		if(fabs(betaF)>TOL12){
+		if(fabs(betaF)>TOLDRY){
 		real qS=(hu1*nx+hv1*ny)*dx*0.5+fabs(lambda(0))*dt*(lambda(0)*alpha(0)-betaB);
 		real qSF=qS+fabs(lambda(0))*dt*(-betaF);
 		if(qS*qSF<0.0){
@@ -167,8 +167,8 @@ inline _HOSTDEV void roeSolver(const SArray<real,5> &s1, const SArray<real,5> &s
 	hp = h1 + alpha(0);
 
 	if (lambda(0) * lambda(2)<0.0 && hp>0.0 && h1 > 0.0 && h2 > 0.0){
-		beta(0)=fmax(beta(0),alpha(0)*lambda(0)-h1*dx*0.5/dt);
-		beta(0)=fmin(beta(0),-alpha(2)*lambda(2)+h2*dx*0.5/dt);
+		beta(0)=max(beta(0),alpha(0)*lambda(0)-h1*dx*0.5/dt);
+		beta(0)=min(beta(0),-alpha(2)*lambda(2)+h2*dx*0.5/dt);
 	}
 
 
@@ -184,10 +184,10 @@ inline _HOSTDEV void roeSolver(const SArray<real,5> &s1, const SArray<real,5> &s
 	l1= hp - beta(0)/lambda(0); //left intermediate state
 	l2= hp + beta(2)/lambda(2); //right intermediate state
 
-	if(l2<TOL12NEG && h2 < TOL12){
+	if(l2<-TOLDRY && h2 < TOLDRY){
 		upwM(0)+=(lambda(0)*alpha(0) - beta(0)) + (lambda(2)*alpha(2) - beta(2));
 	}else{
-		if(l1<TOL12NEG && h1 < TOL12){
+		if(l1<-TOLDRY && h1 < TOLDRY){
 			upwP(0)+=(lambda(0)*alpha(0) - beta(0)) + (lambda(2)*alpha(2) - beta(2));
 		}else{
 			for(k=0;k<3;k++){ //regular contributions
