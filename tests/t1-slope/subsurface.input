@@ -1,0 +1,18 @@
+// Input parameters for saturated groundwater flow simulations
+// Legal syntax is <key> : <value>
+// Lines can end with comments
+
+BCtype  : REFLECTIVE  // Boundary condition. [*]
+hbc     : 0.0          // Pressure boundary condition (abandoned)
+height : 2.2          // Thickness of the subsurface domain
+maxZ    : 0.2             // Maximum elevation of surface domain (needs to be replace by internal functions)
+ndepth  : 22          // Number of cells in z-direction.
+nSoilID : 1           // Number of soil types
+parNz   : 1           // Number of parallel tasks in z-direction.
+initialMode : file-theta        // saturated, file-h, file-theta
+initialValue : 0.4      // head or water content constant value
+dt_init : 0.00001          // initial (also minimum) dt for subsurface
+dt_max  : 0.5          // maximum allowable dt
+gw_scheme : 1           // numerical schemes, 1:PCA, 2:Picard
+
+// [*]: Recognized boundary conditions are TRANSMISSIVE, REFLECTIVE or PERIODIC
