@@ -4,8 +4,8 @@
 // 3    : uniform flux
 // 4    : non-uniform head, need to read from input file
 // 5    : non-uniform head from the surface domain, this only applies to the top surface
-bctype-xp : 4
-bctype-xm : 4
+bctype-xp : 1
+bctype-xm : 1
 bctype-yp : 1
 bctype-ym : 1
 bctype-zp : 1

@@ -1,0 +1,9 @@
+timeUnits h
+rainUnits mm/h
+TimeSeriesNp 4
+nx 1
+ny 1
+0.0 50.0
+3.0 50.0
+3.01 0
+12.0 0

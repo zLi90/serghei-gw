@@ -1,0 +1,13 @@
+
+// Input parameters for the model
+// Legal syntax is key : value
+// You can end input key:value lines with comments
+
+simLength  : 43200  // How long to simulate (s)
+cfl        : 0.1      // CFL value to use
+outFreq    : 1800      // Frequency for output in seconds
+obsFreq    : 100     // Frequency for time series output
+parNx      : 1       // Number of parallel tasks in the x-direction
+parNy      : 1        // Number of parallel tasks in the y-direction
+outFormat  : NETCDF   //Output format: NETCDF or VTK
+BCtype 	  : REFLECTIVE //outer boundaries: TRANSMISSIVE, REFLECTIVE or PERIODIC

@@ -11,8 +11,8 @@ nSoilID : 1           // Number of soil types
 parNz   : 1           // Number of parallel tasks in z-direction.
 initialMode : file-h        // saturated, file-h, file-theta
 initialValue : 0.4      // head or water content constant value
-dt_init : 0.001          // initial (also minimum) dt for subsurface
-dt_max  : 60.0          // maximum allowable dt
+dt_init : 0.01          // initial (also minimum) dt for subsurface
+dt_max  : 90.0          // maximum allowable dt
 gw_scheme : 1           // numerical schemes, 1:PCA, 2:Picard
 
 // [*]: Recognized boundary conditions are TRANSMISSIVE, REFLECTIVE or PERIODIC
