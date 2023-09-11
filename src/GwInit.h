@@ -267,7 +267,6 @@ public:
                     if      ( !strcmp( "ndepth" , pline.key.c_str() ) ) { pline.value >> gdom.nz_glob; }
                     else if ( !strcmp( "parNz" , pline.key.c_str() ) ) { pline.value >> par.nproc_z; }
                     else if ( !strcmp( "height"    , pline.key.c_str() ) ) { pline.value >> gdom.thickH; }
-                    else if ( !strcmp( "maxZ"    , pline.key.c_str() ) ) { pline.value >> gdom.topZ; }
                     else if ( !strcmp( "dt_init"    , pline.key.c_str() ) ) { pline.value >> gdom.dt_init; }
                     else if ( !strcmp( "dt_max"    , pline.key.c_str() ) ) { pline.value >> gdom.dt_max; }
                     else if (!strcmp("nSoilID", pline.key.c_str()))   {pline.value >> gdom.nSoilID;}
@@ -560,6 +559,10 @@ public:
             tempStr = "theta.input";
             readGwICFile(tempStr, inFolder, gw, gdom, par);
         }
+        else if (!gw.initialMode.compare("file-wt"))    {
+            tempStr = "wt.input";
+            readGwICFile(tempStr, inFolder, gw, gdom, par);
+        }
         else if (!gw.initialMode.compare("saturated")){
             for (iGlob = 0; iGlob < gdom.ncells; iGlob++)   {
                 unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
@@ -649,9 +652,11 @@ public:
         std::string fname = fDirIn + fNameIn;
         std::ifstream fInStream(fname);
         std::string line;
-        int tnx, tny, iGlob, idx, ivg, ii, jj, kk, ii2;
+        int tnx, tny, iGlob, iGlobSW, idx, ivg, ii, jj, kk, ii2;
         real tmp, wcs, wcr, n, alpha ;
-        int ndata = gdom.nx_glob*gdom.ny_glob*gdom.nz_glob;
+        int ndata;
+        if (!strcmp(fNameIn.c_str(), "wt.input")) {ndata = gdom.nx_glob*gdom.ny_glob;}
+        else {ndata = gdom.nx_glob*gdom.ny_glob*gdom.nz_glob;}
         realArr tmpVar = realArr("var", ndata);
         std::string str;
      	if (fInStream.is_open()) {
@@ -719,6 +724,25 @@ public:
                 ii2 = kk*gdom.nx_glob*gdom.ny_glob + (par.j_beg+jj)*(gdom.nx_glob)+par.i_beg+ii;
                 gw.wc(iGlob,1) = tmpVar(ii2);
                 gw.h(iGlob,1) = wc2h(gw.wc(iGlob,1), alpha, n, wcs, wcr);
+                gw.h(iGlob,0) = gw.h(iGlob,1);
+                gw.wc(iGlob,0) = gw.wc(iGlob,1);
+            }
+        }
+        else if (!strcmp(fNameIn.c_str(), "wt.input")) {
+            for (idx = 0; idx < gdom.nCellDomain; idx++)    {
+                unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+                // get global index
+                iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+                // get soil parameters
+                ivg = gw.soilID(iGlob) * gw.nVGparam;
+                wcs = gw.vgTable(ivg+2);
+                wcr = gw.vgTable(ivg+3);
+                n = gw.vgTable(ivg+4);
+                alpha = gw.vgTable(ivg+6);
+                // get head and water content
+                ii2 = (par.j_beg+jj)*(gdom.nx_glob)+par.i_beg+ii;
+                gw.h(iGlob,1) = tmpVar(ii2) - gdom.z(iGlob);
+                gw.wc(iGlob,1) = h2wc(gw.h(iGlob,1), alpha, n, wcs, wcr);
                 gw.h(iGlob,0) = gw.h(iGlob,1);
                 gw.wc(iGlob,0) = gw.wc(iGlob,1);
             }
