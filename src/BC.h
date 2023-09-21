@@ -339,6 +339,8 @@ public:
 		          state.hu(ii)=hu;
 		          state.hv(ii)=hv;
 		        }
+
+
 				  });
         	break;
 
@@ -506,9 +508,11 @@ public:
     real totalDischarge=0.0;
 
     if(ncellsBC > 0){
-			//discharge integration
-			Kokkos::parallel_reduce("reduceDischargeBC",ncellsBC, KOKKOS_CLASS_LAMBDA (int iGlob, real &sumD){
-				int ii = bcells[iGlob];
+		//discharge integration
+		Kokkos::parallel_reduce("reduceDischargeBC",ncellsBC, KOKKOS_CLASS_LAMBDA (int iGlob, real &sumD){
+			int ii = bcells[iGlob];
+            int i, j;
+            unpackIndices(ii,dom.ny+2*hc,dom.nx+2*hc,j,i);
 		    if( state.h(ii)>=state.hmin) {
 					//the integration is done over all boundary walls according to the outflow direction
 					sumD += (state.hu(ii)*sgn(normalx) + state.hv(ii)*sgn(normaly)) * dom.dx;

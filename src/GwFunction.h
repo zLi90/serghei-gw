@@ -213,6 +213,8 @@ public:
             else {gw.k(iGlob,3) = pow(s,0.5) * pow(nume/deno, 2.0);}
         	gw.k(iGlob,3) = pow(s,0.5) * pow(1-pow(1-pow(s,1.0/m),m), 2.0);
             if (gw.k(iGlob,3) > 1.0 | gw.h(iGlob,1) >= gdom.aev)	{gw.k(iGlob,3) = 1.0;}
+            // set no data cells impermeable
+            if (gdom.isnodata(iGlob) == 1)  {gw.k(iGlob,3) = 0.0;}
         });
         // Get K on interior cell faces
         Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
@@ -225,6 +227,9 @@ public:
             gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));
             gw.k(iGlob,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc,3));
             gw.k(iGlob,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc*gdom.nyhc,3));
+            if (gw.k(iGlob,3) * gw.k(iGlob+1,3) == 0.0) {gw.k(iGlob,0) = 0.0;}
+            if (gw.k(iGlob,3) * gw.k(iGlob+gdom.nxhc,3) == 0.0) {gw.k(iGlob,1) = 0.0;}
+            if (gw.k(iGlob,3) * gw.k(iGlob+gdom.nxhc*gdom.nyhc,3) == 0.0) {gw.k(iGlob,2) = 0.0;}
         });
         // MPI exchange of K
         gmpi.mpi_sendrecv(gw.k, gdom, par);
@@ -372,7 +377,8 @@ public:
                         }
                         // Get exchange flux
                         state.qss(iGlobSW) = gw.q(iGlob-gdom.nxhc*gdom.nyhc,2);
-                        // if (state.qss(iGlobSW) < 0.0 & gw.wc(iGlob,1) >= wcs)   {state.qss(iGlobSW) = 0.0;}
+                        // Remove exchange flux when subsurface is fully saturated
+                        if (state.qss(iGlobSW) < 0.0 & gw.wc(iGlob,1) >= wcs)   {state.qss(iGlobSW) = 0.0;}
                     }
                 }
             }
@@ -553,7 +559,12 @@ public:
                     // Not sure if this works for impermeable top boundary ?
                     if (ii == 0 && gw.h(iGlob-1,0) >= 0.0)  {flag = 1;}
                     if (ii == gdom.nx-1 && gw.h(iGlob+1,0) >= 0.0)  {flag = 1;}
-                    if (kk == 0)  {flag = 1;}
+                    // if (kk == 0 && gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) >= 0.0)  {flag = 1;}
+
+                    if (kk == 0)    {
+                        if (gw.wc(iGlob,1) < wcs+TOL8NEG && gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) >= 0.0)   {flag = 0;}
+                        else {flag = 1;}
+                    }
 
                     if (flag == 1)  {
                         real tmp = gw.wc(iGlob,1);
@@ -573,74 +584,6 @@ public:
                     }
                 }
             });
-
-            // // send extra mass to other cells
-            // Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
-            //     int ii, jj, kk, iGlob, iGlobSW, ivg;
-        	// 	real wcs, wcr;
-            //     unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
-            //     iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-            //     iGlobSW = packIndices(gdom.nyhc, gdom.nxhc, jj+hc, ii+hc);
-            //     ivg = gw.soilID(iGlob) * NVG;
-            //     wcs = gw.vgTable(ivg+2);     wcr = gw.vgTable(ivg+3);
-            //     if (gw.wc(iGlob,2) > 0) {
-            //         real wc_tot = 0.0, wcxp, wcxm, wcyp, wcym, wczp, wczm;
-            //         if (gw.q(iGlob,0) != 0 && gw.wc(iGlob+1,1) < wcs)  {
-            //             wcxp = wcs - gw.wc(iGlob+1,1);
-            //             wc_tot += wcxp;
-            //         }
-            //         else if (gw.q(iGlob-1,0) != 0 && gw.wc(iGlob-1,1) < wcs)  {
-            //             wcxm = wcs - gw.wc(iGlob-1,1);
-            //             wc_tot += wcxm;
-            //         }
-            //         else if (gw.q(iGlob,1) != 0 && gw.wc(iGlob+gdom.nxhc,1) < wcs) {
-            //             wcyp = wcs - gw.wc(iGlob+gdom.nxhc,1);
-            //             wc_tot += wcyp;
-            //         }
-            //         else if (gw.q(iGlob-gdom.nxhc,1) != 0 && gw.wc(iGlob-gdom.nxhc,1) < wcs) {
-            //             wcym = wcs - gw.wc(iGlob-gdom.nxhc,1);
-            //             wc_tot += wcym;
-            //         }
-            //         else if (gw.q(iGlob,2) != 0 && gw.wc(iGlob+gdom.nxhc*gdom.nyhc,1) < wcs) {
-            //             wczp = wcs - gw.wc(iGlob+gdom.nxhc*gdom.nyhc,1);
-            //             wc_tot += wczp;
-            //         }
-            //         else if (gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) != 0 && gw.wc(iGlob-gdom.nxhc*gdom.nyhc,1) < wcs) {
-            //             wczm = wcs - gw.wc(iGlob-gdom.nxhc*gdom.nyhc,1);
-            //             wc_tot += wczm;
-            //         }
-            //
-            //
-            //         if (wc_tot > 0)  {
-            //             if (gw.q(iGlob,0) != 0 && gw.wc(iGlob+1,1) < wcs && wcxp != 0.0)  {
-            //                 gw.wc(iGlob+1,1) += gw.wc(iGlob,2) * wcxp / wc_tot;
-            //             }
-            //             else if (gw.q(iGlob-1,0) != 0 && gw.wc(iGlob-1,1) < wcs && wcxm != 0.0)  {
-            //                 gw.wc(iGlob-1,1) += gw.wc(iGlob,2) * wcxm / wc_tot;
-            //             }
-            //             else if (gw.q(iGlob,1) != 0 && gw.wc(iGlob+gdom.nxhc,1) < wcs && wcyp != 0.0) {
-            //                 gw.wc(iGlob+gdom.nxhc,1) += gw.wc(iGlob,2) * wcyp / wc_tot;
-            //             }
-            //             else if (gw.q(iGlob-gdom.nxhc,1) != 0 && gw.wc(iGlob-gdom.nxhc,1) < wcs && wcym != 0.0) {
-            //                 gw.wc(iGlob-gdom.nxhc,1) += gw.wc(iGlob,2) * wcym / wc_tot;
-            //             }
-            //             else if (gw.q(iGlob,2) != 0 && wczp != 0.0) {
-            //                 gw.wc(iGlob+gdom.nxhc*gdom.nyhc,1) += gw.wc(iGlob,2) * wczp / wc_tot;
-            //             }
-            //             else if (gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) != 0 && wczm != 0.0) {
-            //                 real dwc = gw.wc(iGlob,2) * wczm / wc_tot;
-            //                 gw.wc(iGlob-gdom.nxhc*gdom.nyhc,1) += gw.wc(iGlob,2) * wczm / wc_tot;
-            //                 if (kk == 0)    {
-            //                     state.qss(iGlobSW) += dwc * gdom.dz(iGlob) / gdom.dt;
-            //                 }
-            //             }
-            //         }
-            //     }
-            //
-            //     // store the mass loss
-            //     if (gw.wc(iGlob,1) > wcs)	{gw.wc(iGlob,1) = wcs;}
-            //     else if (gw.wc(iGlob,1) < wcr+0.001)	{gw.wc(iGlob,1) = wcr+0.001;}
-            // });
         }
         else {
             Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {

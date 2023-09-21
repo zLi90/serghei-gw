@@ -13,6 +13,7 @@ public:
     int nxhc, nyhc, nzhc, n_substep;
     realArr z, dz, sinx, cosx, siny, cosy, qrain;
     intArr2 hpair;
+    intArr isnodata;
 };
 
 

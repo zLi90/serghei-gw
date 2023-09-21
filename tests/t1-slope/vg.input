@@ -4,7 +4,7 @@
 
 alpha   : 1.0      // van Genuchten alpha
 n       : 2.0     // van Genuchten n
-Ks      : 1.167e-5 // saturated conductivity (m/s) [1.167e-5, 1.167e-6, 1.167e-7]
+Ks      : 1.167e-7 // saturated conductivity (m/s) [1.167e-5, 1.167e-6, 1.167e-7]
 Phi     : 0.4      // porosity (-)
 ThetaR  : 0.08      // residual water content (-)
 ThetaS  : 0.4   // saturated water content (-)

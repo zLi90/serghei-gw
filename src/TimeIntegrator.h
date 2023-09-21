@@ -165,7 +165,7 @@ public :
         #if SERGHEI_DEBUG_DT
         std::cout << "time = " << dom.etime << "\tdt_cfl = " << dom.dt << "\tdom.cfl = " << dom.cfl << std::endl;
         #endif
-        if(dom.dt>1e5){ //it means that evertyhing is dry.
+        if(dom.dt>1e4){ //it means that evertyhing is dry.
             if(dom.isRain){
             // if there is rain, we impose a time step equivalent for h=1
             // this is to make sure we capture the start of the rain
@@ -197,11 +197,24 @@ public :
                 real zij=state.z(iGlob);
                 int isB=state.isBound(iGlob);
                 if(hij >= state.hmin){
-                    if(((hij+zij< state.z(iGlob+1)) && state.h(iGlob+1)<TOL_WETDRY) || ((hij+zij<state.z(iGlob-1)) && state.h(iGlob-1)<TOL_WETDRY) || (isB==0 && state.isnodata(iGlob+1)) || (isB==0 && state.isnodata(iGlob-1) )){
+                    // if(((hij+zij< state.z(iGlob+1)) && state.h(iGlob+1)<TOL_WETDRY) || ((hij+zij<state.z(iGlob-1)) && state.h(iGlob-1)<TOL_WETDRY) || (isB==0 && state.isnodata(iGlob+1)) || (isB==0 && state.isnodata(iGlob-1) )){
+                    //     state.hu(iGlob)=0.0;
+                    // }
+                    // if(((hij+zij<state.z(iGlob+dom.nx+2*haloc)) && state.h(iGlob+dom.nx+2*haloc)<TOL12)  || ((hij+zij<state.z(iGlob-(dom.nx+2*haloc))) && state.h(iGlob-(dom.nx+2*haloc))<TOL12) || (isB==0 && state.isnodata(iGlob+dom.nx+2*haloc)) || (isB==0 && state.isnodata(iGlob-(dom.nx+2*haloc)))){
+                    //     state.hv(iGlob)=0.0;
+                    // }
+                    // Zhi Li fixed the assessment of wetting/drying
+                    if(((hij+zij< state.z(iGlob+1)) && state.h(iGlob+1)<TOL_WETDRY) || (isB==0 && state.isnodata(iGlob+1)) ){
                         state.hu(iGlob)=0.0;
                     }
-                    if(((hij+zij<state.z(iGlob+dom.nx+2*haloc)) && state.h(iGlob+dom.nx+2*haloc)<TOL12)  || ((hij+zij<state.z(iGlob-(dom.nx+2*haloc))) && state.h(iGlob-(dom.nx+2*haloc))<TOL12) || (isB==0 && state.isnodata(iGlob+dom.nx+2*haloc)) || (isB==0 && state.isnodata(iGlob-(dom.nx+2*haloc)))){
+                    if(((hij+zij<state.z(iGlob-1)) && state.h(iGlob-1)<TOL_WETDRY) || (isB==0 && state.isnodata(iGlob-1) )){
+                        state.hu(iGlob-1)=0.0;
+                    }
+                    if(((hij+zij<state.z(iGlob+dom.nx+2*haloc)) && state.h(iGlob+dom.nx+2*haloc)<TOL12) || (isB==0 && state.isnodata(iGlob+dom.nx+2*haloc)) ){
                         state.hv(iGlob)=0.0;
+                    }
+                    if(((hij+zij<state.z(iGlob-(dom.nx+2*haloc))) && state.h(iGlob-(dom.nx+2*haloc))<TOL12) || (isB==0 && state.isnodata(iGlob-(dom.nx+2*haloc)))){
+                        state.hv(iGlob-dom.nx-2*haloc)=0.0;
                     }
                 }
             }

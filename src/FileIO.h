@@ -5,6 +5,7 @@
 #include <ctime>
 #include <unistd.h>
 #include <cpuid.h>
+#include "const.h"
 #include "define.h"
 #include "State.h"
 #include "SWSourceSink.h"
@@ -24,7 +25,7 @@
 #endif
 
 #ifndef SERGHEI_WRITE_HZ
-#define SERGHEI_WRITE_HZ 0
+#define SERGHEI_WRITE_HZ 1
 #endif
 
 #ifndef SERGHEI_NC_REAL
@@ -75,7 +76,7 @@ protected:
 
   int ncid;
   int tDim, xDim, yDim, zDim;
-  int tVar, xVar, yVar, hVar, hzVar, uVar, vVar, zVar, z3Var, hdVar, wcVar;
+  int tVar, xVar, yVar, hVar, hzVar, uVar, vVar, zVar, z3Var, hdVar, wcVar, qVar;
   int infVar,infVolVar;
   std::ofstream domainOutputFile;
   std::ofstream SubsurfaceOutputFile;
@@ -214,6 +215,10 @@ public:
       ncwrap( ncmpi_def_var( ncid , "infVol" , SERGHEI_NC_REAL , 3 , dimids , &infVolVar  ) , __LINE__ );
     }
 
+    #if SERGHEI_SUBSURFACE_MODEL
+    ncwrap( ncmpi_def_var( ncid , "qss" , SERGHEI_NC_REAL , 3 , dimids , &qVar  ) , __LINE__ );
+    #endif
+
 		#if SERGHEI_MAXFLOOD > 0
 		int nc_ndims = 2+SERGHEI_MAXFLOOD-1;
 		if(nc_ndims==2){
@@ -301,6 +306,9 @@ public:
       ncwrap( ncmpi_inq_varid( ncid , "inf"      , &infVar  ) , __LINE__ );
       ncwrap( ncmpi_inq_varid( ncid , "infVol"      , &infVolVar  ) , __LINE__ );
     }
+    #if SERGHEI_SUBSURFACE_MODEL
+    ncwrap( ncmpi_inq_varid( ncid , "qss" , &qVar  ) , __LINE__ );
+    #endif
 
 		#if SERGHEI_MAXFLOOD > 0
     	ncwrap( ncmpi_inq_varid( ncid , "hMax" , &hMaxVar  ) , __LINE__ );
@@ -354,6 +362,17 @@ public:
     Kokkos::fence();
     ncwrap( ncmpi_put_vara_real_all( ncid , hzVar , st , ct , data.data() ) , __LINE__ );
 #endif
+
+    #if SERGHEI_SUBSURFACE_MODEL
+    Kokkos::parallel_for("ncwrap_qss", dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
+	 	 int i,j;
+		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
+		int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
+      data(iGlob) = state.qss(ii);
+    });
+    Kokkos::fence();
+    ncwrap( ncmpi_put_vara_real_all( ncid , qVar , st , ct , data.data() ) , __LINE__ );
+    #endif
 
     // Write out x-velocity
 

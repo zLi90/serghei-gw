@@ -4,4 +4,4 @@ initialValue : 0.0      // depth or water surface elevation constant value
 friction : manning       // none, manning
 roughness : 0.0036         // roughness coefficient value, or set to 'file' to read from file
 
-dryDepth : 0.000001
+dryDepth : 0.0001

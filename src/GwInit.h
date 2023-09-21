@@ -87,6 +87,7 @@ public:
         gdom.siny = realArr("siny", gdom.ncells);
         gdom.cosy = realArr("cosy", gdom.ncells);
         gdom.qrain = realArr("qrain", dom.ncells);
+        gdom.isnodata = intArr("nodata", gdom.ncells);
         // allocate subsurface state variable
         gw.allocate(gdom);
         gmpi.allocate(gdom);
@@ -125,6 +126,8 @@ public:
             //gdom.dz(iGlob) = (state.z(iGlobSW) - gdom.bottomZ) / gdom.nz_glob;
             gdom.dz(iGlob) = gdom.thickH / gdom.nz_glob;
             gdom.z(iGlob) = state.z(iGlobSW) - (kk-hc+0.5)*gdom.dz(iGlob);
+            // no data cells
+            if (state.isnodata(iGlobSW) == 1)   {gdom.isnodata(iGlob) == 1;}
         }
         for (iGlob = 0; iGlob < gdom.ncells; iGlob++) {
             unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
@@ -653,7 +656,7 @@ public:
         std::ifstream fInStream(fname);
         std::string line;
         int tnx, tny, iGlob, iGlobSW, idx, ivg, ii, jj, kk, ii2;
-        real tmp, wcs, wcr, n, alpha ;
+        real tmp, wcs, wcr, n, alpha, nodata_value ;
         int ndata;
         if (!strcmp(fNameIn.c_str(), "wt.input")) {ndata = gdom.nx_glob*gdom.ny_glob;}
         else {ndata = gdom.nx_glob*gdom.ny_glob*gdom.nz_glob;}
@@ -666,6 +669,9 @@ public:
             std::getline(fInStream,str,' ');
             std::getline(fInStream,str);
             std::stringstream(str) >> tny;
+            std::getline(fInStream,str,' ');
+            std::getline(fInStream,str);
+            std::stringstream(str) >> nodata_value;
      		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
      		if (gdom.ny_glob !=tny || gdom.nx_glob !=tnx) {
                 if (par.masterproc) {
@@ -741,8 +747,13 @@ public:
                 alpha = gw.vgTable(ivg+6);
                 // get head and water content
                 ii2 = (par.j_beg+jj)*(gdom.nx_glob)+par.i_beg+ii;
-                gw.h(iGlob,1) = tmpVar(ii2) - gdom.z(iGlob);
-                gw.wc(iGlob,1) = h2wc(gw.h(iGlob,1), alpha, n, wcs, wcr);
+                if (tmpVar(ii2) == nodata_value)    {
+                    gw.h(iGlob,1) = 0.0;    gw.wc(iGlob,1) = wcs;
+                }
+                else {
+                    gw.h(iGlob,1) = tmpVar(ii2) - gdom.z(iGlob);
+                    gw.wc(iGlob,1) = h2wc(gw.h(iGlob,1), alpha, n, wcs, wcr);
+                }
                 gw.h(iGlob,0) = gw.h(iGlob,1);
                 gw.wc(iGlob,0) = gw.wc(iGlob,1);
             }
