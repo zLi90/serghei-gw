@@ -56,6 +56,12 @@
 #define haloc 1
 #define hc 1
 
+// Subsurface initial mode
+#define IC_SAT 1
+#define IC_H 2
+#define IC_WC 3
+#define IC_WT 4
+
 //program options
 #ifndef SERGHEI_SUBSURFACE_MODEL
 #define SERGHEI_SUBSURFACE_MODEL 1

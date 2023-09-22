@@ -47,7 +47,8 @@ public:
     intArr soilID;
     realArr vgTable; // van Genuchten parameters: Ks, Phi, ThetaS, ThetaR, n, m, alpha
     int nVGparam; /* number of van Genuchten parameters */
-    std::string initialMode;
+    // std::string initialMode;
+    int initialMode;
     real initialValue, Vtot, Vexch;
 
     // Allocate state variables for groundwater

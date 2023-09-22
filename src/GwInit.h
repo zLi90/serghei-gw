@@ -528,7 +528,8 @@ public:
         PsLn pline;
         //SubsurfaceModel sub;
         std::string tempStr;
-        gw.initialMode="saturated";
+        // gw.initialMode="saturated";
+        gw.initialMode = IC_SAT;
         // read initial mode and value
         if (fInStream.is_open()){
             while (std::getline(fInStream, line)) {
@@ -539,7 +540,6 @@ public:
                 if(!pline.key.empty()){
                     // Match the key, and store the value
                     if(!strcmp("initialmode",pline.key.c_str())){ pline.value >> gw.initialMode;}
-                    if(!strcmp("initialvalue",pline.key.c_str())){ pline.value >> gw.initialValue ; }
                 }
             }
         }
@@ -554,19 +554,19 @@ public:
             gw.h(iGlob,0) = 0.0;    gw.h(iGlob,1) = 0.0;    gw.wc(iGlob,2) = 0.0;
         }
         // read initial condition from file
-        if(!gw.initialMode.compare("file-h")) {
+        if (gw.initialMode == IC_H) {
             tempStr = "head.input";
             readGwICFile(tempStr, inFolder, gw, gdom, par);
         }
-        else if (!gw.initialMode.compare("file-theta")){
+        else if (gw.initialMode == IC_WC){
             tempStr = "theta.input";
             readGwICFile(tempStr, inFolder, gw, gdom, par);
         }
-        else if (!gw.initialMode.compare("file-wt"))    {
+        else if (gw.initialMode == IC_WT){
             tempStr = "wt.input";
             readGwICFile(tempStr, inFolder, gw, gdom, par);
         }
-        else if (!gw.initialMode.compare("saturated")){
+        else if (gw.initialMode == IC_SAT){
             for (iGlob = 0; iGlob < gdom.ncells; iGlob++)   {
                 unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
                 iGlobSW = packIndices(gdom.nyhc, gdom.nxhc, jj, ii);
@@ -579,7 +579,7 @@ public:
         }
         else {
             if (par.masterproc) {
-                std::cerr << RERROR "Initial mode must be file-h, file-theta or saturated!" << std::endl; return 0;
+                std::cerr << RERROR "Initial mode must be IC_SAT(1), IC_H(2), IC_WC(3) or IC_WT(4)!" << std::endl; return 0;
             }
         }
         if (par.masterproc){std::cerr<<GOK "Subsurface initial condition set" << std::endl;}
