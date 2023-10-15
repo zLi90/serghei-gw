@@ -1,0 +1,10 @@
+// Input parameters for saturated groundwater flow simulations
+// Legal syntax is <key> : <value>
+// Lines can end with comments
+
+alpha   : 6.0         // van Genuchten alpha
+n       : 2.0         // van Genuchten n
+Ks      : 2.78e-3   // saturated conductivity (m/s) [1.167e-5, 1.167e-6, 1.167e-7]
+Phi     : 0.4        // porosity (-)
+ThetaR  : 0.08       // residual water content (-)
+ThetaS  : 0.4   // saturated water content (-)
