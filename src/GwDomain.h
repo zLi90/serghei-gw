@@ -11,6 +11,7 @@ public:
     real thickH, topZ, xll, yll, zll, dx, dy, aev, hmin;
     int nz_glob, nhalo, nx, ny, nz, nSoilID, gw_scheme, isRain;
     int nxhc, nyhc, nzhc, n_substep;
+    bool async;
     realArr z, dz, sinx, cosx, siny, cosy, qrain;
     intArr2 hpair;
     intArr isnodata;

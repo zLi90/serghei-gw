@@ -203,16 +203,32 @@ int main(int argc, char** argv) {
 		            state.h(iGlob) += ss.rainRate(iGlob)*dom.dt;
 		        });
 	        }
-			if (gdom.gw_scheme == 1)	{gwf.pca_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
-			else {gwf.picard_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
+			// Asynchronous coupling
+			if (gdom.async)	{
+				if (gdom.etime + gdom.dt < dom.etime)	{
+					std::cerr << "     Asynchrnous coupling, execute GW at dt: " << gdom.dt <<"\n";
+					gdom.etime += gdom.dt;
+					if (gdom.gw_scheme == 1)	{gwf.pca_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
+					else {gwf.picard_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
+				}
+			}
+			else {
+				// std::cerr << "     Synchrnous coupling, execute GW at dt: " << gdom.dt <<"\n";
+				gdom.etime = dom.etime;
+				if (gdom.gw_scheme == 1)	{gwf.pca_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
+				else {gwf.picard_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
+			}
 			tint.computeGwExchange(state , dom);
 			#endif
 
 			// Unify dt
 			tint.computeDt(state,dom,io);
 			#if SERGHEI_SUBSURFACE_MODEL
-			if (dom.dt < gdom.dt)	{gdom.dt = dom.dt;}
-			else {dom.dt = gdom.dt;}
+			if (!gdom.async)	{
+				if (dom.dt < gdom.dt)	{gdom.dt = dom.dt;}
+				else {dom.dt = gdom.dt;}
+			}
+			else if (dom.dt > gdom.dt)	{dom.dt = gdom.dt;}
 			#endif
 
 			oldVolume+=(bint.inflowDischargeG - bint.outflowDischargeG)*dom.dt; //Boundary fluxes with the new dt
@@ -251,19 +267,11 @@ int main(int argc, char** argv) {
 					std::cerr << "     Inflow Discharge: " << bint.inflowDischargeG <<"\n";
 					std::cerr << "     Outflow Discharge: " << bint.outflowDischargeG <<"\n";
 					if(fabs(diffVolume)>TOL_MASS_ERROR){
-						// std::cerr << YEXC "   Old Volume:\t" << oldVolume <<"\n";
-						// std::cerr << YEXC "   New Volume:\t" << newVolume <<"\n";
-						// std::cerr << YEXC "   Diff Volume:\t" << newVolume-oldVolume <<"\n";
-						// std::cerr << YEXC "   Inflow Volume:\t" << bint.inflowDischargeG*dom.dt <<"\n";
-						// std::cerr << YEXC "   Outflow Volume:\t" << bint.outflowDischargeG*dom.dt <<"\n";
-						// std::cerr << YEXC "   Adjusted Volume:\t" << bint.adjustedVolumeG <<"\n";
 						std::cerr << YEXC "   Rain Volume:\t" << sint.rainFluxG*dom.dt <<"\n";
-						// std::cerr << YEXC "   Inf Volume:\t" << sint.infFluxG*dom.dt <<"\n";
 						#if SERGHEI_DEBUG_MASS_CONS > 1
                             getchar();
                         #endif
 					}
-
 				}
 				// write output
 				if (fabs(dom.etime - io.numOut*io.outFreq) <= 0.5*dom.dt) {

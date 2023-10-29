@@ -1322,6 +1322,7 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 						if (ndata > 0){
 							ebc.extbc[k].hydrograph.initialise(ndata);
 						}
+                        printf(" number of data = %d\n",ndata);
 						for(int i=0; i<ndata; i++) {
 							if (!fHydro.fail() && !fHydro.eof()) {
 								fHydro >> ebc.extbc[k].hydrograph.time(i) >> ebc.extbc[k].hydrograph.value(i);

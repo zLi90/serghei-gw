@@ -227,9 +227,24 @@ public:
             gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+1,3));
             gw.k(iGlob,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc,3));
             gw.k(iGlob,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc*gdom.nyhc,3));
-            if (gw.k(iGlob,3) * gw.k(iGlob+1,3) == 0.0) {gw.k(iGlob,0) = 0.0;}
-            if (gw.k(iGlob,3) * gw.k(iGlob+gdom.nxhc,3) == 0.0) {gw.k(iGlob,1) = 0.0;}
-            if (gw.k(iGlob,3) * gw.k(iGlob+gdom.nxhc*gdom.nyhc,3) == 0.0) {gw.k(iGlob,2) = 0.0;}
+        });
+        // Set K=0 for impervious layers
+        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+            int ii, jj, kk, iGlob, ivg, ivgx, ivgy, ivgz;
+            real ks, ksx, ksy, ksz;
+            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+            ivg = gw.soilID(iGlob) * NVG;
+            ivgx = gw.soilID(iGlob+1) * NVG;
+            ivgy = gw.soilID(iGlob+gdom.nxhc) * NVG;
+            ivgz = gw.soilID(iGlob+gdom.nxhc*gdom.nyhc) * NVG;
+            ks = gw.vgTable(ivg);
+            ksx = gw.vgTable(ivgx);
+            ksy = gw.vgTable(ivgy);
+            ksz = gw.vgTable(ivgz);
+            if (ks * ksx == 0.0) {gw.k(iGlob,0) = 0.0;}
+            if (ks * ksy == 0.0) {gw.k(iGlob,1) = 0.0;}
+            if (ks * ksz == 0.0) {gw.k(iGlob,2) = 0.0;}
         });
         // MPI exchange of K
         gmpi.mpi_sendrecv(gw.k, gdom, par);

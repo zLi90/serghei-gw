@@ -125,6 +125,34 @@ public :
             #endif
         });
 
+        // Check Waterfall
+        // Kokkos::parallel_for("waterfall", dom.nCellDomain , KOKKOS_LAMBDA (int idom) {
+        //     real velu = 0.0, velv = 0.0, hmin = state.hmin, coef;
+        //     int i, j, ii = dom.getIndex(idom);
+        //     unpackIndices(idom, dom.ny, dom.nx, j, i);
+        //     if (state.h(ii) > hmin && state.z(ii) > state.h(ii+1)+state.z(ii+1))    {
+        //         velu = Cweir * mysqrt(2.0*GRAV*state.h(ii));
+        //         if (velu * dom.dt > dom.dx) {velu = dom.dx / dom.dt; }
+        //         state.hu(ii) = state.h(ii) * velu;
+        //     }
+        //     if (state.h(ii) > hmin && state.z(ii) > state.h(ii+dom.nx)+state.z(ii+dom.nx))    {
+        //         velv = Cweir * mysqrt(2.0*GRAV*state.h(ii));
+        //         if (velv * dom.dt > dom.dx) {velv = dom.dx / dom.dt; }
+        //         state.hv(ii) = state.h(ii) * velv;
+        //     }
+        //     if (state.h(ii) > hmin && state.z(ii) > state.h(ii-1)+state.z(ii-1))    {
+        //         velu = Cweir * mysqrt(2.0*GRAV*state.h(ii));
+        //         if (velu * dom.dt > dom.dx) {velu = dom.dx / dom.dt; }
+        //         state.hu(ii-1) = -state.h(ii) * velu;
+        //     }
+        //     if (state.h(ii) > hmin && state.z(ii) > state.h(ii-dom.nx)+state.z(ii-dom.nx))    {
+        //         velv = Cweir * mysqrt(2.0*GRAV*state.h(ii));
+        //         if (velv * dom.dt > dom.dx) {velv = dom.dx / dom.dt; }
+        //         state.hv(ii) = -state.h(ii) * velv;
+        //     }
+        // });
+
+
         dom.timers.swe += timer.seconds();
     }
 

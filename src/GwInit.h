@@ -76,7 +76,7 @@ public:
         gdom.isRain = dom.isRain;
         gdom.hmin = state.hmin;
         // allocate domain
-        gdom.etime = 0;
+        gdom.etime = 0.0;
         gdom.nCellDomain = dom.nx * dom.ny * gdom.nz;
         gdom.ncells = gdom.nxhc*gdom.nyhc*(gdom.nz+2*hc);
         gdom.nhalo = 2*(gdom.nxhc*gdom.nyhc + (gdom.nxhc)*(gdom.nz+2*hc) + (gdom.nyhc)*(gdom.nz+2*hc));
@@ -275,6 +275,7 @@ public:
                     else if (!strcmp("nSoilID", pline.key.c_str()))   {pline.value >> gdom.nSoilID;}
                     else if ( !strcmp( "gw_scheme"    , pline.key.c_str() ) ) { pline.value >> gdom.gw_scheme; }
                     else if ( !strcmp( "aev"    , pline.key.c_str() ) ) { pline.value >> gdom.aev; }
+                    else if ( !strcmp( "async"    , pline.key.c_str() ) ) { pline.value >> gdom.async; }
                 }
             }
         }
@@ -291,11 +292,13 @@ public:
         if (gdom.dt_max    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "dt_max" << " not set."; exit(-1); }
         if (gdom.gw_scheme    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "gw_scheme" << " not set."; exit(-1); }
         if (gdom.aev    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "aev" << " not set."; exit(-1); }
+        if (gdom.async    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "async" << " not set."; exit(-1); }
       // Print out the values
         if (par.masterproc) {
             std::cerr << BDASH "ndepth  : "  << gdom.nz_glob    << "\n";
             std::cerr << BDASH "height : "  << gdom.thickH    << "\n";
             std::cerr << BDASH "parNz   : "  << par.nproc_z    << "\n";
+            std::cerr << BDASH "async   : "  << gdom.async    << "\n";
         }
         if (par.masterproc)   {std::cerr<< GOK "Subsurface parameters read\n";}
         return 1;
