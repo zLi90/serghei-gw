@@ -7,7 +7,7 @@
 #include "Indexing.h"
 
 class surfaceIntegrator {
-  
+
   Kokkos::Timer timer;
 
   public:
@@ -114,7 +114,7 @@ Kokkos::Timer timer;
 
 public:
 
-  int ncellsBC;
+  int ncellsBC, ncellsBCG;
 
   real adjustedVolume ;  // boundary water volume in domain [L^3] adjusted (e.g. impose water depth) (local)
   real outflowDischarge; // boundary outflow discharge in domain [L^3/T] (local)
@@ -184,12 +184,13 @@ public:
 		outflowDischargeG=0.0;
 		inflowAccumulatedG=0.0;
 		outflowAccumulatedG=0.0;
+        ncellsBCG = 0;
 		ierr=MPI_Allreduce(&inflowDischarge, &inflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 		ierr=MPI_Allreduce(&outflowDischarge, &outflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 		ierr=MPI_Allreduce(&inflowAccumulated, &inflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 		ierr=MPI_Allreduce(&outflowAccumulated, &outflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+        ierr=MPI_Allreduce(&ncellsBC, &ncellsBCG, 1, MPI_INT , MPI_SUM, MPI_COMM_WORLD);
 		MPI_Barrier(MPI_COMM_WORLD);
-
 	}
 
   dom.timers.integrate += timer.seconds();

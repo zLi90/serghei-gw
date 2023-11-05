@@ -546,7 +546,7 @@ public:
     inflowDischarge = inDischarge; //inflowdischarge local per bc
     outflowDischarge = outDischarge; //outflowdischarge local per bc
     inflowAccumulated += inDischarge*dom.dt; //inflowAccumulated local per bc
-	 	outflowAccumulated += outDischarge * dom.dt; //outflowaccumulated local per bc
+	outflowAccumulated += outDischarge * dom.dt; //outflowaccumulated local per bc
 
     dom.timers.swe += timer.seconds();
 	}

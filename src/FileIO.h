@@ -801,9 +801,7 @@ public:
 
 	int _ncellsBC = 0;
 	bint.integrate(extbc,dom,1);
-	_ncellsBC = bint.ncellsBC;
-
-
+	_ncellsBC = bint.ncellsBCG;
 
 
 #if SERGHEI_DEBUG_BOUNDARY
@@ -876,7 +874,8 @@ public:
     domainOutputFile << std::scientific << dom.etime << " ";
     domainOutputFile << std::scientific << sint.surfaceVolumeG << " ";
 
-    if (bint.ncellsBC){
+
+    if (bint.ncellsBCG){
 	   domainOutputFile << std::scientific << bint.inflowDischargeG << " ";
 	   domainOutputFile << std::scientific << bint.inflowAccumulatedG << " ";
       domainOutputFile << std::scientific << bint.outflowDischargeG << " ";
