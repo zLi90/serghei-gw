@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
 		GwMatrix A(gdom);
 		GwSolver gsolver;
 		gsolver.init(A, gdom);
-		std::cerr << GGD "Subsurface Solver has been initialized! " << std::endl;
+		if( par.masterproc){std::cerr << GOK "Subsurface Solver has been initialized! " << std::endl;}
 		#endif
 
 		#if SERGHEI_TOOLS
@@ -206,14 +206,13 @@ int main(int argc, char** argv) {
 			// Asynchronous coupling
 			if (gdom.async)	{
 				if (gdom.etime + gdom.dt < dom.etime)	{
-					std::cerr << "     Asynchrnous coupling, execute GW at dt: " << gdom.dt <<"\n";
+					std::cerr << "     Asynchrnous coupling, execute GW at dt = " << gdom.dt <<"\n";
 					gdom.etime += gdom.dt;
 					if (gdom.gw_scheme == 1)	{gwf.pca_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
 					else {gwf.picard_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
 				}
 			}
 			else {
-				// std::cerr << "     Synchrnous coupling, execute GW at dt: " << gdom.dt <<"\n";
 				gdom.etime = dom.etime;
 				if (gdom.gw_scheme == 1)	{gwf.pca_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
 				else {gwf.picard_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}

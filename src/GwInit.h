@@ -53,7 +53,7 @@ public:
         Parallel &par, FileIO &io, SourceSinkData &ss, std::string inFolder, std::string outFolder) {
         int flag = -1;
         int ii, jj, kk, idx, iGlob, iGlobSW;
-        real hdiff, dist;
+        real hdiff, dist, dz_base;
         // Read subsurface input file
         std::string fNameIn = inFolder + "subsurface.input";
         if (!readGwFile(fNameIn, gdom, par))    {
@@ -122,9 +122,10 @@ public:
         for (iGlob = 0; iGlob < gdom.ncells; iGlob++) {
             unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
             iGlobSW = packIndices(gdom.nyhc, gdom.nxhc, jj, ii);
-            //if (state.z(iGlobSW) <= gdom.bottomZ) {std::cerr<< RERROR "GwDomain bottom must be lower than DEM!\n";}
-            //gdom.dz(iGlob) = (state.z(iGlobSW) - gdom.bottomZ) / gdom.nz_glob;
-            gdom.dz(iGlob) = gdom.thickH / gdom.nz_glob;
+            dz_base = gdom.thickH / gdom.nz_glob;
+            // Note that when dz_multiplier > 1, the actual domain height will be > gdom.thickH
+            gdom.dz(iGlob) = dz_base * mypow(gdom.dz_multiplier, kk);
+            // gdom.dz(iGlob) = gdom.thickH / gdom.nz_glob;
             gdom.z(iGlob) = state.z(iGlobSW) - (kk-hc+0.5)*gdom.dz(iGlob);
             // no data cells
             if (state.isnodata(iGlobSW) == 1)   {gdom.isnodata(iGlob) == 1;}
@@ -270,9 +271,10 @@ public:
                     if      ( !strcmp( "ndepth" , pline.key.c_str() ) ) { pline.value >> gdom.nz_glob; }
                     else if ( !strcmp( "parNz" , pline.key.c_str() ) ) { pline.value >> par.nproc_z; }
                     else if ( !strcmp( "height"    , pline.key.c_str() ) ) { pline.value >> gdom.thickH; }
+                    else if ( !strcmp( "dz_multiplier"    , pline.key.c_str() ) ) { pline.value >> gdom.dz_multiplier; }
                     else if ( !strcmp( "dt_init"    , pline.key.c_str() ) ) { pline.value >> gdom.dt_init; }
                     else if ( !strcmp( "dt_max"    , pline.key.c_str() ) ) { pline.value >> gdom.dt_max; }
-                    else if (!strcmp("nSoilID", pline.key.c_str()))   {pline.value >> gdom.nSoilID;}
+                    else if ( !strcmp( "nSoilID", pline.key.c_str()))   {pline.value >> gdom.nSoilID;}
                     else if ( !strcmp( "gw_scheme"    , pline.key.c_str() ) ) { pline.value >> gdom.gw_scheme; }
                     else if ( !strcmp( "aev"    , pline.key.c_str() ) ) { pline.value >> gdom.aev; }
                     else if ( !strcmp( "async"    , pline.key.c_str() ) ) { pline.value >> gdom.async; }
@@ -286,6 +288,7 @@ public:
         }
         // Test to make sure all values were initialized
         if (gdom.nz_glob   == -999) { if (par.masterproc) std::cerr << RERROR "key " << "ndepth" << " not set."; exit(-1); }
+        if (gdom.dz_multiplier   == -999) { if (par.masterproc) std::cerr << RERROR "key " << "dz_multiplier" << " not set."; exit(-1); }
         if (gdom.thickH   == -999) { if (par.masterproc) std::cerr << RERROR "key " << "height" << " not set."; exit(-1); }
         if (par.nproc_z   == -999) { if (par.masterproc) std::cerr << RERROR "key " << "parNz" << " not set."; exit(-1); }
         if (gdom.dt_init   == -999) { if (par.masterproc) std::cerr << RERROR "key " << "dt_init" << " not set."; exit(-1); }

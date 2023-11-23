@@ -8,7 +8,7 @@ class GwDomain : public Domain {
 
 public:
     real dt_init, dt_max, dt, dtOld;
-    real thickH, topZ, xll, yll, zll, dx, dy, aev, hmin;
+    real thickH, topZ, xll, yll, zll, dx, dy, aev, hmin, dz_multiplier;
     int nz_glob, nhalo, nx, ny, nz, nSoilID, gw_scheme, isRain;
     int nxhc, nyhc, nzhc, n_substep;
     bool async;
