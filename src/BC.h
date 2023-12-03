@@ -53,6 +53,7 @@ public:
 	real inflowAccumulated = 0;
 	real adjustedVolume = 0;
 	TimeSeries hydrograph;
+	real netQ,netVol;
 
   real hzMin=1E6; // lowest water surface in boundary cross section
   real zMin=1E6; // lowest bed elevation in boundary cross section
@@ -68,18 +69,18 @@ public:
 		std::vector<int> tmpbcells; //array of indexes of boundary cells
 		std::vector<int> subdomains;	// keeps track of which subdomains are associated to the BC
 
-		for(int iGlob=0; iGlob<dom.nx*dom.ny; iGlob++){
+		for(int iGlob=0; iGlob<dom.nCell; iGlob++){
 			int i,j;
-			unpackIndices(iGlob,dom.ny,dom.nx,j,i);
-			int ii=(hc+j)*(dom.nx+2*hc)+hc+i;//index with the extended domain (including halo cells)
+			dom.unpackIndices(iGlob,j,i);
+			int ii = dom.getHaloExtension(i,j);
 			foundInSubdom = -1;
 			if(!state.isnodata(ii)){
 				if((j==0&&dom.iN) || (j==dom.ny-1&&dom.iS) || (i==0&&dom.iW) || (i==dom.nx-1&&dom.iE) ||
 				state.isnodata(ii+1) || state.isnodata(ii-1) ||
 				state.isnodata(ii-(dom.nx+2*hc)) || state.isnodata(ii+(dom.nx+2*hc))){
 				//boundary domain || nodata neighbours
-					real xCoord = dom.xll + ( par.i_beg + i + 0.5) * dom.dx;
-					real yCoord = dom.yll + dom.ny_glob*dom.dx - ( par.j_beg + j + 0.5) * dom.dx;
+					real xCoord = dom.xll + ( par.i_beg + i + 0.5) * dom.dxConst;
+					real yCoord = dom.yll + dom.ny_glob*dom.dxConst - ( par.j_beg + j + 0.5) * dom.dxConst;
 					if(geometry::isInsidePoly(nPoly,xPoly, yPoly, xCoord, yCoord)){
 						tmpbcells.push_back(ii);
 						//it is important to add the outflow direction because there might be cells with double boundary walls
@@ -296,7 +297,7 @@ public:
 				state.h(ii) = h;
         if(z == zMin) weight = 1./nzMin; // dry cross section
       }
-			real ds = dom.dx; // WARNING UCM
+			real ds = dom.dx();
 			state.hu(ii) = Q * weight / ds * normalx;
 			state.hv(ii) = Q * weight / ds * normaly;
 
@@ -355,7 +356,7 @@ public:
 	    real hv= state.hv(ii);
             real z = state.z(ii);
             state.h(ii) = max(bcvals(0) - z, (real) 0.0); // enforce water depth positivity
-            sumM += (state.h(ii)-h)*dom.dx*dom.dx;
+            sumM += (state.h(ii)-h)*dom.cellArea();
 		        //orientation wrt to the outflow normal direction
 						real modQ=sqrt(hu*hu+hv*hv);
 		        state.hu(ii)=normalx*modQ;
@@ -374,7 +375,7 @@ public:
 					 	real hv= state.hv(ii);
 
             state.h(ii) = bcvals(0);
-		       	sumM += (state.h(ii)-h)*dom.dx*dom.dx;
+		       	sumM += (state.h(ii)-h)*dom.cellArea();
 			      //orientation wrt to the outflow normal direction
 						real modQ=sqrt(hu*hu+hv*hv);
 		        state.hu(ii)=normalx*modQ;
@@ -404,7 +405,7 @@ public:
 			    //state.h(ii) = max(h, hcr);
 			    if (hcr > h) state.h(ii) = bcvals(0);
 
-          sumM += (state.h(ii)-h)*dom.dx*dom.dx;
+          sumM += (state.h(ii)-h)*dom.cellArea();
 
 			    state.hu(ii) = qbc_x;
 			    state.hv(ii) = qbc_y;
@@ -443,7 +444,7 @@ public:
 				 		real hv= state.hv(ii);
 
 			    	state.h(ii) = max(hzBC-state.z(ii), 0.0);
-            sumM += (state.h(ii)-h)*dom.dx*dom.dx;
+            sumM += (state.h(ii)-h)*dom.cellArea();
 
             /*
 			    	//orientation wrt to the outflow normal direction
@@ -469,7 +470,7 @@ public:
             int ii = bcells[iGlob];
             real h = state.h(ii);
 			    	state.h(ii) = max(hzBC-state.z(ii),(real) 0.0);
-            sumM += (state.h(ii)-h)*dom.dx*dom.dx;
+            sumM += (state.h(ii)-h)*dom.cellArea();
 
 			    	//no orientation wrt to the outflow normal direction to allow tidal wave coming into the domain
 					}, Kokkos::Sum<real>(extraMass) );
@@ -494,7 +495,7 @@ public:
   	} // endif ncellsBC
 
 	 	adjustedVolume=extraMass; //extraMass per bc
-  	dom.timers.swe += timer.seconds();
+  	dom.timers.sweBC += timer.seconds();
   }
 
 
@@ -512,10 +513,11 @@ public:
 		Kokkos::parallel_reduce("reduceDischargeBC",ncellsBC, KOKKOS_CLASS_LAMBDA (int iGlob, real &sumD){
 			int ii = bcells[iGlob];
             int i, j;
-            unpackIndices(ii,dom.ny+2*hc,dom.nx+2*hc,j,i);
+            // dom.unpackIndices(ii,dom.ny+2*hc,dom.nx+2*hc,j,i);
+            dom.unpackIndices(ii,j,i);
 		    if( state.h(ii)>=state.hmin) {
 					//the integration is done over all boundary walls according to the outflow direction
-					sumD += (state.hu(ii)*sgn(normalx) + state.hv(ii)*sgn(normaly)) * dom.dx;
+					sumD += (state.hu(ii)*sgn(normalx) + state.hv(ii)*sgn(normaly)) * dom.dx();
 				}
 			}, Kokkos::Sum<real>(totalDischarge));
 
@@ -551,7 +553,16 @@ public:
     dom.timers.swe += timer.seconds();
 	}
 
+	inline void reduce(Parallel const &par){
+		real Qin,Qout;
+		MPI_Reduce(&inflowDischarge, &Qin, 1, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC,  MPI_COMM_WORLD);
+		MPI_Reduce(&outflowDischarge, &Qout, 1, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC,  MPI_COMM_WORLD);
+		netQ = Qin-Qout;
 
+		MPI_Reduce(&inflowAccumulated, &Qin, 1, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC,  MPI_COMM_WORLD);
+		MPI_Reduce(&outflowAccumulated, &Qout, 1, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC,  MPI_COMM_WORLD);
+		netVol = Qin-Qout;
+	}
 
 };
 

@@ -55,8 +55,8 @@ public:
         // calculate buffer index
         nxhalo = gdom.nx+2*hc;    nyhalo = gdom.ny+2*hc;
         idxW = 0;   idxE = 0;   idxS = 0;   idxN = 0;
-        for (int iGlob = 0; iGlob < gdom.ncells; iGlob++)  {
-            unpackIndices(iGlob, gdom.nz+2*hc, gdom.ny+2*hc, gdom.nx+2*hc, kk, jj, ii);
+        for (int iGlob = 0; iGlob < gdom.nCellMem; iGlob++)  {
+            gdom.unpackIndicesGw(iGlob, gdom.nz+2*hc, gdom.ny+2*hc, gdom.nx+2*hc, kk, jj, ii);
             if (ii == 0)    {
                 if (jj > 0 & jj < gdom.ny+1 & kk > 0 & kk < gdom.nz+1)    {idxBufW(idxW) = iGlob;  idxW += 1;}
             }

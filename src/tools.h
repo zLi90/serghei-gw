@@ -1,7 +1,6 @@
 #ifndef _TOOLS_
 #define _TOOLS_
 
-#include "define.h"
 #include "State.h"
 #include "Domain.h"
 #include "geometry.h"
@@ -151,12 +150,12 @@ class ObservationLine{
       #if SERGHEI_DEBUG_TOOLS
       std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
       #endif
-      real v,ds=0;
+      real q,ds=0;
       swflow = 0;
       for(int ig=0; ig<Ng-1; ig++){
-        v = g(ig).sw.hu * normal[ig](0) + g(ig).sw.hv * normal[ig](1);
+        q = g(ig).sw.hu * normal[ig](0) + g(ig).sw.hv * normal[ig](1);
         ds = sg[ig+1]-sg[ig];
-        swflow += g(ig).sw.h * v * ds;
+        swflow += q * ds;
         swvol += swflow*dt;
       }
     };
@@ -222,7 +221,7 @@ public:
       fInStream.ignore(256,' ');
       fInStream >> nLines;
       if(nLines <= 0){
-        if(par.masterproc) std::cout << GOK << "No observation lines defined" << nLines << std::endl;
+        if(par.masterproc) std::cout << GOK << "No observation lines defined (" << nLines << ")" << std::endl;
         return 1;
       }
       lines = new ObservationLine[nLines];  // allocate lines
@@ -264,7 +263,7 @@ public:
     std::cout << "gID\tx\ty\ti\tj\tiGlob\tii" << std::endl;
     for (int ig=0; ig<nGauge; ig++) {
       std::cout << ig;
-      unpackIndices(gauges(ig).ic,dom.ny,dom.nx,j,i);
+      dom.unpackIndices(gauges(ig).ic,j,i);
       for (int kk=0; kk<N_SPATIAL_DIM; kk++) std::cout << "\t" << gauges(ig).x(kk);
       std::cout << "\t" << i << "\t" << j;
       std::cout << "\t" << gauges(ig).ic ;
@@ -316,7 +315,7 @@ public:
         return 0;
       }
     }
-    if(dom.id == MASTERPROC) std::cout << GOK << "Observation gauges ready" << std::endl;
+    if(dom.id == SERGHEI_MASTERPROC) std::cout << GOK << "Observation gauges ready" << std::endl;
     return 1;
   };
 
@@ -369,7 +368,7 @@ public:
     for(int ig=0; ig<N; ig++){
       ObservationGauge &g = gauges(ig);
       // check if gauge ig has been found in any subdomain or has not been found at all
-      if(dom.id==MASTERPROC){
+      if(dom.id==SERGHEI_MASTERPROC){
         if(gii_max[ig] < 0){
           std::cout << RERROR << "Observation gauge " << ig << " (" << g.x(_X) << "," << g.x(_Y) << ")"<< " is not in the domain " << std::endl;
           err++;
@@ -429,7 +428,7 @@ public:
 
     if(err) return 0;
 
-    if(dom.id == MASTERPROC){
+    if(dom.id == SERGHEI_MASTERPROC){
       // check line modes and configure output
       for(int il=0; il<nLines; il++){
         if(lines[il].mode == OBSLINE_MODE_STATE) mode_b++;
@@ -586,7 +585,7 @@ public:
     // This idea may also be more efficient than the current implementation
     //defineMPIswState(&structtype);
     //MPI_Op_create(sum_struct_ts, 1, &MPISUM_swState);
-    //MPI_Reduce(local,global,lines[il].Ng,structtyp,MPISUM_swState,MASTERPROC,MPI_COMM_WORLD);
+    //MPI_Reduce(local,global,lines[il].Ng,structtyp,MPISUM_swState,SERGHEI_MASTERPROC,MPI_COMM_WORLD);
 
     // perform reductions so that all data is in the line instance in the master process
     real *out,*in;
@@ -594,22 +593,22 @@ public:
     in = new real[N];
 
     for(int ig = 0; ig < N; ig++) in[ig] = gauges(ig).sw.h;
-    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM, MASTERPROC, MPI_COMM_WORLD);
+    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC, MPI_COMM_WORLD);
     for(int ig = 0; ig < N; ig++){
       if(par.masterproc) gauges(ig).sw.h = out[ig];
       in[ig] = gauges(ig).sw.hu;
     }
-    MPI_Reduce(in, out,N, SERGHEI_MPI_REAL, MPI_SUM,MASTERPROC, MPI_COMM_WORLD);
+    MPI_Reduce(in, out,N, SERGHEI_MPI_REAL, MPI_SUM,SERGHEI_MASTERPROC, MPI_COMM_WORLD);
     for(int ig = 0; ig < N; ig++){
       if(par.masterproc) gauges(ig).sw.hu = out[ig];
       in[ig] = gauges(ig).sw.hv;
     }
-    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM,MASTERPROC, MPI_COMM_WORLD);
+    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM,SERGHEI_MASTERPROC, MPI_COMM_WORLD);
     for(int ig = 0; ig < N; ig++){
       if(par.masterproc) gauges(ig).sw.hv = out[ig];
 	in[ig] = gauges(ig).sw.z;
     }
-    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM,MASTERPROC, MPI_COMM_WORLD);
+    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM,SERGHEI_MASTERPROC, MPI_COMM_WORLD);
     for(int ig = 0; ig < N; ig++){
       if(par.masterproc) gauges(ig).sw.z = out[ig];
     }

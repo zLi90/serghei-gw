@@ -15,6 +15,11 @@ public:
     realArr z, dz, sinx, cosx, siny, cosy, qrain;
     intArr2 hpair;
     intArr isnodata;
+
+    KOKKOS_INLINE_FUNCTION void unpackIndicesGw(int const iGlob, int nz, int ny, int nx, int &k, int &j, int &i) const{
+      unpackIndicesUniformGrid(iGlob,nz,ny,nx,k,j,i);
+    };
+
 };
 
 

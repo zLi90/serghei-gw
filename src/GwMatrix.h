@@ -20,8 +20,9 @@ public:
 	realArr r, z, p, q;
 
 	// initialize
-	GwMatrix(GwDomain &gdom)	{
-		int ii, jj, kk, ndom = gdom.nCellDomain;
+	// GwMatrix(GwDomain &gdom)	{
+	void init(GwDomain &gdom)	{
+		int ii, jj, kk, ndom = gdom.nCell;
 		nx = gdom.nx;	ny = gdom.ny;	nz = gdom.nz;
 		nrow = ndom;
 		ncol = ndom;
@@ -45,7 +46,7 @@ public:
 		p = realArr("p", nrow);				q = realArr("q", nrow);
 		// Get ptr for the CRS matrix
 		for (int idx = 0; idx < nrow+1; idx++)	{
-			unpackIndices(idx, nz, ny, nx, kk, jj, ii);
+			gdom.unpackIndicesGw(idx, nz, ny, nx, kk, jj, ii);
 			if (idx == nrow) {ptr(idx) = nnz;}
 			else	{ptr(idx) = get_irow(ii, jj, kk, nx, ny, nz);}
 		}

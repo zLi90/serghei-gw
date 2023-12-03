@@ -84,7 +84,6 @@ public:
   realArr qss;
 
   boolArr isnodata; //contains 0 if is a regular cell, 1 if is nodata cell
-
   intArr isBound; //positive values for inlet boundaries, negative values for outlet bvoundaries, 0 for inner cells
 
   #if SERGHEI_MAXFLOOD
@@ -95,28 +94,39 @@ public:
 
 
   inline void allocate(Domain &dom){
-    h 				= realArr( "h" , dom.ncells );
-    hu 			= realArr( "hu" , dom.ncells );
-    hv 			= realArr( "hv" , dom.ncells );
-    z 				= realArr( "z" , dom.ncells );
-    roughness 	= realArr( "roughness" , dom.ncells );
-    isnodata 	= boolArr( "isnodata" , dom.ncells );
-	 isBound 	= intArr( "isBound" , dom.ncells );
-    dsw0 			= realArr( "dsw0" , 3*dom.ncells );
-    dsw1 			= realArr( "dsw1" , 3*dom.ncells );
-    qss 				= realArr( "qss" , dom.ncells );
+    h 				= realArr( "h" , dom.nCellMem );
+    hu 			= realArr( "hu" , dom.nCellMem );
+    hv 			= realArr( "hv" , dom.nCellMem );
+    z 				= realArr( "z" , dom.nCellMem );
+    roughness 	= realArr( "roughness" , dom.nCellMem );
+    isnodata 	= boolArr( "isnodata" , dom.nCellMem );
+	 isBound 	= intArr( "isBound" , dom.nCellMem );
+    dsw0 			= realArr( "dsw0" , 3*dom.nCellMem );
+    dsw1 			= realArr( "dsw1" , 3*dom.nCellMem );
+    qss 				= realArr( "qss" , dom.nCellMem );
     #if SERGHEI_MAXFLOOD
-      hMax = realArr("hMax",dom.ncells);
-      momentumMax = realArr("momMax",dom.ncells);
-      time_hMax = realArr("timehMax",dom.ncells);
+      hMax = realArr("hMax",dom.nCellMem);
+      momentumMax = realArr("momMax",dom.nCellMem);
+      time_hMax = realArr("timehMax",dom.nCellMem);
 
-      Kokkos::parallel_for("initialise_maxflood",dom.nCellDomain,KOKKOS_CLASS_LAMBDA(int iGlob) {
+      Kokkos::parallel_for("initialise_maxflood",dom.nCell,KOKKOS_CLASS_LAMBDA(int iGlob) {
         int ii = dom.getIndex(iGlob);
         hMax(ii) = 0;
         momentumMax(ii)=0;
         time_hMax(ii)=0;
       });
     #endif
+  }
+
+  inline void filterDomain(const Domain &dom){
+    Kokkos::parallel_for("filter_domain",dom.nCell,KOKKOS_CLASS_LAMBDA(int iGlob) {
+      int ii = dom.getIndex(iGlob);
+      if(isnodata(ii)){
+        h(ii) = SERGHEI_NAN;
+        hu(ii) = SERGHEI_NAN;
+        hv(ii) = SERGHEI_NAN;
+      }
+    });
   }
 };
 
@@ -126,7 +136,7 @@ public:
   std::string initialMode;
   std::string frictionModel;
   std::string roughnessInput;
-  std::set<std::string> initialModes = {"dry","h","h+z","file"};
+  std::set<std::string> initialModes = {"dry","h","h+z","file","netcdf"};
   std::set<std::string> frictionModels = {"none","manning","darcyweisbach","chezy"};
   real roughness = 0 ;
   real initialValue = 0;

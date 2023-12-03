@@ -23,8 +23,8 @@ public:
   realArr uptake;
 
   inline void allocate(Domain &dom){
-    biomass = realArr("biomass", dom.ncells);
-    uptake = realArr("biomass", dom.ncells);
+    biomass = realArr("biomass", dom.nCellMem);
+    uptake = realArr("biomass", dom.nCellMem);
   }
 };
 

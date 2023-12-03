@@ -61,7 +61,7 @@ KOKKOS_INLINE_FUNCTION real interpolatePiecewise (TimeSeries const &ts, real con
 };
 
 KOKKOS_INLINE_FUNCTION real interpolateLinear(TimeSeries &ts, real const &t){
-  #if SERGHEI_DEBUG_WORKFLOW
+  #if SERGHEI_DEBUG_WORKFLOW > 1
 	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
   #endif
   int ii,jj;
@@ -149,9 +149,9 @@ public:
 
     void allocate(const Domain &dom){
         if(model){
-          rate = realArr("rate",dom.ncells);
-          infVol = realArr("infVol",dom.ncells);
-          if(model == INF_HORTON) infTime = realArr("infTime",dom.ncells);
+          rate = realArr("rate",dom.nCellMem);
+          infVol = realArr("infVol",dom.nCellMem);
+          if(model == INF_HORTON) infTime = realArr("infTime",dom.nCellMem);
         }
     }
 
@@ -197,7 +197,7 @@ public:
             if(f0(ii) < 0){
 				if(par.masterproc){
                		std::cerr << RERROR << "Initial infiltration capacity not found for Horton infiltration model" << std::endl;
-				}	
+				}
                 error++;
             }
             if(fc(ii) < 0){
@@ -224,7 +224,7 @@ public:
          if(psi < 0){
 		 	if(par.masterproc){
           		std::cerr << RERROR << "Average suction head not found for Green-Ampt infiltration model" << std::endl;
-			}	
+			}
             error++;
          }
          if(dtheta < 0){
@@ -258,7 +258,7 @@ public:
 
                 switch(model){
                     case INF_CONSTANT:
-                        Kokkos::parallel_for("inf_constant", dom.nCellDomain, KOKKOS_LAMBDA (int iGlob){
+                        Kokkos::parallel_for("inf_constant", dom.nCell, KOKKOS_LAMBDA (int iGlob){
                             int ii = dom.getIndex(iGlob);
                             int id = infLabel(ii);
                             inf_p(ii) = constCap(id);
@@ -269,7 +269,7 @@ public:
                         realArr f0 = this->f0;
                         realArr k = this->k;
                         realArr &infTime_p = infTime;
-                        Kokkos::parallel_for("inf_horton", dom.nCellDomain, KOKKOS_LAMBDA (int iGlob)
+                        Kokkos::parallel_for("inf_horton", dom.nCell, KOKKOS_LAMBDA (int iGlob)
                         {
                             int ii = dom.getIndex(iGlob);
                             int id = infLabel(ii);
@@ -296,7 +296,7 @@ public:
 
   void allocate (Domain const &dom){
     if (dom.isRain)
-      rainRate  = realArr ("rainRate", dom.ncells);
+      rainRate  = realArr ("rainRate", dom.nCellMem);
 
     if (inf.model)
       inf.allocate(dom);
@@ -311,15 +311,12 @@ public:
 	//int nx = dom.nx_glob; // computational cell number in x direction
   //int ny = dom.ny_glob; // computational cell number in y direction
 
-	int nx = dom.nx; // computational cell number in x direction
-  int ny = dom.ny; // computational cell number in y direction
-
 	int rainx = rain.nx;  // rain subdomain number in x direction
 	int rainy = rain.ny;  // rain subdomain number in y direction
 
-	int intervalx = nx / rainx; // approximate number of cells in
+	int intervalx = dom.nx / rainx; // approximate number of cells in
 				    // a subdomain in x direction
-	int intervaly = ny / rainy; // approximate number of cells in
+	int intervaly = dom.ny / rainy; // approximate number of cells in
 				    // a subdomain in y direction
 	// ----------------------------------------------------------------------
 
@@ -329,13 +326,12 @@ public:
   findTimeBlock(rain,dom.etime);
   TimeSeries rrain = rain;
 
-   Kokkos::parallel_for("rain_interpolation",dom.nCellDomain, KOKKOS_LAMBDA (int iGlob){
+   Kokkos::parallel_for("rain_interpolation",dom.nCell, KOKKOS_LAMBDA (int iGlob){
 	    int ix;
 	    int iy;
 
-      unpackIndices (iGlob, ny, nx, iy, ix);
-      int ii = getHaloExtension(ix,iy,nx);
-//      int ii=(haloc+iy)*(dom.nx+2*haloc)+haloc+ix;//index for the extended domain (including halo cells)
+      dom.unpackIndices (iGlob, iy, ix);
+      int ii = dom.getHaloExtension(ix,iy);
 
 	    int _x = ix / intervalx;
 	    int _y = iy / intervaly;
@@ -356,7 +352,7 @@ public:
 	    works with MPI. we may think about a switch that uses this
 	    portion of code when compiled for CPU.
 
-	Kokkos::parallel_for (dom.nCellDomain, KOKKOS_LAMBDA (int iGlob)
+	Kokkos::parallel_for (dom.nCell, KOKKOS_LAMBDA (int iGlob)
 			      {
 
 				int ix; // global x coordinate

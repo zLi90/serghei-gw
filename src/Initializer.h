@@ -17,12 +17,15 @@ public:
 
 
   void initializeMPI( int *argc , char ***argv , Parallel &par ) {
+  	#if SERGHEI_DEBUG_WORKFLOW
+	    std::cerr << GGD "Initialising MPI " << std::endl;
+	  #endif
     int ierr = MPI_Init( argc , argv );
     ierr = MPI_Comm_size(MPI_COMM_WORLD,&par.nranks);
     ierr = MPI_Comm_rank(MPI_COMM_WORLD,&par.myrank);
 
     //Determine if I'm the master process
-    if (par.myrank == 0) {
+    if (par.myrank == SERGHEI_MASTERPROC) {
       par.masterproc = 1;
     } else {
       par.masterproc = 0;
@@ -35,7 +38,6 @@ public:
       return 0;
     }
 
-    //buildDomainDecomposition(state, dom, par);
     dom.buildDomainDecomposition(par);
 
     dom.initialise();
@@ -49,6 +51,7 @@ public:
     ss.allocate(dom);
     sint.initialize(state,dom,ss);
     bint.initialize(ebc.extbc);
+    //state.filterDomain(dom);
 
     if(par.masterproc){
       if(!parser.createOutputDir(outFolder)){
@@ -104,7 +107,7 @@ public:
 		Kokkos::parallel_for("remove_elevation_numerical_boundaries", extbc.ncellsBC, KOKKOS_LAMBDA (int iGlob) {
 			int ii = extbc.bcells[iGlob];
 			int i, j;
-			unpackIndices(ii,dom.ny+2*haloc,dom.nx+2*haloc,j,i);
+			unpackIndicesUniformGrid(ii,dom.ny+2*hc,dom.nx+2*hc,j,i);
 
 			if(i==dom.nx+haloc-1&&dom.iE){
 				state.z(ii+1)=state.z(ii);
@@ -128,8 +131,8 @@ public:
 
 		Kokkos::parallel_for("boundaryReflectiveW", dom.ny*haloc , KOKKOS_LAMBDA (int iGlob) {
 			int rx, ry;
-			unpackIndices(iGlob,dom.ny,haloc,ry,rx);
-			int ii=(haloc+ry)*(dom.nx+2*haloc)+haloc;
+			unpackIndicesUniformGrid(iGlob,dom.ny,hc,ry,rx);
+			int ii=(hc+ry)*(dom.nx+2*hc)+hc;
 			//west boundary
 			state.z(ii-rx-1)	=1e4; //10000m high
 			state.h(ii-rx-1)	=0.0;
@@ -142,8 +145,8 @@ public:
 
 		Kokkos::parallel_for("boundaryReflectiveE", dom.ny*haloc , KOKKOS_LAMBDA (int iGlob) {
 			int rx, ry;
-			unpackIndices(iGlob,dom.ny,haloc,ry,rx);
-			int ii=(haloc+ry)*(dom.nx+2*haloc)+haloc+dom.nx-1;
+			unpackIndicesUniformGrid(iGlob,dom.ny,hc,ry,rx);
+			int ii=(hc+ry)*(dom.nx+2*hc)+hc+dom.nx-1;
 			//east boundary
 			state.z(ii+rx+1) 	= 1e4; //10000m high
 			state.h(ii+rx+1)	=0.0;
@@ -157,8 +160,8 @@ public:
 
 		Kokkos::parallel_for("boundaryReflectiveN", haloc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
       	int rx, ry;
-      	unpackIndices(iGlob,haloc,dom.nx,ry,rx);
-			int ii=haloc*(dom.nx+2*haloc)+haloc+rx;
+      	unpackIndicesUniformGrid(iGlob,hc,dom.nx,ry,rx);
+			int ii=hc*(dom.nx+2*hc)+hc+rx;
 			//north boundary
 			state.z(ii-(ry+1)*(dom.nx+2*haloc))	=1e4; //10000m high
 			state.h(ii-(ry+1)*(dom.nx+2*haloc))	=0.0;
@@ -172,8 +175,8 @@ public:
 
 		Kokkos::parallel_for("boundaryReflectiveS", haloc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
       	int rx, ry;
-      	unpackIndices(iGlob,haloc,dom.nx,ry,rx);
-			int ii=(haloc+dom.ny-1)*(dom.nx+2*haloc)+haloc+rx;
+      	unpackIndicesUniformGrid(iGlob,hc,dom.nx,ry,rx);
+			int ii=(hc+dom.ny-1)*(dom.nx+2*hc)+hc+rx;
 			//south boundary
 			state.z(ii+(ry+1)*(dom.nx+2*haloc))	=1e4; //10000m high
 			state.h(ii+(ry+1)*(dom.nx+2*haloc))	=0.0;

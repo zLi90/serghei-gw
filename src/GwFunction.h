@@ -26,14 +26,12 @@ public:
         int iter, ierr=1;
         real dt_tmp;
         enforce_swe_bc(gw, state, gdom, gbc, ss);
-
         face_conductivity(gw, gdom, gbc, gmpi, par);
-
         linear_system(gw, gdom, gbc, A, par);
         iter = gsolver.cg(A, gdom);
-        Kokkos::parallel_for(gdom.nCellDomain, KOKKOS_LAMBDA(int idom) {
+        Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, iGlob;
-            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             gw.h(iGlob,1) = A.x(idom);
         });
@@ -52,12 +50,13 @@ public:
         dt_waco(gw, gdom);
         dt_tmp = gdom.dt;
         ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
-        Kokkos::parallel_for(gdom.ncells, KOKKOS_LAMBDA(int iGlob) {
+        Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
 
         gw.Vtot = integrate(gw, gdom);
         gw.Vexch = get_Vexchange(state, gdom);
+
     }
 
     /* --------------------------------------------------
@@ -74,9 +73,9 @@ public:
         while (iter < iter_max && eps_diff/eps_old > eps_min && eps > eps_min) {
             linear_system(gw, gdom, gbc, A, par);
             iter_cg = gsolver.cg(A, gdom);
-            Kokkos::parallel_for(gdom.nCellDomain, KOKKOS_LAMBDA(int idom) {
+            Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob;
-                unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+                gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 gw.h(iGlob,0) = gw.h(iGlob,1);
                 gw.h(iGlob,1) = A.x(idom);
@@ -103,7 +102,7 @@ public:
         dt_iter(gw, gdom, iter);
         dt_tmp = gdom.dt;
         ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
-        Kokkos::parallel_for(gdom.ncells, KOKKOS_LAMBDA(int iGlob) {
+        Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
 
@@ -115,10 +114,10 @@ public:
     //     Get pressure BC from SWE module
     // -------------------------------------------------- */
     inline void enforce_swe_bc(GwState &gw, State &state, GwDomain &gdom, GwBC &gbc, SourceSinkData &ss)	{
-        Kokkos::parallel_for(gdom.nhalo , KOKKOS_LAMBDA(int idx) {
+        Kokkos::parallel_for("enforce_swe_BC", gdom.nhalo , KOKKOS_LAMBDA(int idx) {
             int ii, jj, kk, iGlobSW, ivg, iGlob = gdom.hpair(idx,1);
             real ks;
-            unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
+            gdom.unpackIndicesGw(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
             iGlobSW = jj*gdom.nxhc + ii;
             ivg = gw.soilID(iGlob) * NVG;
             ks = gw.vgTable(ivg);
@@ -154,10 +153,10 @@ public:
     inline void enforce_lateral_bc(GwState &gw, GwDomain &gdom, GwBC &gbc, Parallel &par)    {
         if (gbc.bctypeXM != SUB_BC_NOFLOW || gbc.bctypeXP != SUB_BC_NOFLOW ||
             gbc.bctypeYM != SUB_BC_NOFLOW || gbc.bctypeYP != SUB_BC_NOFLOW ) {
-            Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+            Kokkos::parallel_for("enforce_side_BC",  gdom.nCell , KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, ii2, ii3, iGlob, ivg;
                 real wcs, wcr, alpha, n;
-                unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+                gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 ii2 = kk*gdom.ny_glob + (par.j_beg+jj);
                 ii3 = kk*gdom.nx_glob + (par.i_beg+ii);
@@ -188,6 +187,22 @@ public:
     // /* --------------------------------------------------
     //     End of pressure BC block
     // -------------------------------------------------- */
+    
+    
+    // /* --------------------------------------------------
+    //     Get rainfall BC from SWE module
+    // -------------------------------------------------- */
+    inline void enforce_rainfall_bc(State &state, GwDomain &gdom, Domain &dom, SourceSinkData &ss)	{
+    	Kokkos::parallel_for( dom.nCellMem , KOKKOS_LAMBDA(int iGlob) {gdom.qrain(iGlob) = ss.rainRate(iGlob); });
+        Kokkos::parallel_for( dom.nCell , KOKKOS_LAMBDA (int idom) {
+            int iGlob = dom.getIndex(idom);
+            state.h(iGlob) += ss.rainRate(iGlob)*dom.dt;
+        });
+    }
+    
+    // /* --------------------------------------------------
+    //     End of rainfall BC block
+    // -------------------------------------------------- */
 
 
     /* --------------------------------------------------
@@ -195,10 +210,11 @@ public:
     -------------------------------------------------- */
     inline void face_conductivity(GwState &gw, GwDomain &gdom, GwBC &gbc, GwMPI &gmpi, Parallel &par)	{
         // Get relatively permeability at cell centers
-        Kokkos::parallel_for( gdom.ncells , KOKKOS_LAMBDA(int iGlob) {
+        
+        Kokkos::parallel_for("relative_permeability",  gdom.nCellMem , KOKKOS_LAMBDA(int iGlob) {
             int ii, jj, kk, ivg;
             real s, alpha, n, m, wcm, wcr, wcs, nume, deno;
-            unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
+            gdom.unpackIndicesGw(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
             ivg = gw.soilID(iGlob) * NVG;
             wcs = gw.vgTable(ivg+2);
             wcr = gw.vgTable(ivg+3);
@@ -217,10 +233,10 @@ public:
             if (gdom.isnodata(iGlob) == 1)  {gw.k(iGlob,3) = 0.0;}
         });
         // Get K on interior cell faces
-        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, iGlob, ivg;
             real ks;
-            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             ivg = gw.soilID(iGlob) * NVG;
             ks = gw.vgTable(ivg);
@@ -229,10 +245,10 @@ public:
             gw.k(iGlob,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGlob+gdom.nxhc*gdom.nyhc,3));
         });
         // Set K=0 for impervious layers
-        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, iGlob, ivg, ivgx, ivgy, ivgz;
             real ks, ksx, ksy, ksz;
-            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             ivg = gw.soilID(iGlob) * NVG;
             ivgx = gw.soilID(iGlob+1) * NVG;
@@ -249,10 +265,10 @@ public:
         // MPI exchange of K
         gmpi.mpi_sendrecv(gw.k, gdom, par);
         // Apply boundary conditions
-        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, iGlob, iGlobSW, ivg;
             real ks, ksx, ksy;
-            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             iGlobSW = (hc+jj)*gdom.nxhc + ii + hc;
             ivg = gw.soilID(iGlob) * NVG;
@@ -320,9 +336,9 @@ public:
     //     Get face flux
     // -------------------------------------------------- */
     inline void face_flux(GwState &gw, State &state, GwDomain &gdom, GwBC &gbc, GwMPI &gmpi, Parallel &par)	{
-        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, iGlob;
-            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             gw.q(iGlob,0) = gw.k(iGlob,0) * gdom.cosx(iGlob) * (gw.h(iGlob+1,1) - gw.h(iGlob,1)) / gdom.dx
                 + gw.k(iGlob,0) * gdom.sinx(iGlob);
@@ -334,10 +350,10 @@ public:
         // MPI exchange of flux
         gmpi.mpi_sendrecv(gw.q, gdom, par);
         // Apply boundary conditions
-        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, ivg, iGlob, iGlobSW;
             real q_max, wcs;
-            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             ivg = gw.soilID(iGlob) * NVG;
             wcs = gw.vgTable(ivg+2);
@@ -372,7 +388,7 @@ public:
                 }
             }
             // Get qz
-            iGlobSW = packIndices(gdom.nyhc, gdom.nxhc, jj+hc, ii+hc);
+            iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj+hc, ii+hc);
             if (kk == 0)    {
                 if (gbc.bctypeZM == SUB_BC_NOFLOW)   {gw.q(iGlob-gdom.nxhc*gdom.nyhc,2) = 0.0;}
                 else if (gbc.bctypeZM == SUB_BC_Q_CONST) {
@@ -416,12 +432,12 @@ public:
     // -------------------------------------------------- */
     inline void linear_system(GwState &gw, GwDomain &gdom, GwBC &gbc, GwMatrix &A, Parallel &par)	{
         // Calculate matrix coefficients
-        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, ivg, iGlob, iGlobSW;
             real wcs, wcr, wcm, n, m, alpha, nume, deno, ch = 0.0, ss = 1e-5;
-            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-            iGlobSW = packIndices(gdom.nyhc, gdom.nxhc, jj+hc, ii+hc);
+            iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj+hc, ii+hc);
             ivg = gw.soilID(iGlob) * NVG;
             wcs = gw.vgTable(ivg+2);     wcr = gw.vgTable(ivg+3);
             n = gw.vgTable(ivg+4);       alpha = gw.vgTable(ivg+6);
@@ -503,9 +519,9 @@ public:
         });
         // printf(" ----- \n\n");
         // Insert coefficients into Matrix A
-        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, irow = A.ptr(idom);
-			unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+			gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
         	if (kk > 0)	{A.ind(irow) = idom - gdom.nx*gdom.ny;	A.val(irow) = gw.coef(idom,6);  irow++;}
         	if (jj > 0)	{A.ind(irow) = idom - gdom.nx;	        A.val(irow) = gw.coef(idom,4);  irow++;}
         	if (ii > 0)	{A.ind(irow) = idom - 1;		        A.val(irow) = gw.coef(idom,2);  irow++;}
@@ -531,10 +547,10 @@ public:
     inline void update_wc(GwState &gw, State &state, GwDomain &gdom)	{
         // Update wc with explicit scheme
         if (gdom.gw_scheme == 1)    {
-            Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+            Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob, ivg, iGlobSW;
                 real coef, qqx, qqy, qqz, wcs, ss = 1e-5;
-                unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+                gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 ivg = gw.soilID(iGlob) * NVG;
                 wcs = gw.vgTable(ivg+2);
@@ -546,12 +562,12 @@ public:
                 gw.wc(iGlob,2) = 0.0;
             });
             // Choose h or wc at the interface
-            Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+            Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob, iGlobSW, ivg, flag;
         		real wcs, wcr, wcm, n, m, alpha, sbar;
-                unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+                gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-                iGlobSW = packIndices(gdom.nyhc, gdom.nxhc, jj+hc, ii+hc);
+                iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj+hc, ii+hc);
                 ivg = gw.soilID(iGlob) * NVG;
                 wcs = gw.vgTable(ivg+2);     wcr = gw.vgTable(ivg+3);
                 n = gw.vgTable(ivg+4);       alpha = gw.vgTable(ivg+6);
@@ -601,10 +617,10 @@ public:
             });
         }
         else {
-            Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+            Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob, ivg, flag;
         		real wcs, wcr, wcm, n, m, alpha, sbar;
-                unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+                gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 ivg = gw.soilID(iGlob) * NVG;
                 wcs = gw.vgTable(ivg+2);     wcr = gw.vgTable(ivg+3);
@@ -635,9 +651,9 @@ public:
     inline void dt_waco(GwState &gw, GwDomain &gdom)	{
     	real dwc_max, dt_old;
     	dt_old = gdom.dt;
-        Kokkos::parallel_reduce(gdom.nCellDomain, KOKKOS_LAMBDA (int idx, real &tmp) {
+        Kokkos::parallel_reduce(gdom.nCell, KOKKOS_LAMBDA (int idx, real &tmp) {
             int ii, jj, kk, iGlob;
-            unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             real dwc = fabs(gw.wc(iGlob,1) - gw.wc(iGlob,0));
 			tmp = (dwc > tmp) ? dwc : tmp;
@@ -671,7 +687,7 @@ public:
     // -------------------------------------------------- */
     inline real get_eps(GwState &gw, GwDomain &gdom)	{
     	real eps;
-        Kokkos::parallel_reduce(gdom.nCellDomain, KOKKOS_LAMBDA (int idx, real &tmp) {
+        Kokkos::parallel_reduce(gdom.nCell, KOKKOS_LAMBDA (int idx, real &tmp) {
             real dwc = fabs(gw.h(idx,1) - gw.h(idx,0));
 			tmp = (dwc > tmp) ? dwc : tmp;
 		} , Kokkos::Max<real>(eps) );
@@ -687,9 +703,9 @@ public:
     // -------------------------------------------------- */
     inline real integrate(GwState &gw, GwDomain &gdom)	{
     	real V_tot;
-        Kokkos::parallel_reduce(gdom.nCellDomain, KOKKOS_LAMBDA (int idx, real &tmp) {
+        Kokkos::parallel_reduce(gdom.nCell, KOKKOS_LAMBDA (int idx, real &tmp) {
             int ii, jj, kk, iGlob;
-            unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             tmp += gw.wc(iGlob,1) * gdom.dx * gdom.dx * gdom.dz(iGlob);
 		} , Kokkos::Sum<real>(V_tot) );
@@ -699,7 +715,9 @@ public:
     	real V_exch;
         Kokkos::parallel_reduce(gdom.ny*gdom.nx, KOKKOS_LAMBDA (int idx, real &tmp) {
             int ii, jj, iGlob;
-            unpackIndices(idx, gdom.ny, gdom.nx, jj, ii);
+            // printf(" nx, ny = %d, %d : idx = %d \n",gdom.nx, gdom.ny, idx);
+            unpackIndicesUniformGrid(idx, gdom.ny, gdom.nx, jj, ii);
+            // gdom.unpackIndices(idx, jj, ii);
             iGlob = (hc+jj)*gdom.nxhc + ii + hc;
             tmp += state.qss(iGlob) * gdom.dx * gdom.dx * gdom.dt;
 		} , Kokkos::Sum<real>(V_exch) );

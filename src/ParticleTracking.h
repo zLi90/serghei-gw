@@ -59,7 +59,7 @@ class ParticleTracker{
         int i,j;
         // TODO collect i and j for the 1D cells array
         for(int ip=0; ip<N; ip++){
-          int r = rand() % dom.nCellDomain;
+          int r = rand() % dom.nCell;
           particles(ip).x(_X) = dom.xll + i * dom.dx;
           particles(ip).x(_Y) = dom.yll + j * dom.dx;
         }

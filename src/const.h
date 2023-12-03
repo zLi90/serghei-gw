@@ -3,11 +3,22 @@
 #ifndef _PARAMS_H_
 #define _PARAMS_H_
 
+// Index for variables
 #define idH  0
 #define idHU 1
 #define idHV 2
 #define idZ 3
 #define idR 4
+// Index for variable for IO
+#define ioH idH
+#define ioHU idHU
+#define ioHV idHV
+#define ioZ idZ
+#define ioR idR
+#define ioHZ 1000
+#define ioU 1001
+#define ioV 1002
+
 
 // Some physical constants
 #define GRAV 9.81
@@ -54,6 +65,11 @@
 
 //No Data ThresHold
 #define NDTH 9999.0
+
+#define SERGHEI_NAN NAN
+
+// PNETCDF parameters
+#define PNETCDF_N_INPUT_VARIABLES 9 // number of variables in an initial input file
 
 //halo cells (overlapping cells between domains for MPI)
 #define haloc 1
@@ -103,6 +119,12 @@
 #ifndef SERGHEI_DEBUG_MPI
 #define SERGHEI_DEBUG_MPI 0
 #endif
+#ifndef SERGHEI_DEBUG_OUTPUT
+#define SERGHEI_DEBUG_OUTPUT 0
+#endif
+#ifndef SERGHEI_DEBUG_INPUT_NETCDF
+#define SERGHEI_DEBUG_INPUT_NETCDF 0
+#endif
 
 //colors
 #define RESET   "\033[0m"
@@ -115,7 +137,7 @@
 #define CYAN    "\033[36m"      /* Cyan */
 #define WHITE   "\033[37m"      /* White */
 #define GRAY   "\033[90m"      /* Gray */
-
+#define BOLD "\033[1m"  /* Bold */
 //mesagges
 #define GSTAR GREEN << "[**] " << RESET
 #define GOK   GREEN << "[OK] " << RESET
@@ -139,7 +161,25 @@ int const OUT_BIN 	 = 3;
 int const OUTPUT_PRECISION = 6;
 
 
+#ifndef SERGHEI_MESH_UNIFORM
+#define SERGHEI_MESH_UNIFORM 1
+#endif
 
+int getIOvarID(std::string vname){
+    int varid=-1;
+    if(!vname.compare("h")) varid=ioH;
+    if(!vname.compare("hu")) varid=ioHV;
+    if(!vname.compare("hv")) varid=ioHU;
+    if(!vname.compare("z")) varid=ioZ;
+    if(!vname.compare("h+z")) varid=ioHZ;
+    if(!vname.compare("n")) varid=ioR;
+    if(!vname.compare("u")) varid=ioU;
+    if(!vname.compare("v")) varid=ioV;
+    if(varid<0){
+        std::cerr << RERROR << "IO variable " << vname << " not handled by " << __FUNCTION__ << std::endl;
 
-
+        return -1;
+    }
+    return varid;
+}
 #endif

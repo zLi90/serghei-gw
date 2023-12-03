@@ -39,16 +39,15 @@ class surfaceIntegrator {
 
   void integrate(State const &state, Domain const &dom, SourceSinkData &ss){
     timer.reset();
-    real A = dom.dx * dom.dx;  // WARNING UCM  - Uniform Cartesian Mesh
 
 	 int ierr=0;
 
     surfaceVolume = 0;
-	  Kokkos::parallel_reduce( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob, real &valUpdate) {
-        int ii = dom.getIndex(iGlob);
+	  Kokkos::parallel_reduce( dom.nCell , KOKKOS_LAMBDA (int iGlob, real &valUpdate) {
+      int ii = dom.getIndex(iGlob);
 		  bool nodata=state.isnodata(ii);
 		  if(!nodata)
-        valUpdate +=  state.h(ii) * A;
+        valUpdate +=  state.h(ii) * dom.cellArea();
     } , Kokkos::Sum<real>(surfaceVolume) );
 		Kokkos::fence();
 
@@ -63,11 +62,11 @@ class surfaceIntegrator {
 
 		 rainFlux = 0.0;
 		 if(dom.isRain){
-			Kokkos::parallel_reduce( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob, real &valUpdate) {
+			Kokkos::parallel_reduce( dom.nCell , KOKKOS_LAMBDA (int iGlob, real &valUpdate) {
 			  int ii = dom.getIndex(iGlob);
 			  bool nodata=state.isnodata(ii);
 			  if(!nodata)
-			  valUpdate += ss.rainRate(ii) * A;
+			  valUpdate += ss.rainRate(ii) * dom.cellArea();
 			} , Kokkos::Sum<real>(rainFlux) );
 			  Kokkos::fence();
 		    rainAccum += rainFlux * dom.dt;
@@ -75,14 +74,14 @@ class surfaceIntegrator {
 
 		 infFlux = 0.0;
 		 if(ss.inf.model){
-			Kokkos::parallel_reduce( dom.nCellDomain , KOKKOS_LAMBDA (int iGlob, real &valUpdate) {
+			Kokkos::parallel_reduce( dom.nCell , KOKKOS_LAMBDA (int iGlob, real &valUpdate) {
 			  real inffluxlocal;
 			  int ii = dom.getIndex(iGlob);
 			  bool nodata=state.isnodata(ii);
 			  if(!nodata)
-			  inffluxlocal = ss.inf.rate(ii)*A;
+			  inffluxlocal = ss.inf.rate(ii)*dom.cellArea();
 			  valUpdate += inffluxlocal;
-			  ss.inf.infVol(ii) += inffluxlocal;
+			  ss.inf.infVol(ii) += inffluxlocal * dom.dt;
 			} , Kokkos::Sum<real>(infFlux) );
 			  Kokkos::fence();
 		 }
@@ -167,7 +166,7 @@ public:
 		 // no MPI reduction is necessary, as they flows and volumes are already computed per open boundary in ExtBC::integrate
 		 for (int i = 0; i < extbc.size(); i ++) {
 			MPI_Allreduce(&(extbc[i].ncellsBC), &_ncellsBC, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-			ncellsBC += extbc[i].ncellsBC;
+			ncellsBC += _ncellsBC;
 			inflowDischarge += extbc[i].inflowDischarge;
 			inflowAccumulated+= extbc[i].inflowAccumulated;
 			outflowDischarge += extbc[i].outflowDischarge;
@@ -195,6 +194,8 @@ public:
 
   dom.timers.integrate += timer.seconds();
   }
+
+	
 
 };
 

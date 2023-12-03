@@ -68,8 +68,8 @@ public:
         gdom.nxhc = gdom.nx + 2*hc;
         gdom.nyhc = gdom.ny + 2*hc;
         gdom.nzhc = gdom.nz + 2*hc;
-        gdom.dx = dom.dx;
-        gdom.dy = dom.dx;
+        gdom.dx = dom.dxConst;
+        gdom.dy = dom.dxConst;
         gdom.xll = dom.xll;
         gdom.yll = dom.yll;
         gdom.zll = 0.0;
@@ -77,17 +77,17 @@ public:
         gdom.hmin = state.hmin;
         // allocate domain
         gdom.etime = 0.0;
-        gdom.nCellDomain = dom.nx * dom.ny * gdom.nz;
-        gdom.ncells = gdom.nxhc*gdom.nyhc*(gdom.nz+2*hc);
+        gdom.nCell = dom.nx * dom.ny * gdom.nz;
+        gdom.nCellMem = gdom.nxhc*gdom.nyhc*(gdom.nz+2*hc);
         gdom.nhalo = 2*(gdom.nxhc*gdom.nyhc + (gdom.nxhc)*(gdom.nz+2*hc) + (gdom.nyhc)*(gdom.nz+2*hc));
-        gdom.z = realArr("z", gdom.ncells);
-        gdom.dz = realArr("dz", gdom.ncells);
-        gdom.sinx = realArr("sinx", gdom.ncells);
-        gdom.cosx = realArr("cosx", gdom.ncells);
-        gdom.siny = realArr("siny", gdom.ncells);
-        gdom.cosy = realArr("cosy", gdom.ncells);
-        gdom.qrain = realArr("qrain", dom.ncells);
-        gdom.isnodata = intArr("nodata", gdom.ncells);
+        gdom.z = realArr("z", gdom.nCellMem);
+        gdom.dz = realArr("dz", gdom.nCellMem);
+        gdom.sinx = realArr("sinx", gdom.nCellMem);
+        gdom.cosx = realArr("cosx", gdom.nCellMem);
+        gdom.siny = realArr("siny", gdom.nCellMem);
+        gdom.cosy = realArr("cosy", gdom.nCellMem);
+        gdom.qrain = realArr("qrain", dom.nCellMem);
+        gdom.isnodata = intArr("nodata", gdom.nCellMem);
         // allocate subsurface state variable
         gw.allocate(gdom);
         gmpi.allocate(gdom);
@@ -97,8 +97,8 @@ public:
         //          hpair(idx, 2) = direction of the boundary: -1,1,-2,2,-3,3
         gdom.hpair = intArr2("hpair", gdom.nhalo, 3);
         idx = 0;
-        for (iGlob = 0; iGlob < gdom.ncells; iGlob++) {
-            unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
+        for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++) {
+            gdom.unpackIndicesGw(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
             if (ii == 0 & jj > 0 & jj < gdom.ny+1 & kk > 0 & kk < gdom.nz+1)    {
                 gdom.hpair(idx,0) = iGlob;   gdom.hpair(idx,1) = iGlob+1; gdom.hpair(idx,2) = -1; idx += 1;
             }
@@ -119,9 +119,9 @@ public:
             }
         }
         // get z and dz for interior cells
-        for (iGlob = 0; iGlob < gdom.ncells; iGlob++) {
-            unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
-            iGlobSW = packIndices(gdom.nyhc, gdom.nxhc, jj, ii);
+        for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++) {
+            gdom.unpackIndicesGw(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
+            iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj, ii);
             dz_base = gdom.thickH / gdom.nz_glob;
             // Note that when dz_multiplier > 1, the actual domain height will be > gdom.thickH
             gdom.dz(iGlob) = dz_base * mypow(gdom.dz_multiplier, kk);
@@ -130,8 +130,8 @@ public:
             // no data cells
             if (state.isnodata(iGlobSW) == 1)   {gdom.isnodata(iGlob) == 1;}
         }
-        for (iGlob = 0; iGlob < gdom.ncells; iGlob++) {
-            unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
+        for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++) {
+            gdom.unpackIndicesGw(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
             if (ii == 0)    {gdom.z(iGlob) = gdom.z(iGlob+1);}
             else if (ii == gdom.nx+1) {gdom.z(iGlob) = gdom.z(iGlob-1);}
             else if (jj == 0)   {gdom.z(iGlob) = gdom.z(iGlob+gdom.nxhc);}
@@ -140,8 +140,8 @@ public:
         gmpi.mpi_sendrecv1(gdom.z, gdom, par);
         gmpi.mpi_sendrecv1(gdom.dz, gdom, par);
         // get angles for terrain-following domain
-        for (iGlob = 0; iGlob < gdom.ncells; iGlob++)   {
-            unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
+        for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++)   {
+            gdom.unpackIndicesGw(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
             // x direction
             if (ii == 0 || ii >= gdom.nx)    {
                 gdom.sinx(iGlob) = 0.0;
@@ -191,7 +191,7 @@ public:
                 return 0;
             }
         }
-        gbc.topBC = intArr("topbc", dom.ncells);
+        gbc.topBC = intArr("topbc", dom.nCellMem);
         // read initial conditions
         fNameIn = inFolder;
         if (!setGwState(fNameIn, gw, gdom, state, gbc, par, io)) {
@@ -200,16 +200,16 @@ public:
                 return 0;
             }
         }
-        Kokkos::parallel_for(gdom.ncells, KOKKOS_LAMBDA(int iGlob) {
+        Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
         gmpi.mpi_sendrecv(gw.h, gdom, par);
         gmpi.mpi_sendrecv(gw.wc, gdom, par);
         // Enforce boundary condition on lateral boundaries
-        Kokkos::parallel_for( gdom.nCellDomain , KOKKOS_LAMBDA(int idom) {
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, ii2, ii3, iGlob, ivg;
             real n, alpha, wcr, wcs;
-            unpackIndices(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             ii2 = kk*gdom.ny_glob + (par.j_beg+jj);
             ii3 = kk*gdom.nx_glob + (par.i_beg+ii);
@@ -236,7 +236,7 @@ public:
 
         // rainfall
         if (dom.isRain) {
-            Kokkos::parallel_for( dom.ncells , KOKKOS_LAMBDA(int idom) {
+            Kokkos::parallel_for( dom.nCellMem , KOKKOS_LAMBDA(int idom) {
                 gdom.qrain(idom) = ss.rainRate(idom);
             });
         }
@@ -343,9 +343,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, i, 6)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 6)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 6)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 6)) = std::stof(tail);
                     }
                     // VG n
                     else if(!strcmp("n", pline.key.c_str()))    {
@@ -356,9 +356,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, i, 4)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 4)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 4)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 4)) = std::stof(tail);
                     }
                     // VG Ks
                     else if(!strcmp("Ks", pline.key.c_str()))   {
@@ -369,9 +369,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, i, 0)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 0)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 0)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 0)) = std::stof(tail);
                     }
                     // VG porosity
                     else if(!strcmp("Phi", pline.key.c_str()))  {
@@ -382,9 +382,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, i, 1)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 1)) = std::stof(head);
                         }
-                        gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 1)) = std::stof(tail);
+                        gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 1)) = std::stof(tail);
                     }
                     // VG wcs
                     else if(!strcmp("ThetaR", pline.key.c_str()))   {
@@ -395,9 +395,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, i, 3)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 3)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 3)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 3)) = std::stof(tail);
                     }
                     // VG wcr
             		else if(!strcmp("ThetaS", pline.key.c_str())) {
@@ -408,9 +408,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, i, 2)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 2)) = std::stof(head);
                         }
-                        gw.vgTable(packIndices(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 2)) = std::stof(tail);
+                        gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 2)) = std::stof(tail);
                     }
             		else  {
                         if (par.masterproc) {
@@ -466,8 +466,8 @@ public:
             }
         }
         // assign soil ID to cells
-        for (idx = 0; idx < gdom.nCellDomain; idx++)  {
-            unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+        for (idx = 0; idx < gdom.nCell; idx++)  {
+            gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             // global index for this rank
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             // global index for the entire domain
@@ -555,7 +555,7 @@ public:
             }
         }
         // initialize the primary variables
-        for (iGlob = 0; iGlob < gdom.ncells; iGlob++)   {
+        for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++)   {
             gw.wc(iGlob,0) = 0.0;   gw.wc(iGlob,1) = 0.0;
             gw.h(iGlob,0) = 0.0;    gw.h(iGlob,1) = 0.0;    gw.wc(iGlob,2) = 0.0;
         }
@@ -573,9 +573,9 @@ public:
             readGwICFile(tempStr, inFolder, gw, gdom, par);
         }
         else if (gw.initialMode == IC_SAT){
-            for (iGlob = 0; iGlob < gdom.ncells; iGlob++)   {
-                unpackIndices(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
-                iGlobSW = packIndices(gdom.nyhc, gdom.nxhc, jj, ii);
+            for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++)   {
+                gdom.unpackIndicesGw(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
+                iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj, ii);
                 idx = gw.soilID(iGlob) * gw.nVGparam;
                 wcs = gw.vgTable(idx + 2);
                 gw.wc(iGlob,0) = wcs;   gw.wc(iGlob,1) = wcs;
@@ -612,7 +612,7 @@ public:
             else if (gdom.hpair(idx,2) == -3)    {
                 switch (gbc.bctypeZM) {
                     case SUB_BC_H_SWE:
-                        //unpackIndices(icell, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+                        //gdom.unpackIndicesGw(icell, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                         //i2d = (hc+jj)*gdom.nxhc + ii + hc;
                         //h_h(gdom.hpair(idx,0),1) = state.h(i2d);
                         gw.h(gdom.hpair(idx,0),1) = gbc.hbcZM;
@@ -703,8 +703,8 @@ public:
         }
         // Copy data into head or water content
         if (!strcmp(fNameIn.c_str(), "head.input")) {
-            for (idx = 0; idx < gdom.nCellDomain; idx++)    {
-                unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            for (idx = 0; idx < gdom.nCell; idx++)    {
+                gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 // get global index
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 // get soil parameters
@@ -722,8 +722,8 @@ public:
             }
         }
         else if (!strcmp(fNameIn.c_str(), "theta.input")) {
-            for (idx = 0; idx < gdom.nCellDomain; idx++)    {
-                unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            for (idx = 0; idx < gdom.nCell; idx++)    {
+                gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 // get global index
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 // get soil parameters
@@ -741,8 +741,8 @@ public:
             }
         }
         else if (!strcmp(fNameIn.c_str(), "wt.input")) {
-            for (idx = 0; idx < gdom.nCellDomain; idx++)    {
-                unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            for (idx = 0; idx < gdom.nCell; idx++)    {
+                gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 // get global index
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 // get soil parameters
@@ -817,8 +817,8 @@ public:
         }
         // Copy data into head or water content
         if (!strcmp(fNameIn.c_str(), "hbczm.input")) {
-            for (idx = 0; idx < gdom.nCellDomain; idx++)    {
-                unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            for (idx = 0; idx < gdom.nCell; idx++)    {
+                gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 if (kk == 0)    {
                     // get global index
                     iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
@@ -886,8 +886,8 @@ public:
         }
         // Copy data into head or water content
         if (!strcmp(fNameIn.c_str(), "hbcxp.input") && dir == 1) {
-            for (idx = 0; idx < gdom.nCellDomain; idx++)    {
-                unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            for (idx = 0; idx < gdom.nCell; idx++)    {
+                gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 if (ii == gdom.nx-1)    {
                     // get global index
                     iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
@@ -909,8 +909,8 @@ public:
             }
         }
         else if (!strcmp(fNameIn.c_str(), "hbcxm.input") && dir == -1)  {
-            for (idx = 0; idx < gdom.nCellDomain; idx++)    {
-                unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            for (idx = 0; idx < gdom.nCell; idx++)    {
+                gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 if (ii == 0)    {
                     // get global index
                     iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
@@ -979,8 +979,8 @@ public:
         }
         // Copy data into head or water content
         if (!strcmp(fNameIn.c_str(), "hbcyp.input") && dir == 1) {
-            for (idx = 0; idx < gdom.nCellDomain; idx++)    {
-                unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            for (idx = 0; idx < gdom.nCell; idx++)    {
+                gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 if (jj == gdom.ny-1)    {
                     // get global index
                     iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
@@ -1002,8 +1002,8 @@ public:
             }
         }
         else if (!strcmp(fNameIn.c_str(), "hbcym.input") && dir == -1)  {
-            for (idx = 0; idx < gdom.nCellDomain; idx++)    {
-                unpackIndices(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            for (idx = 0; idx < gdom.nCell; idx++)    {
+                gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
                 if (jj == 0)    {
                     // get global index
                     iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;

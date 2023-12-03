@@ -55,13 +55,13 @@ public:
     inline void allocate (GwDomain &gdom) {
         nVGparam = NVG;
 
-        h = realArr2("h", gdom.ncells, 2);
-        wc = realArr2("wc", gdom.ncells, 3);
-        k = realArr2("k", gdom.ncells, 4);
-        q = realArr2("q", gdom.ncells, 3);
-        soilID = intArr ("soilID", gdom.ncells);
+        h = realArr2("h", gdom.nCellMem, 2);
+        wc = realArr2("wc", gdom.nCellMem, 3);
+        k = realArr2("k", gdom.nCellMem, 4);
+        q = realArr2("q", gdom.nCellMem, 3);
+        soilID = intArr ("soilID", gdom.nCellMem);
         vgTable = realArr ("vg", nVGparam * gdom.nSoilID);
-        coef = realArr2("coef", gdom.nCellDomain, 8);
+        coef = realArr2("coef", gdom.nCell, 8);
 
         hbcX = realArr2("hbcX", gdom.nz_glob*gdom.ny_glob, 2);
         hbcY = realArr2("hbcY", gdom.nz_glob*gdom.nx_glob, 2);
@@ -77,7 +77,6 @@ public:
 -------------------------------------------------- */
 KOKKOS_INLINE_FUNCTION real wc2h(real wc, real alpha, real n, real wcs, real wcr) {
     real h, m, eps=1e-7;
-    if (n < 1.0)    {std::cerr<< RERROR "van Genuchten n should be > 1!!!\n";}
     m = 1.0 - 1.0 / n;
     if (wc - wcr < eps) {wc = wcr + eps;}
     if (wc < wcs) {
@@ -89,7 +88,6 @@ KOKKOS_INLINE_FUNCTION real wc2h(real wc, real alpha, real n, real wcs, real wcr
 
 KOKKOS_INLINE_FUNCTION real h2wc(real h, real alpha, real n, real wcs, real wcr) {
     real wc, m, s;
-    if (n < 1.0)    {std::cerr<< RERROR "van Genuchten n should be > 1!!!\n";}
     m = 1.0 - 1.0 / n;
     s = pow(1.0 + pow(fabs(alpha*h), n), -m);
     // calculate water content

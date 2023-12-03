@@ -6,7 +6,6 @@
 #include "const.h"
 #include "mpi.h"
 #include <Kokkos_Core.hpp>
-#include <Kokkos_DualView.hpp>
 
 #define SERGHEI_FLOAT 1
 #define SERGHEI_DOUBLE 2
@@ -64,10 +63,7 @@ typedef unsigned int  uint;
   typedef Kokkos::View<bool*     ,Kokkos::LayoutRight> boolArr;
   typedef Kokkos::View<double*     ,Kokkos::LayoutRight> doubleArr;
 #endif
-// dual views
-typedef Kokkos::DualView<int**> dualInt;
-typedef Kokkos::DualView<double**> dualDbl;
-typedef dualDbl::execution_space dspace;
+
 
 #ifdef __NVCC__
 #define _HOSTDEV __host__ __device__
@@ -134,6 +130,7 @@ public:
   real exchange=0;
   real integrate=0;
   real dt=0;
+  real sweBC=0;
 };
 
 #endif

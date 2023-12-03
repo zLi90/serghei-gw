@@ -18,6 +18,8 @@
 #include "FileIO.h"
 #include "Parallel.h"
 #include "SWSourceSink.h"
+#include "rasterTools.h"
+
 
 class Parser {
 
@@ -87,17 +89,19 @@ int checkValidOption(std::string mystring, std::set<std::string> myset){
 public:
 
   int readDimensions(std::string fNameIn, Domain &dom, State &state, Parallel &par, FileIO &io){
- 	int ierr[2];
+
 	std::string tempStr;
  	tempStr = fNameIn + "parameters.input";
- 	ierr[0]=readParamsFile(tempStr,dom,par,io);
-	tempStr = fNameIn + "dem.input"; //just the header
- 	ierr[1]=readHeaderDEMFile(tempStr,dom,par);
-	for (int i=0;i<2;i++){
-		if(!ierr[i]){
-			return 0;
-		}
-	}
+ 	if(!readParamsFile(tempStr,dom,par,io)) return 0;
+  #if SERGHEI_INPUT_NETCDF
+	  io.ncin.fname = fNameIn + "input.nc";
+ 	  if(!io.readNetCDFheader(par,io.ncin,dom)) return 0;
+    if(!io.readNetCDFcoordinates(par,io.ncin,dom)) return 0;
+  #else
+	  tempStr = fNameIn + "dem.input";
+ 	  if(!readHeaderDEMFile(tempStr,dom,par));
+  #endif
+
 	return 1;
   }
 
@@ -109,11 +113,20 @@ public:
     int ierr[Nfiles];
     std::string tempStr;
 
-    tempStr = fNameIn + "dem.input";
-    ierr[0] = readDEMFile(tempStr,dom,state,par);
+		#if SERGHEI_INPUT_NETCDF
+			tempStr = fNameIn + "input.nc";
+			int nvar;
+    	if(!io.readNetCDFvariable(par,dom,state,io.ncin,"z")){
+        if(par.masterproc) std::cout << RERROR << tempStr << " not found" << std::endl;
+        return 0;
+      };
+		#else
+			tempStr = fNameIn + "dem.input";
+    	ierr[0] = readDEMFile(tempStr,dom,state,par);
+		#endif
 
     tempStr = fNameIn + "sw.input";
-    ierr[1] = readSWFile(tempStr, dom, par, state, fNameIn);
+    ierr[1] = readSWFile(tempStr, dom, par, state, fNameIn, io);
 
     tempStr = fNameIn + "rainfall.input";
     ierr[2] = readRainfallFile(tempStr, dom, ss.rain, par);
@@ -230,6 +243,7 @@ public:
 
   }
 
+
  int readHeaderDEMFile(std::string fNameIn, Domain &dom, Parallel &par) {
 
     // Initialize all read-in values to -999 except for NODATA, which usually takes this value
@@ -237,7 +251,7 @@ public:
     dom.ny_glob  	= -999;
 	 dom.xll       = -999;
     dom.yll   		= -999;
-	 dom.dx   		= -999;
+	 dom.dxConst   		= -999;
 
 	 real nodata	= 123456789;
     std::string line;
@@ -263,7 +277,7 @@ public:
 
     std::getline(fInStream,str,' ');
 		std::getline(fInStream,str);
-    std::stringstream(str) >> dom.dx;
+    std::stringstream(str) >> dom.dxConst;
 
     std::getline(fInStream,str,' ');
 		std::getline(fInStream,str);
@@ -282,7 +296,7 @@ public:
       std::cerr << BDASH "ny_glob: "<< dom.ny_glob 	<< "\n";
       std::cerr << BDASH "xll: "    << dom.xll 	<< "\n";
       std::cerr << BDASH "yll: "    << dom.yll  << "\n";
-      std::cerr << BDASH "dx: "     << dom.dx   << "\n";
+      std::cerr << BDASH "dx: "     << dom.dxConst   << "\n";
     }
 
     // Test to make sure all values were initialized
@@ -291,7 +305,9 @@ public:
     if (dom.ny_glob 		== -999) { if (par.masterproc) std::cerr << RERROR "" << "nrows"       << " not set." << std::endl; exit(-1); }
     if (dom.xll      == -999) { if (par.masterproc) std::cerr << RERROR "" << "xll"   << " not set." << std::endl; exit(-1); }
     if (dom.yll      == -999) { if (par.masterproc) std::cerr << RERROR "" << "yll"   << " not set." << std::endl; exit(-1); }
-    if (dom.dx       == -999) { if (par.masterproc) std::cerr << RERROR "" << "dx"   << " not set." << std::endl; exit(-1); }
+    if (dom.dxConst       == -999) { if (par.masterproc) std::cerr << RERROR "" << "dx"   << " not set." << std::endl; exit(-1); }
+
+    if(par.masterproc) std::cout << GOK << "Read DEM raster header." << std::endl;
 	 return 1;
 
   }
@@ -299,512 +315,153 @@ public:
 
   int readDEMFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
 
-	 realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
+		if(!readRasterField(fNameIn, dom, par, state.z)) return 0;
 
-    std::ifstream fInStream(fNameIn);
-    std::string line;
-	 real nodata;
+		Kokkos::parallel_reduce("init_z", dom.nCell , KOKKOS_LAMBDA (int iGlob, int &ncell) {
+			int ii = dom.getIndex(iGlob);
 
-   std::string str;
-	if (fInStream.is_open()){
-    // read but not really used
-		std::getline(fInStream,str); //ncol
-		std::getline(fInStream,str); //nrow
-		std::getline(fInStream,str); //xll
-		std::getline(fInStream,str); //yll
-		std::getline(fInStream,str); //dx
-    std::getline(fInStream,str,' ');
-		std::getline(fInStream,str);
-    std::stringstream(str) >> nodata;
-
-		real tmp;
-
-		int ndata=dom.ny_glob*dom.nx_glob;
-		int flagnodata=0;
-
-    	for (int ii=0; ii<ndata; ii++) {
-			if (!fInStream.fail() && !fInStream.eof()){
-				fInStream >> tmp;
-				if(tmp-nodata<TOL12 && tmp-nodata>TOL12NEG){
-					if(!flagnodata){
-						if (par.masterproc) {
-							std::cerr<< YEXC "There is some no-data in your DEM file\n";
-						}
-						flagnodata=1;
-					}
-					tmpVar(ii)=NDTH+0.001; //we set the no data values as high elevation cells. They will be dry during the computation
-
-				}else{
-					tmpVar(ii)=tmp;
-				}
+			if(isnan(state.z(ii))){
+				state.isnodata(ii) = true;
+				state.z(ii) = NDTH + 0.001;
 			}else{
-				if(par.masterproc){
-					std::cerr<< RERROR "Error reading DEM file. Not enough data\n";
-					return 0;
-				}
+				state.isnodata(ii) = false;
+				ncell++;
 			}
+		}, Kokkos::Sum<int>(dom.nCellValid));
+
+		if (par.masterproc){
+			std::cerr<< GOK "DEM ready" << std::endl;
 		}
-
-		fInStream.close();
-
-	}else{
-		if (par.masterproc) {
-			std::cerr<<RERROR "Unable to open " << fNameIn << "\n";
-			return 0;
-		}
-	}
-
-	// Kokkos::parallel_for("init_z", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
-
-	Kokkos::parallel_reduce("init_z", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob, int &ncell) {
- 		int i,j;
-		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
-		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
-		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
-		state.z(ii1)=tmpVar(ii2);
-		if(state.z(ii1)>NDTH){
-			state.isnodata(ii1)=true;
-		}else{
-			state.isnodata(ii1)=false;
-			ncell++;
-		}
-	}, Kokkos::Sum<int>(dom.nCellValid));
-
-
-	if (par.masterproc){
-		std::cerr<< GOK "DEM file read\n";
-	}
- 	 return 1;
-
+		return 1;
   }
 
   int readRoughnessFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
 
-	 realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
-    std::ifstream fInStream(fNameIn);
-    std::string line;
-   std::string str;
+		int found = readRasterField(fNameIn, dom, par, state.roughness);
 
-	 int tnx,tny;
-	 real txll,tyll,tdx;
-	 real nodata;
+		if(!found){
+			if (par.masterproc){
+				std::cerr << YEXC << fNameIn << " not found" << std::endl;
+				std::cerr << BDASH "A constant roughness is set " << std::endl;
+			}
+		}
 
-	 tnx=-999;
-	 tny=-999;
-	 txll=-999;
-	 tyll=-999;
-	 tdx=-999;
-	 nodata = 123456789;
+		int err=0;
+		Kokkos::parallel_reduce("init_roughness", dom.nCell , KOKKOS_LAMBDA (int iGlob, int &err) {
+ 			int ii = dom.getIndex(iGlob);
 
-	int ndata=dom.ny_glob*dom.nx_glob;
+			if(state.isnodata(ii)){
+				state.roughness(ii) = NAN;
+			}else{
+        if(state.roughness(ii) < 0.0 ) err++;
+      }
+		}, Kokkos::Sum<int>(err));
 
-	if (fInStream.is_open()){
-
-    std::getline(fInStream,str,' ');
-		std::getline(fInStream,str);
-    std::stringstream(str) >> tnx;
-    std::getline(fInStream,str,' ');
-		std::getline(fInStream,str);
-    std::stringstream(str) >> tny;
-    std::getline(fInStream,str,' ');
-		std::getline(fInStream,str);
-    std::stringstream(str) >> txll;
-    std::getline(fInStream,str,' ');
-		std::getline(fInStream,str);
-    std::stringstream(str) >> tyll;
-    std::getline(fInStream,str,' ');
-		std::getline(fInStream,str);
-    std::stringstream(str) >> tdx;
-    std::getline(fInStream,str,' ');
-		std::getline(fInStream,str);
-    std::stringstream(str) >> nodata;
-
-		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
-		if(dom.ny_glob !=tny || dom.nx_glob !=tnx || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
-      std::cout << tnx << "\t" << tny  << "\t" << txll  << "\t" << tyll  << "\t" << tdx << std::endl;
+		if(err > 0){
 			if(par.masterproc){
-				std::cerr<<RERROR "Roughness file parameters don't match DEM file parameters. Unable to continue\n";
+				std::cerr << RERROR "There are negative roughness values in " << fNameIn << std::endl;
 				return 0;
 			}
 		}
 
-		real tmp;
-    	for (int ii=0; ii<ndata; ii++) {
-			if (!fInStream.fail() && !fInStream.eof()){
-				fInStream >> tmp;
-				if(tmp<0.0){
-					if(par.masterproc){
-						std::cerr<<RERROR "There are some negative roughness value. Unable to continue\n";
-						return 0;
-					}
-				}
-				tmpVar(ii)=tmp;
-			}else{
-				if(par.masterproc){
-					std::cerr<<RERROR "Error reading roughness file. Not enough data\n";
-					return 0;
-				}
+		if (par.masterproc) std::cout << GOK "Roughness set" << std::endl;
+
+	 	return 1;
+	}
+
+
+
+	int readHiniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+
+		int found = readRasterField(fNameIn, dom, par, state.h);
+
+		if(!found){
+			if (par.masterproc){
+				std::cerr << YEXC << fNameIn << " not found" << std::endl;
+				std::cerr << BDASH "A dry domain is set " << std::endl;
 			}
 		}
 
-		fInStream.close();
+		int err=0;
+		Kokkos::parallel_reduce("init_h", dom.nCell , KOKKOS_LAMBDA (int iGlob, int &err) {
+ 			int ii = dom.getIndex(iGlob);
+			if(state.h(ii) < 0.0 ) err++;
+			if(state.isnodata(ii)) state.h(ii)=0.0;
+		}, Kokkos::Sum<int>(err));
 
-	Kokkos::parallel_for("init_roughness", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
- 		int i,j;
-		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
-		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
-		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
-		state.roughness(ii1)=tmpVar(ii2);
-	});
-
-
-	}
-  else{
-  		if(par.masterproc){
-    		std::cerr << RERROR "File " << fNameIn << " not found" << std::endl;
-    		return 0;
-	 	}
-	}
-	if (par.masterproc){
-		std::cerr<<GOK "Roughness set\n";
-	}
- 	return 1;
-  }
-
-
- int readHiniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
-
-	 realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
-    std::ifstream fInStream(fNameIn);
-    std::string line;
-
-	 int tnx,tny;
-	 real txll,tyll,tdx;
-	 real nodata;
-
-	 tnx=-999;
-	 tny=-999;
-	 txll=-999;
-	 tyll=-999;
-	 tdx=-999;
-	 nodata = 123456789;
-
-	 int ndata=dom.ny_glob*dom.nx_glob;
-   std::string str;
-	if (fInStream.is_open()){
-    std::getline(fInStream,str,' ');
-    std::getline(fInStream,str);
-    std::stringstream(str) >> tnx;
-
-    std::getline(fInStream,str,' ');
-    std::getline(fInStream,str);
-    std::stringstream(str) >> tny;
-
-    std::getline(fInStream,str,' ');
-    std::getline(fInStream,str);
-    std::stringstream(str) >> txll;
-
-    std::getline(fInStream,str,' ');
-    std::getline(fInStream,str);
-    std::stringstream(str) >> tyll;
-
-    std::getline(fInStream,str,' ');
-    std::getline(fInStream,str);
-    std::stringstream(str) >> tdx;
-
-    std::getline(fInStream,str,' ');
-    std::getline(fInStream,str);
-    std::stringstream(str) >> nodata;
-		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
-		if(dom.ny_glob !=tny || dom.nx_glob !=tnx || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
+		if(err > 0){
 			if(par.masterproc){
-				std::cerr<< RERROR "Initial depth file parameters don't match DEM file parameters. Unable to continue\n";
-			}
-    		// Print out the values
-			 if (par.masterproc) {
-				std::cerr << BDASH "nx_glob: " 	<< dom.nx_glob 	<< tnx <<"\n";
-				std::cerr << BDASH "ny_glob: "<< dom.ny_glob 	<< tny << "\n";
-				std::cerr << BDASH "xll: "    << dom.xll 	<< txll <<"\n";
-				std::cerr << BDASH "yll: "    << dom.yll  << tyll<<"\n";
-				std::cerr << BDASH "dx: "     << dom.dx   << tdx<<"\n";
-			 }
-
-			return 0;
-		}
-
-		real tmp;
-    	for (int ii=0; ii<ndata; ii++) {
-			if (!fInStream.fail() && !fInStream.eof()){
-				fInStream >> tmp;
-                #if !SERGHEI_TEST_TRACY
-    				if(tmp<0.0){
-                        // allow negative depth just for testing Tracy's problem, ZhiLi20210713
-                        if(par.masterproc){
-
-        					std::cerr<<tmp<<"\n";
-        					std::cerr<< RERROR "There are some negative depth values. Unable to continue\n";
-        					return 0;
-        					}
-    				}
-                #endif
-
-				tmpVar(ii)=tmp;
-			}else{
-				if(par.masterproc){
-					std::cerr<< RERROR "Error reading initial depth file. Not enough data." << std::endl;
-					std::cerr << RERROR << "Read " << ii+1 << " pixels, but expected " << ndata << std::endl;
-					return 0;
-				}
-			}
-		}
-
-		fInStream.close();
-
-	}
-
-	Kokkos::parallel_for("init_h", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
- 		int i,j;
-		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
-		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
-		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
-		state.h(ii1)=tmpVar(ii2);
-		if(state.isnodata(ii1)){
-			state.h(ii1)=0.0;
-		}
-
-
-	});
-	if (par.masterproc){std::cerr<<GOK "Hini set\n";}
- 	return 1;
-  }
-
-
- int readUiniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
-
-	 realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
-    std::ifstream fInStream(fNameIn);
-    std::string line;
-
-	 int tnx,tny;
-	 real txll,tyll,tdx;
-	 real nodata;
-
-	 tnx=-999;
-	 tny=-999;
-	 txll=-999;
-	 tyll=-999;
-	 tdx=-999;
-	 nodata = 123456789;
-
-	int ndata=dom.ny_glob*dom.nx_glob;
-	std::string str;
-
-	if (fInStream.is_open()){
-
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> tnx;
-
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> tny;
-
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> txll;
-
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> tyll;
-
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> tdx;
-
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> nodata;
-
-		// fInStream.ignore(256,' ');
-		// fInStream >> tnx;
-		// fInStream.ignore(256,' ');
-		// fInStream >> tny;
-		// fInStream.ignore(256,' ');
-		// fInStream >> txll;
-		// fInStream.ignore(256,' ');
-		// fInStream >> tyll;
-		// fInStream.ignore(256,' ');
-		// fInStream >> tdx;
-		// fInStream.ignore(256,' ');
-		// fInStream >> nodata;
-
-
-		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
-		if(dom.ny_glob !=tny || dom.nx_glob !=tnx || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
-			if(par.masterproc){
-				std::cerr<<RERROR "Initial x-velocity file parameters don't match DEM file parameters. Unable to continue\n";
+				std::cerr<< RERROR "There are negative depth values in " << fNameIn << std::endl;
 				return 0;
 			}
 		}
 
-		real tmp;
+		if (par.masterproc) std::cerr<<GOK "Initial water depth set" << std::endl;
 
-    	for (int ii=0; ii<ndata; ii++) {
-			if (!fInStream.fail() && !fInStream.eof()){
-				fInStream >> tmp;
-				tmpVar(ii)=tmp;
-			}else{
-				if(par.masterproc){
-					std::cerr<<RERROR "Error reading initial x-velocity file. Not enough data\n";
-					return 0;
-				}
-			}
-		}
+	 	return 1;
 
-		fInStream.close();
+	}
 
-	} else{
+
+	int readUiniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+
+		int found;
 		const real constVel=0.0;
-		if (par.masterproc){
-			std::cerr << YEXC << fNameIn << " not found\n";
-			std::cerr<< BDASH "A constant value of "<< constVel << " is used for initial x-velocity\n";
-		}
 
-		Kokkos::parallel_for("init_vel", ndata , KOKKOS_LAMBDA (int iGlob) {
-			tmpVar(iGlob)=constVel;
-		});
-	}
-
-	Kokkos::parallel_for("init_hu", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
- 		int i,j;
-		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
-		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
-		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
-		state.hu(ii1)=tmpVar(ii2)*state.h(ii1);
-		if(state.z(ii1)>NDTH){
-			state.hu(ii1)=0.0;
-		}
-	});
-	if (par.masterproc){std::cerr<< GOK "Uini set\n";}
- 	return 1;
-	}
-
- int readViniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
-
-	 realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
-    std::ifstream fInStream(fNameIn);
-    std::string line;
-
-	 int tnx,tny;
-	 real txll,tyll,tdx;
-	 real nodata;
-
-	 tnx=-999;
-	 tny=-999;
-	 txll=-999;
-	 tyll=-999;
-	 tdx=-999;
-	 nodata = 123456789;
-
-
-	int ndata=dom.ny_glob*dom.nx_glob;
-	std::string str;
-
-	if (fInStream.is_open()){
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> tnx;
-
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> tny;
-
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> txll;
-
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> tyll;
-
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> tdx;
-
-	  std::getline(fInStream,str,' ');
-	  std::getline(fInStream,str);
-	  std::stringstream(str) >> nodata;
-
-		// fInStream.ignore(256,' ');
-		// fInStream >> tnx;
-		// fInStream.ignore(256,' ');
-		// fInStream >> tny;
-		// fInStream.ignore(256,' ');
-		// fInStream >> txll;
-		// fInStream.ignore(256,' ');
-		// fInStream >> tyll;
-		// fInStream.ignore(256,' ');
-		// fInStream >> tdx;
-		// fInStream.ignore(256,' ');
-		// fInStream >> nodata;
-
-		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
-		if(dom.ny_glob !=tny || dom.nx_glob !=tnx || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
-			if(par.masterproc){
-			std::cerr<< RERROR "Initial y-velocity file parameters don't match DEM file parameters. Unable to continue\n";
-
-			return 0;
+		found = readRasterField(fNameIn, dom, par, state.hu);
+		if(!found){
+			if (par.masterproc){
+				std::cerr << YEXC << fNameIn << " not found" << std::endl;
+				std::cerr << BDASH "A constant value of "<< constVel << " set for initial x-velocity" << std::endl;
 			}
 		}
 
-		real tmp;
-
-    	for (int ii=0; ii<ndata; ii++) {
-			if (!fInStream.fail() && !fInStream.eof()){
-				fInStream >> tmp;
-				tmpVar(ii)=tmp;
+		int err=0;
+		Kokkos::parallel_reduce("init_hu", dom.nCell , KOKKOS_LAMBDA (int iGlob, int &err) {
+ 			int ii = dom.getIndex(iGlob);
+			if(!found) state.hu(ii) = constVel;
+			if(state.isnodata(ii)){
+				state.hu(ii) = NAN;
 			}else{
-				if(par.masterproc){
-				std::cerr<< RERROR "Error reading initial y-velocity file. Not enough data\n";
-				return 0;
-				}
+				state.hu(ii) *= state.h(ii);
+			}
+		}, Kokkos::Sum<int>(err));
+
+		if (par.masterproc) std::cerr<<GOK "Initial x-velocity (u) set" << std::endl;
+
+	 	return 1;
+
+	}
+
+	int readViniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+
+		int found;
+		const real constVel=0.0;
+
+		found = readRasterField(fNameIn, dom, par, state.hv);
+		if(!found){
+			if (par.masterproc){
+				std::cerr << YEXC << fNameIn << " not found" << std::endl;
+				std::cerr << BDASH "A constant value of "<< constVel << " set for initial y-velocity" << std::endl;
 			}
 		}
 
-		fInStream.close();
+		int err=0;
+		Kokkos::parallel_reduce("init_hu", dom.nCell , KOKKOS_LAMBDA (int iGlob, int &err) {
+ 			int ii = dom.getIndex(iGlob);
+			if(!found) state.hv(ii) = constVel;
+			if(state.isnodata(ii)){
+				state.hv(ii) = NAN;
+			}else{
+				state.hv(ii) *= state.h(ii);
+			}
+		}, Kokkos::Sum<int>(err));
 
-	}else{
-		const real constVel=0.0;
-		if (par.masterproc){
-			std::cerr << YEXC << fNameIn << " not found\n";
-			std::cerr<<BDASH "A constant value of "<< constVel << " is used for initial y-velocity\n";
-		}
-		Kokkos::parallel_for("init_constVel", ndata , KOKKOS_LAMBDA (int iGlob) {
-			tmpVar(iGlob)=constVel;
-		});
- 	}
+		if (par.masterproc) std::cerr<<GOK "Initial y-velocity (v) set" << std::endl;
 
-	Kokkos::parallel_for("init_hv", dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
- 		int i,j;
-		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
-		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
-		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
-		state.hv(ii1)=tmpVar(ii2)*state.h(ii1);
-		if(state.z(ii1)>NDTH){
-			state.hv(ii1)=0.0;
-		}
-	});
+	 	return 1;
 
-
-	if (par.masterproc){
-		std::cerr<<GOK "Vini set\n";
 	}
-
-
- 	return 1;
-
-}
-
 
 // Reads infiltration data files
 int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &inf, Parallel &par){
@@ -885,10 +542,10 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
     }
     inf.nLabels++;  // to account for label value 0 as impervious
     // allocate the infiltration map
-    inf.infLabel = intArr( "infLabel", dom.ncells);
+    inf.infLabel = intArr( "infLabel", dom.nCellMem);
     // TODO parallelisation
     if(inf.nLabels == 2){
-      for(int ii=0; ii<dom.ncells; ii++){
+      for(int ii=0; ii<dom.nCellMem; ii++){
         inf.infLabel(ii) = 1;
       }
     }
@@ -965,6 +622,7 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
   }
 
   if (par.masterproc){
+		std::cout << BDASH << "Infiltration classes: " << inf.nLabels << std::endl;
     std::cout << GOK << "Infiltration model set" << std::endl;
   }
 
@@ -1129,6 +787,9 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 
 
   int readExtBCFile(std::string fNameIn, Domain &dom, ExternalBoundaries &ebc, Parallel &par, State &state) {
+		#if SERGHEI_DEBUG_WORKFLOW
+  	  std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
     std::ifstream fInStream(fNameIn);
     std::string dir;
     std::vector<std::string> polygonFile;
@@ -1353,7 +1014,7 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 	 }
 */
 
-	Kokkos::parallel_for("init_isBound", dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
+	Kokkos::parallel_for("init_isBound", dom.nCell , KOKKOS_LAMBDA (int iGlob) {
         int ii = dom.getIndex(iGlob);
 		  state.isBound(ii)=0;
     });
@@ -1394,7 +1055,7 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 };
 
 
-  int readSWFile(std::string fNameIn, Domain &dom, Parallel &par, State &state, std::string fDirIn){
+  int readSWFile(std::string fNameIn, Domain &dom, Parallel &par, State &state, std::string fDirIn, FileIO &io){
     std::ifstream fInStream(fNameIn);
     std::string line;
     ParserLine pline;
@@ -1474,10 +1135,8 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 			 }
         }
 	real roughness = sw.roughness;
-        Kokkos::parallel_for("init_roughness", dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
-          int i,j;
-          unpackIndices(iGlob,dom.ny,dom.nx,j,i);
-          int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;
+        Kokkos::parallel_for("init_roughness", dom.nCell , KOKKOS_LAMBDA (int iGlob) {
+          int ii = dom.getIndex(iGlob);
           state.roughness(ii) = roughness;
         });
         if (par.masterproc){
@@ -1489,7 +1148,7 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 
     if(!checkValidOption(sw.initialMode, sw.initialModes)){
 	 	if(par.masterproc){
-      std::cerr << RERROR "Invalid initial SW mode. Please correct sw.input" << std::endl;
+      std::cerr << RERROR "Invalid initial SW mode. Pleese correct sw.input" << std::endl;
       return 0;
 		}
     }
@@ -1502,23 +1161,26 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
       tempStr = fDirIn + "vini.input";
 	    if(!readViniFile(tempStr,dom,state,par)) return 0;
     }
+		#if SERGHEI_INPUT_NETCDF
+    else if(!sw.initialMode.compare("netcdf")){
+      if(!io.readNetCDFvariable(par,dom,state,io.ncin,"h")) return 0;
+      if(!io.readNetCDFvariable(par,dom,state,io.ncin,"u")) return 0;
+      if(!io.readNetCDFvariable(par,dom,state,io.ncin,"v")) return 0;
+    }
+		#endif
     else{
       if(!sw.initialMode.compare("dry")) sw.initialValue = 0.;
       real initialValue = sw.initialValue;
-      Kokkos::parallel_for("set_init_dry", dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
-        int i,j;
-        unpackIndices(iGlob,dom.ny,dom.nx,j,i);
-        int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;
+      Kokkos::parallel_for("set_init_dry", dom.nCell , KOKKOS_LAMBDA (int iGlob) {
+        int ii = dom.getIndex(iGlob);
         state.h(ii) = initialValue;
         state.hu(ii) = state.hv(ii) = 0.;
       });
     }
 
     if(!sw.initialMode.compare("h+z")){
-      Kokkos::parallel_for("set_init_h+z", dom.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
-        int i,j;
-        unpackIndices(iGlob,dom.ny,dom.nx,j,i);
-        int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;
+      Kokkos::parallel_for("set_init_h+z", dom.nCell , KOKKOS_LAMBDA (int iGlob) {
+        int ii = dom.getIndex(iGlob);
         state.h(ii) -= state.z(ii);
         if(state.h(ii) < 0) state.h(ii) = 0.;
       });
@@ -1599,65 +1261,111 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
   }
 
 
-    int readInfiltrationMap(std::string fNameIn, Domain &dom, InfiltrationModel &inf, Parallel &par) {
-        if(!inf.model) return 1;
-        if(inf.nLabels <= 2) return 1;  // 1 for the pervious type, 1 for the impervious type, therefore 2
-        realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
-        std::ifstream fInStream(fNameIn);
-        std::string line;
-        int tnx,tny;
-        real txll,tyll,tdx;
-        real nodata = 123456789;
-        tnx=-999; tny=-999;   txll=-999;  tyll=-999;  tdx=-999;
-        int ndata=dom.ny_glob*dom.nx_glob;
-    	if (fInStream.is_open())   {
-    		fInStream.ignore(256,' ');
-    		fInStream >> tnx;
-    		fInStream.ignore(256,' ');
-    		fInStream >> tny;
-    		fInStream.ignore(256,' ');
-    		fInStream >> txll;
-    		fInStream.ignore(256,' ');
-    		fInStream >> tyll;
-    		fInStream.ignore(256,' ');
-    		fInStream >> tdx;
-    		fInStream.ignore(256,' ');
-    		fInStream >> nodata;
-            if(dom.ny_glob !=tny || dom.nx_glob !=tnx || dom.xll !=txll || dom.yll !=tyll || dom.dx !=tdx){
-			     if(par.masterproc){std::cerr<<RERROR "Infiltration map file header does not match DEM file header.\n";return 0;}
-		    }
-		    real tmp;
-    	    for (int ii=0; ii<ndata; ii++) {
-			    if (!fInStream.fail() && !fInStream.eof()){
-				    fInStream >> tmp;
-				    if(tmp<0.0){
-					    if(par.masterproc){
-					        std::cerr<<RERROR "There are negative values. Data should only be positive integers.\n";return 0;
-					    }
-				    }
-				    tmpVar(ii)=tmp;
-			    }
-                else{
-				    if(par.masterproc){std::cerr<<RERROR "Error reading infiltration map. Not enough data\n";}
-				    return 0;
-			    }
-		    }
-		    fInStream.close();
-        	Kokkos::parallel_for( dom.ny*dom.nx , KOKKOS_LAMBDA (int iGlob) {
-         		int i,j;
-        		unpackIndices(iGlob,dom.ny,dom.nx,j,i);
-        		int ii1=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index for the extended domain (including halo cells)
-        		int ii2=(par.j_beg+j)*(dom.nx_glob)+par.i_beg+i;//index for the subdomain (par.j_beg+j,par.i_beg+i)
-        		inf.infLabel(ii1)=tmpVar(ii2);
-        	});
-            return 1;
-	    }
-        else    {
-  	         if(par.masterproc){std::cerr << RERROR "File " << fNameIn << " not found" << std::endl; return 0;}
-	         if (par.masterproc){std::cerr<<GOK "Infiltration map read\n";}
- 	         return 1;
-        }
-    }
+  int readInfiltrationMap(std::string fNameIn, Domain &dom, InfiltrationModel &inf, Parallel &par) {
+		#if SERGHEI_DEBUG_INFILTRATION
+	    std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "inf.Model = " << inf.model << "\tinf.nLabels = " << inf.nLabels << std::endl;
+		#endif
+    if(!inf.model) return 1;
+    if(inf.nLabels == 1) return 1; // only impervious
+
+  	realArr tmpVar=realArr("var", dom.ny_glob*dom.nx_glob );
+    std::ifstream fInStream(fNameIn);
+    std::string line;
+
+	 int tnx,tny;
+	 real txll,tyll,tdx;
+	 real nodata;
+
+	 tnx=-999;
+	 tny=-999;
+	 txll=-999;
+	 tyll=-999;
+	 tdx=-999;
+	 nodata = 123456789;
+
+	int ndata=dom.ny_glob*dom.nx_glob;
+
+	if (fInStream.is_open()){
+		fInStream.ignore(256,' ');
+		fInStream >> tnx;
+		fInStream.ignore(256,' ');
+		fInStream >> tny;
+		fInStream.ignore(256,' ');
+		fInStream >> txll;
+		fInStream.ignore(256,' ');
+		fInStream >> tyll;
+		fInStream.ignore(256,' ');
+		fInStream >> tdx;
+		fInStream.ignore(256,' ');
+		fInStream >> nodata;
+		#if SERGHEI_DEBUG_INFILTRATION
+	    std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET;
+			std::cout << "NCOLS " << tnx << " ? " << dom.nx_glob << std::endl;
+			std::cout << "NROWS " << tny << " ? " << dom.ny_glob << std::endl;
+			std::cout << "XLLCORNER " << txll << " ? " << dom.xll << std::endl;
+			std::cout << "YLLCORNER " << tyll << " ? " << dom.yll << std::endl;
+			std::cout << "DX " << tdx << " ? " << dom.dxConst << std::endl;
+		#endif
+
+		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
+		if(dom.ny_glob !=tny || dom.nx_glob !=tnx || dom.xll !=txll || dom.yll !=tyll || dom.dxConst !=tdx){
+			if(par.masterproc){
+			std::cerr<<RERROR "Infiltration map file header does not match DEM file header.\n";
+			return 0;
+			}
+		}
+
+		real tmp;
+    	for (int ii=0; ii<ndata; ii++) {
+			if (!fInStream.fail() && !fInStream.eof()){
+				fInStream >> tmp;
+				if(tmp<0.0){
+					if(par.masterproc){
+					std::cerr<<RERROR "There are negative values. Data should only be positive integers.\n";
+					return 0;
+					}
+				}
+				tmpVar(ii)=tmp;
+			}else{
+				if(par.masterproc){
+					std::cerr<<RERROR "Error reading infiltration map. Not enough data\n";
+				}
+				return 0;
+			}
+		}
+
+		fInStream.close();
+
+	Kokkos::parallel_for("init_infLabel", dom.nCell , KOKKOS_LAMBDA (int iGlob) {
+ 		int i,j;
+		dom.unpackIndices(iGlob,j,i);
+		int ii1 = dom.getHaloExtension(i,j);
+		int ii2 = dom.getSubdomainExtension(par,i,j);
+		inf.infLabel(ii1)=tmpVar(ii2);
+	});
+
+
+	}
+  else{
+  	if(par.masterproc){
+			if(inf.nLabels <= 2){ // 1 for the pervious type, 1 for the impervious type, therefore 2
+				std::cerr << YEXC "File " << fNameIn << " not found. Setting infiltration parameters for the only pervious infiltration class homogenously for all the domain." << std::endl;
+			}
+			else{
+    		std::cerr << RERROR "File " << fNameIn << " not found" << std::endl;
+    		return 0;
+			}
+	 }
+	}
+
+	if (par.masterproc){
+		std::cerr<<GOK "Infiltration map read\n";
+	}
+
+ 	return 1;
+
+  }
+
 
 };
 

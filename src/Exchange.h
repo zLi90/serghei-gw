@@ -60,10 +60,10 @@ public:
 	// span the x-halo columns
     Kokkos::parallel_for("haloPack_x_span", dom.ny*haloc , KOKKOS_LAMBDA (int iGlob) {
 		int rx,ry;
-		int nGlob = dom.ny*haloc;
-	 	unpackIndices(iGlob,dom.ny,haloc,ry,rx);
-	   int ii1=(haloc+ry)*(dom.nx+2*haloc)+haloc+rx;		// west
-	   int ii2=(haloc+ry)*(dom.nx+2*haloc)+haloc+dom.nx-1+rx;	// east
+		int nGlob = dom.ny*hc;
+	 	unpackIndicesUniformGrid(iGlob,dom.ny,hc,ry,rx);
+	   int ii1=(hc+ry)*(dom.nx+2*hc)+hc+rx;		// west
+	   int ii2=(hc+ry)*(dom.nx+2*hc)+hc+dom.nx-1+rx;	// east
       haloSendBufW(nPack*nGlob+iGlob) = a(ii1);
       haloSendBufE(nPack*nGlob+iGlob) = a(ii2);
     });
@@ -78,10 +78,10 @@ public:
 	  	// span the y-halo rows
     Kokkos::parallel_for("haloPack_y_span", haloc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
 	 	int rx,ry;
-		int nGlob = haloc*dom.nx;
-		unpackIndices(iGlob,haloc,dom.nx,ry,rx);
-	 	int ii1=(haloc+ry)*(dom.nx+2*haloc)+haloc+rx;			// north
-	 	int ii2=(haloc+dom.ny-1+ry)*(dom.nx+2*haloc)+haloc+rx;	// south
+		int nGlob = hc*dom.nx;
+		unpackIndicesUniformGrid(iGlob,hc,dom.nx,ry,rx);
+	 	int ii1=(hc+ry)*(dom.nx+2*hc)+hc+rx;			// north
+	 	int ii2=(hc+dom.ny-1+ry)*(dom.nx+2*hc)+hc+rx;	// south
 		haloSendBufN(nPack*nGlob+iGlob) = a(ii1);
 		haloSendBufS(nPack*nGlob+iGlob) = a(ii2);
 
@@ -96,10 +96,10 @@ public:
   inline void haloUnpack_x_ext(Domain &dom, realArr &a, realArr &haloRecvBufW, realArr &haloRecvBufE, int const nUnpack) {
     Kokkos::parallel_for("haloUnpack_x_span", dom.ny*haloc , KOKKOS_LAMBDA (int iGlob) {
 	 	int rx,ry;
-	 	int nGlob = dom.ny*haloc;
-		unpackIndices(iGlob,dom.ny,haloc,ry,rx);
-	   int ii1=(haloc+ry)*(dom.nx+2*haloc)+haloc-rx-1;
-	   int ii2=(haloc+ry)*(dom.nx+2*haloc)+haloc+dom.nx+rx;
+	 	int nGlob = dom.ny*hc;
+		unpackIndicesUniformGrid(iGlob,dom.ny,hc,ry,rx);
+	   int ii1=(hc+ry)*(dom.nx+2*hc)+hc-rx-1;
+	   int ii2=(hc+ry)*(dom.nx+2*hc)+hc+dom.nx+rx;
       a(ii1) = haloRecvBufW(nUnpack*nGlob+iGlob);
       a(ii2) = haloRecvBufE(nUnpack*nGlob+iGlob);
 
@@ -114,10 +114,10 @@ public:
   inline void haloUnpack_y_ext(Domain &dom, realArr &a, realArr &haloRecvBufS, realArr &haloRecvBufN, int const nUnpack) {
     Kokkos::parallel_for( "haloUnpack_y_span",haloc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
 		int rx,ry;
-		int nGlob = haloc*dom.nx;
-		unpackIndices(iGlob,haloc,dom.nx,ry,rx);
-	 	int ii1=(haloc-ry-1)*(dom.nx+2*haloc)+haloc+rx;
-	 	int ii2=(haloc+dom.ny+ry)*(dom.nx+2*haloc)+haloc+rx;
+		int nGlob = hc*dom.nx;
+		unpackIndicesUniformGrid(iGlob,hc,dom.nx,ry,rx);
+	 	int ii1=(hc-ry-1)*(dom.nx+2*hc)+hc+rx;
+	 	int ii2=(hc+dom.ny+ry)*(dom.nx+2*hc)+hc+rx;
       a(ii1) = haloRecvBufN(nUnpack*nGlob+iGlob);
       a(ii2) = haloRecvBufS(nUnpack*nGlob+iGlob);
 

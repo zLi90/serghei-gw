@@ -7,41 +7,41 @@
 #include "geometry.h"
 #include "Indexing.h"
 
-KOKKOS_INLINE_FUNCTION int getHaloExtension(const int i, const int j, const int nx){
-  return( (hc+j)*(nx+2*hc)+hc+i ); //index for the extended domain (including halo cells)
-};
 
 class Domain {
 
 public:
 
   real cfl;
-  double simLength;
+  double simLength=0;
+  double startTime=0;
+  double endTime=0;
+  double etime=0;
 
-  double etime;
-
-  real dt;
+  real dt=0;
 
   SergheiTimers mutable timers;
 
   //raster variables
   int nx_glob;
   int ny_glob;
-  int nx; // physical number of cells in x-direction
-  int ny; // physical number of cells in y-direction
-  int ncells;
-  int nCellDomain;
-  int nCellValid;
-  real xll; // southwest corner x-coordinate
-  real yll; // southwest corner y-coordinate
-  real dx;  // resolution
+  int nx;         // physical number of cells in x-direction
+  int ny;         // physical number of cells in y-direction
+  int nCellMem = 0;   // physical cells + halo cells
+  int nCell = 0;    // physical cells
+  int nCellValid = 0; // cells which have data
+  double xll; // southwest corner x-coordinate
+  double yll; // southwest corner y-coordinate
+  #if SERGHEI_MESH_UNIFORM
+  real dxConst;  // resolution
+  #endif
 
   int iE,iW,iS,iN; //flag to see if the subdomain touch with either a East, West, South or North boundaries
 
   // global (reduced) variables
   real areaGlobal;
   int nCellValidGlobal;
-  int nCellDomainGlobal;
+  int nCellGlobal;
 
   // other variables
   int BCtype;
@@ -53,34 +53,57 @@ public:
   real area;
   int id;  // subdomain ID
 
+  realArr globalBuffer;
+
   geometry::point extent[2];
 
-  void domainArea(){
+  // this is purposely programmed to fail at compilation time if !SERGHEI_MESH_UNIFORM because the alternative is not implemented
+  #if SERGHEI_MESH_UNIFORM
+  KOKKOS_INLINE_FUNCTION real dx() const{
+    return(dxConst);
+  }
+  #endif
+
+
+  KOKKOS_INLINE_FUNCTION void domainArea(){
        area = cellArea()*nCellValid;
    };
 
+  KOKKOS_INLINE_FUNCTION void unpackIndices(int const iGlob, int &j, int &i) const{
+    unpackIndicesUniformGrid(iGlob,ny,nx,j,i);
+  };
+
+  // this is purposely programmed to fail at compilation time if !SERGHEI_MESH_UNIFORM because the alternative is not implemented
+  #if SERGHEI_MESH_UNIFORM
   KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int i, int j){
     geometry::point p;
-    p(_X) = i*dx + extent[0](_X);
-    p(_Y) = j*dx + extent[0](_Y);
+    p(_X) = i*dxConst + extent[0](_X);
+    p(_Y) = j*dxConst + extent[0](_Y);
     return(p);
+  #endif
   }
 
   KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int iGlob){
     int i,j;
-    unpackIndices(iGlob,ny,nx,j,i);
+    unpackIndices(iGlob,j,i);
     return(getCellCenter(i,j));
   }
 
-  KOKKOS_INLINE_FUNCTION real cellArea(){
-    return(dx*dx);  // WARNING UCM
+  // this is purposely programmed to fail at compilation time if !SERGHEI_MESH_UNIFORM because the alternative is not implemented
+  #if SERGHEI_MESH_UNIFORM
+  KOKKOS_INLINE_FUNCTION real cellArea() const{
+    return(dx()*dx());  // WARNING UCM
   }
+  #endif
 
+
+// this is purposely programmed to fail at compilation time if !SERGHEI_MESH_UNIFORM because the alternative is not implemented
+#if SERGHEI_MESH_UNIFORM
   KOKKOS_INLINE_FUNCTION void getMatrixIndicesForPoint(const geometry::point &p, int &i, int &j) const{
     // get i,j coordinates of the cell containing the point
     // this only works on a raster-order grid, where j is zero at NORTH boundary
-    i = floor((p(_X)-extent[0](_X))/dx);
-    j = floor((extent[1](_Y)-p(_Y))/dx);
+    i = floor((p(_X)-extent[0](_X))/dxConst);
+    j = floor((extent[1](_Y)-p(_Y))/dxConst);
   };
 
   KOKKOS_INLINE_FUNCTION int getCellForPoint(const geometry::point &p) const{
@@ -89,17 +112,25 @@ public:
     if(i < 0 || i >= nx || j < 0 || j >= ny){
       iGlob = -1;
     }else{
-      iGlob = packIndices(ny,nx,j,i);
+      iGlob = packIndicesUniformGrid(ny,nx,j,i);
     }
     // note: domain decomposition is handled by the i,j coords
     return(iGlob);
   };
+  #endif
+
+  KOKKOS_INLINE_FUNCTION int getHaloExtension(const int i, const int j) const {
+    return( (hc+j)*(nx+2*hc)+hc+i ); //index for the extended domain (including halo cells)
+  };
 
   KOKKOS_INLINE_FUNCTION int getIndex(int iGlob) const{
     int i,j;
-    unpackIndices(iGlob,ny,nx,j,i);
-    int ii=(hc+j)*(nx+2*hc)+hc+i; //index for the extended domain (including halo cells)
-    return(ii);
+    unpackIndices(iGlob,j,i);
+    return ( getHaloExtension(i,j) );
+  };
+
+  KOKKOS_INLINE_FUNCTION int getSubdomainExtension(const Parallel &par, const int i, const int j) const{
+    return( (par.j_beg+j)*nx_glob+par.i_beg+i ); //index for the subdomain (par.j_beg+j,par.i_beg+i)
   };
 
   KOKKOS_INLINE_FUNCTION int getIndexForPoint(const geometry::point &p) const{
@@ -108,28 +139,34 @@ public:
     if(i < 0 || i >= nx || j < 0 || j >= ny){
       ii = -1;
     }else{
-      ii  = getHaloExtension(i,j,nx);
+      ii  = getHaloExtension(i,j);
     }
     return(ii);
   };
 
 void initialise() {
    	// Initialize the time
-   	etime = 0;
    	nIter = 0;
 		countIterDt=0;
+    etime = startTime;
+    endTime = startTime + simLength;
+
 
     // physical cells onlys
-    nCellDomain = nx*ny; // WARNING UCM
-    // physical cells + halo cells
-		ncells=(ny+2*hc)*(nx+2*hc);
+    #if SERGHEI_MESH_UNIFORM
+      nCell = nx*ny;
+      nCellMem = (ny+2*hc)*(nx+2*hc);
+      nCellGlobal = nx_glob * ny_glob;
+    #endif
+
+    globalBuffer = realArr("globalBuffer", nCellGlobal);
+
   };
 
 void getStatistics(){
     domainArea();
     MPI_Allreduce(&area, &areaGlobal, 1, MPI_DOUBLE , MPI_SUM, MPI_COMM_WORLD);
     MPI_Allreduce(&nCellValid, &nCellValidGlobal, 1, MPI_INT , MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&nCellDomain, &nCellDomainGlobal, 1, MPI_INT , MPI_SUM, MPI_COMM_WORLD);
 };
 
   int buildDomainDecomposition(Parallel &par) {
@@ -163,10 +200,10 @@ void getStatistics(){
     ny = par.j_end - par.j_beg + 1;
 
     // Determine my extent, point 0 is SW, point 1 is NE (standard cartesian)
-    extent[0](_X) = xll + par.i_beg*dx;
-    extent[0](_Y) = yll + ny_glob*dx - (par.j_end+1)*dx;
-    extent[1](_X) = xll + (par.i_end+1)*dx;
-    extent[1](_Y) = yll + ny_glob*dx - (par.j_beg)*dx;
+    extent[0](_X) = xll + par.i_beg*dxConst;
+    extent[0](_Y) = yll + ny_glob*dxConst - (par.j_end+1)*dxConst;
+    extent[1](_X) = xll + (par.i_end+1)*dxConst;
+    extent[1](_Y) = yll + ny_glob*dxConst - (par.j_beg)*dxConst;
 
 
     for (int j = 0; j < 3; j++) {
@@ -182,10 +219,11 @@ void getStatistics(){
     }
 
     // Debug output for the parallel decomposition
-    #if DEBUG_PARALLEL_DECOMPOSITION
+    #if SERGHEI_DEBUG_PARALLEL_DECOMPOSITION
       for (int rr=0; rr < par.nranks; rr++) {
         if (rr == par.myrank) {
           std::cerr << GGD "Hello! My Rank is: " << par.myrank << "\n";
+          std::cerr << GGD "My domain id is: " << id << std::endl;
           std::cerr << GGD "My proc grid ID is: " << par.px << " , " << par.py << "\n";
           std::cerr << GGD "I have: " << nx << " x " << ny << " grid cells" << "\n";
           std::cerr << GGD "I start at index: " << par.i_beg << " x " << par.j_beg << "\n";
@@ -205,19 +243,23 @@ void getStatistics(){
       }
       ierr = MPI_Barrier(MPI_COMM_WORLD);
     #endif
-	   return ierr;
+    if(par.masterproc) std::cout << GOK << "Domain decomposition" << std::endl;
+	  return ierr;
 	};
 
-};
 
-KOKKOS_INLINE_FUNCTION int getIndex(const int iGlob, Domain const &dom){
-  int i,j;
-  unpackIndices(iGlob,dom.ny,dom.nx,j,i);
-  return ( getHaloExtension(i,j,dom.nx));
-//  int ii=(hc+j)*(dom.nx+2*hc)+hc+i; //index for the extended domain (including halo cells)
-//  return(ii);
-};
 
+void fetchFieldFromGlobalBuffer(const Parallel &par, realArr &data){
+  Kokkos::parallel_for("fetch_from_global_buffer", nCell , KOKKOS_CLASS_LAMBDA (int iGlob) {
+ 	  int i,j;
+		unpackIndices(iGlob,j,i);
+		int ii1 = getHaloExtension(i,j);
+		int ii2 = getSubdomainExtension(par,i,j);
+		data(ii1) = globalBuffer(ii2);
+	});
+}
+
+};
 
 
 #endif

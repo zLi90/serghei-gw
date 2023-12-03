@@ -5,7 +5,7 @@
 #include "SArray.h"
 #include "mpi.h"
 
-#define MASTERPROC 0
+#define SERGHEI_MASTERPROC 0
 
 class Parallel {
 
