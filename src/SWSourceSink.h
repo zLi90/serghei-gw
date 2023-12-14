@@ -292,11 +292,18 @@ public:
   InfiltrationModel inf;
   realArr rainRate;
 
+  TimeSeries evap;
+  realArr evapRate;
+
   //real timerRainInf=0;
 
   void allocate (Domain const &dom){
     if (dom.isRain)
       rainRate  = realArr ("rainRate", dom.nCellMem);
+
+    if (dom.isEvap) {
+        evapRate  = realArr ("evapRate", dom.nCellMem);
+    }
 
     if (inf.model)
       inf.allocate(dom);
@@ -378,12 +385,32 @@ public:
 	  #endif
   }
 
+    inline void ComputeEvap (const Domain &dom){
+        if(dom.isEvap){
+            int intervalx = dom.nx; // approximate number of cells in
+            int intervaly = dom.ny; // approximate number of cells in
+            realArr &rr_e = evapRate;
+            findTimeBlock(evap,dom.etime);
+            TimeSeries revap = evap;
+            Kokkos::parallel_for("evap_interpolation",dom.nCell, KOKKOS_LAMBDA (int iGlob){
+                int ix;
+                int iy;
+                dom.unpackIndices (iGlob, iy, ix);
+                int ii = dom.getHaloExtension(ix,iy);
+                int evap_glob = 0;
+                real evapValue = interpolatePiecewise(revap, dom.etime, evap_glob);
+                rr_e(ii) = evapValue;
+            });
+        }
+  }
+
   inline void ComputeSWSourceSink(const State &state, const Domain &dom){
     Kokkos::Timer timer;
     #if SERGHEI_DEBUG_WORKFLOW
     std::cerr << GGD << __PRETTY_FUNCTION__ << std::endl;
     #endif
     ComputeRain(dom);
+    ComputeEvap(dom);
     inf.ComputeInfiltrationCapacity(dom);
     //no rate correction is necessary here beacuse the rate correction is done in ComputeNewState, according to the new water depth
    // timerRainInf += timer.seconds();

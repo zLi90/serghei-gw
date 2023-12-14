@@ -64,9 +64,9 @@ public:
 		ParticleTracker parTrack;
 	#endif
 
-	
-	
-	
+
+
+
 
 	double oldVolume,newVolume, diffVolume;
 	double accumDt=0.0;
@@ -190,8 +190,8 @@ public:
 		#else
 		tint.computeDt(state,dom,io);
 		#endif
-		
-		
+
+
 		while (dom.etime < dom.endTime) {
 
 			//previous mass
@@ -199,16 +199,20 @@ public:
 			bint.integrate(ebc.extbc,dom,1);//has to be called here (previous time step) with mode==1 (boundary flows)
 
 			tint.stepForward(state, ss, ebc.extbc, dom, exch, par, io);
-			
-			
+
+
 			// run subsurface model
 			#if SERGHEI_SUBSURFACE_MODEL
-			
+
 			// rainfall
 	        if (dom.isRain) {
 	        	gwf.enforce_rainfall_bc(state, gdom, dom, ss);
 	        }
-	        
+			// evaporation
+			if (dom.isEvap) {
+	        	gwf.enforce_evaporation_bc(state, gdom, dom, ss);
+	        }
+
 			// Asynchronous coupling
 			if (gdom.async)	{
 				if (gdom.etime + gdom.dt < dom.etime)	{
@@ -225,7 +229,7 @@ public:
 			}
 			tint.computeGwExchange(state , dom);
 			#endif
-			
+
 			// Unify dt
 			tint.computeDt(state,dom,io);
 			#if SERGHEI_SUBSURFACE_MODEL

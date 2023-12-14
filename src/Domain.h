@@ -46,6 +46,7 @@ public:
   // other variables
   int BCtype;
   int isRain = 0;
+  int isEvap = 0;
 
   int nIter;
   int countIterDt;

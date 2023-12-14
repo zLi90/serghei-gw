@@ -187,8 +187,8 @@ public:
     // /* --------------------------------------------------
     //     End of pressure BC block
     // -------------------------------------------------- */
-    
-    
+
+
     // /* --------------------------------------------------
     //     Get rainfall BC from SWE module
     // -------------------------------------------------- */
@@ -199,7 +199,15 @@ public:
             state.h(iGlob) += ss.rainRate(iGlob)*dom.dt;
         });
     }
-    
+    inline void enforce_evaporation_bc(State &state, GwDomain &gdom, Domain &dom, SourceSinkData &ss)	{
+    	// Kokkos::parallel_for( dom.nCellMem , KOKKOS_LAMBDA(int iGlob) {gdom.qrain(iGlob) = ss.rainRate(iGlob); });
+        Kokkos::parallel_for( dom.nCell , KOKKOS_LAMBDA (int idom) {
+            int iGlob = dom.getIndex(idom);
+            state.h(iGlob) -= ss.evapRate(iGlob)*dom.dt;
+            if (state.h(iGlob) < 0.0)  {state.h(iGlob) = 0.0;}
+        });
+    }
+
     // /* --------------------------------------------------
     //     End of rainfall BC block
     // -------------------------------------------------- */
@@ -210,7 +218,7 @@ public:
     -------------------------------------------------- */
     inline void face_conductivity(GwState &gw, GwDomain &gdom, GwBC &gbc, GwMPI &gmpi, Parallel &par)	{
         // Get relatively permeability at cell centers
-        
+
         Kokkos::parallel_for("relative_permeability",  gdom.nCellMem , KOKKOS_LAMBDA(int iGlob) {
             int ii, jj, kk, ivg;
             real s, alpha, n, m, wcm, wcr, wcs, nume, deno;

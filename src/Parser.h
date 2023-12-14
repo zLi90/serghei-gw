@@ -109,7 +109,7 @@ public:
 		      ExternalBoundaries &ebc, Parallel &par, FileIO &io)
   {
 
-    int const Nfiles = 6;
+    int const Nfiles = 7;
     int ierr[Nfiles];
     std::string tempStr;
 
@@ -131,6 +131,9 @@ public:
     tempStr = fNameIn + "rainfall.input";
     ierr[2] = readRainfallFile(tempStr, dom, ss.rain, par);
 
+    tempStr = fNameIn + "evaporation.input";
+    ierr[3] = readEvaporationFile(tempStr, dom, ss.evap, par);
+
 #ifdef _DEV_RAIN_
     if (par.masterproc)
       {
@@ -151,13 +154,13 @@ public:
 #endif
 
     tempStr = fNameIn + "extbc.input";
-    ierr[3] = readExtBCFile(tempStr, dom, ebc, par, state);
+    ierr[4] = readExtBCFile(tempStr, dom, ebc, par, state);
 
     tempStr = fNameIn + "infiltration.input";
-    ierr[4] = readInfiltrationFile(tempStr, dom, ss.inf, par);
+    ierr[5] = readInfiltrationFile(tempStr, dom, ss.inf, par);
 
     tempStr = fNameIn + "infiltrationMap.input";
-    ierr[5] = readInfiltrationMap(tempStr, dom, ss.inf, par);
+    ierr[6] = readInfiltrationMap(tempStr, dom, ss.inf, par);
 
     for (int i = 0; i < Nfiles; i++){
       if (!ierr[i])	return 0;
@@ -781,6 +784,112 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
   if (par.masterproc) std::cerr << GOK "Rainfall set\n";
 
     return 1;
+
+}
+
+
+
+/* Reads evaporation data file */
+inline int readEvaporationFile (std::string fNameIn, Domain &dom, TimeSeries &evap, Parallel &par)
+{
+
+  // TODO modify this reader to use a parsing strategy
+
+  std::ifstream fInStream (fNameIn);
+  std::string line;
+  std::string tunits;
+  std::string runits;
+
+  real tfactor;
+  real rfactor;
+  int isok = 0; // flag to check if procedure completed as expected
+
+  if (fInStream.is_open ()){
+       dom.isEvap = 1;
+       evap.timeIndex = 0;
+
+       fInStream.ignore (256, ' ');
+     fInStream >> tunits;
+       fInStream.ignore (256, ' ');
+       fInStream >> runits;
+       fInStream.ignore (256, ' ');
+       fInStream >> evap.np;
+       fInStream.ignore (256, ' ');
+       fInStream >> evap.nx;
+       fInStream.ignore (256, ' ');
+       fInStream >> evap.ny;
+
+       evap.time  = realArr ("evaptime", evap.np);
+       evap.value = realArr ("evap",     evap.np);
+
+  // ---------------------------------------------------------------------------
+  // internally, the entire solver uses meters and seconds,
+  // therefore, everything needs to be converted
+  // ---------------------------------------------------------------------------
+
+  if(!tunits.compare ("h")){
+      tfactor = 3600.0;  // hours to seconds
+      isok = 1;
+     }
+
+    if(!tunits.compare ("s")){
+      tfactor = 1.0;
+      isok = 1;
+    }
+
+    if(!isok){
+      if(par.masterproc){
+          std::cerr << RERROR "Invalid time units specified in evaporation file" << std::endl;
+       return 0;
+       }
+    }
+
+  isok = 0;
+
+  if (!runits.compare ("mm/h"))
+    {
+      rfactor = 0.001 / 3600.0; // mm/h to m/s
+      isok = 1;
+    }
+
+  if (!runits.compare ("mm/s"))
+    {
+      rfactor = 0.001; // mm/s to m/s
+      isok = 1;
+    }
+
+  if (!isok)
+    {
+       if(par.masterproc){
+      std::cerr << RERROR "Invalid evaporation units specified in rainfall file" << std::endl;
+      return 0;
+       }
+    }
+
+   for (int i = 0; i < evap.np; i++){
+      if (!fInStream.fail () && !fInStream.eof ()){
+            fInStream >> evap.time (i);
+            evap.time (i) *= tfactor;
+            fInStream >> evap.value (i);
+            evap.value (i) *= rfactor;
+        }
+      else{
+          if(par.masterproc){
+            std::cerr << RERROR "Error reading evaporation file\n";
+            return 0;
+          }
+       }
+    }
+
+    fInStream.close();
+    }
+    else{
+         dom.isEvap = 0;
+    }
+
+    if (par.masterproc) std::cerr << GOK "Evaporation set\n";
+
+      return 1;
 
 }
 

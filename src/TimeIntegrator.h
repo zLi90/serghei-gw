@@ -78,7 +78,7 @@ public :
             // TODO: improve this using the known rainfall signal
             dom.dt=dom.dx()/(1+sqrt(GRAV));
             #if SERGHEI_DEBUG_DT
-            std::cout << "time = " << dom.etime << "\tdt_rain = " << dom.dt << std::endl;
+            std::cout << "time = " << dom.etime << "\tdt_d = " << dom.dt << std::endl;
             #endif
             }
         }
@@ -106,6 +106,16 @@ public :
             int ncells =dom.nCellMem;
 
             hf = hold - dom.dt * (state.dsw0(ii)+state.dsw1(ii))/dom.dx();
+
+            #if !SERGHEI_SUBSURFACE_MODEL
+            if(dom.isRain)  {
+                hf += ss.rainRate(ii)*dom.dt;
+            }
+            if (dom.isEvap) {
+                hf -= ss.evapRate(ii)*dom.dt;
+                if (hf <= 0.0)  {hf = 0.0;}
+            }
+            #endif
 
     		if(hf<TOL_MACHINE_ACCURACY || nodata){
     			//reduction or remove. Should be in the order of machine accuracy
