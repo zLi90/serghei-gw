@@ -13,7 +13,7 @@
 #include "Edges.h"
 #include "Indexing.h"
 #include "FileIO.h"
-#include "SWSourceSink.h"
+#include "SourceSink.h"
 
 class TimeIntegrator {
 
@@ -41,7 +41,7 @@ public :
     inline void computeGwExchange(State &state , const Domain &dom) {
         Kokkos::parallel_for( dom.nCell , KOKKOS_LAMBDA (int idom) {
             int ii = dom.getIndex(idom);
-            state.h(ii) += state.qss(ii) * dom.dt;
+            state.h(ii) += state.qss(idom) * dom.dt;
             if(state.h(ii)<TOL12) {state.h(ii)=0.0;}
         });
     }
@@ -78,7 +78,7 @@ public :
             // TODO: improve this using the known rainfall signal
             dom.dt=dom.dx()/(1+sqrt(GRAV));
             #if SERGHEI_DEBUG_DT
-            std::cout << "time = " << dom.etime << "\tdt_d = " << dom.dt << std::endl;
+            std::cout << "time = " << dom.etime << "\tdt_rain = " << dom.dt << std::endl;
             #endif
             }
         }
@@ -107,15 +107,11 @@ public :
 
             hf = hold - dom.dt * (state.dsw0(ii)+state.dsw1(ii))/dom.dx();
 
-            #if !SERGHEI_SUBSURFACE_MODEL
-            if(dom.isRain)  {
-                hf += ss.rainRate(ii)*dom.dt;
-            }
-            if (dom.isEvap) {
+            if(dom.isRain && ss.rainRate(ii) > 0) {hf += ss.rainRate(ii)*dom.dt;}
+            if(dom.isEvap && ss.evapRate(ii) > 0) {
                 hf -= ss.evapRate(ii)*dom.dt;
-                if (hf <= 0.0)  {hf = 0.0;}
+                if (hf < 0.0)  {hf = 0.0;}
             }
-            #endif
 
     		if(hf<TOL_MACHINE_ACCURACY || nodata){
     			//reduction or remove. Should be in the order of machine accuracy

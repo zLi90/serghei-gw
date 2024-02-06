@@ -8,7 +8,7 @@
 #include "const.h"
 #include "define.h"
 #include "State.h"
-#include "SWSourceSink.h"
+#include "SourceSink.h"
 #include "BC.h"
 #include "pnetcdf.h"
 #include "mpi.h"
@@ -1059,8 +1059,10 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
       logFile.open(filename);
       if (domainOutputFile.is_open()){
           logFile << "DomainArea [m2]: " << dom.areaGlobal << std::endl;
-          logFile << "nCell : " << dom.nCellGlobal << std::endl;
-          logFile << "nCellValid : " << dom.nCellValidGlobal << std::endl;
+          logFile << "nCell(SW) : " << dom.nCellGlobal << std::endl;
+          logFile << "nCellValid(SW) : " << dom.nCellValidGlobal << std::endl;
+          // logFile << "nCell(GW) : " << dom.nCellGlobalGW << std::endl;
+          // logFile << "nCellValid(GW) : " << dom.nCellValidGlobalGW << std::endl;
 
           ratio = dom.timers.total/dom.timers.total;
           logFile << "runTime : " << dom.timers.total << " : " << ratio << std::endl;
@@ -1083,6 +1085,8 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
           logFile << "integrateTime : " << dom.timers.integrate << " : " << ratio << std::endl;
           ratio = dom.timers.dt / dom.timers.total;
           logFile << "dtComputeTime : " << dom.timers.dt << " : " << ratio << std::endl;
+          ratio = dom.timers.solver/dom.timers.total;
+          logFile << "LinearSolverTime : " << dom.timers.solver << " : " << ratio << std::endl;
           }
       }
 

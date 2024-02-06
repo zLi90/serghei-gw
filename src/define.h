@@ -7,6 +7,10 @@
 #include "mpi.h"
 #include <Kokkos_Core.hpp>
 
+#define BC_PERIODIC 1
+#define BC_REFLECTIVE 2
+#define BC_TRANSMISSIVE 3
+
 #define SERGHEI_FLOAT 1
 #define SERGHEI_DOUBLE 2
 
@@ -131,6 +135,7 @@ public:
   real integrate=0;
   real dt=0;
   real sweBC=0;
+  real solver=0;
 };
 
 #endif

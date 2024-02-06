@@ -46,7 +46,8 @@ public:
 		p = realArr("p", nrow);				q = realArr("q", nrow);
 		// Get ptr for the CRS matrix
 		for (int idx = 0; idx < nrow+1; idx++)	{
-			gdom.unpackIndicesGw(idx, nz, ny, nx, kk, jj, ii);
+			gdom.unpackIndices(idx, kk, jj, ii);
+			// gdom.unpackIndicesGw(idx, nz, ny, nx, kk, jj, ii);
 			if (idx == nrow) {ptr(idx) = nnz;}
 			else	{ptr(idx) = get_irow(ii, jj, kk, nx, ny, nz);}
 		}

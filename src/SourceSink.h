@@ -1,9 +1,15 @@
-#ifndef _SWSOURCESINK_H_
-#define _SWSOURCESINK_H_
+#ifndef _SOURCESINK_H_
+#define _SOURCESINK_H_
 
 #include "define.h"
 #include "SArray.h"
 #include "State.h"
+
+// #include "Indexing.h"
+#include "GwDomain.h"
+#include "GwState.h"
+// #include "Parallel.h"
+
 
 #define INF_NONE 0
 #define INF_CONSTANT 1
@@ -72,6 +78,8 @@ KOKKOS_INLINE_FUNCTION real interpolateLinear(TimeSeries &ts, real const &t){
   real v = ts.value(ii) + (ts.value(jj) - ts.value(ii))/(ts.time(jj)-ts.time(ii))*(t-ts.time(ii));
   return(v);
 };
+
+
 
 class ConstantInfiltration{
 
@@ -285,29 +293,19 @@ public:
 
 
 class SourceSinkData{
+// class SwSS{
 
 public:
 
-  TimeSeries rain;
-  InfiltrationModel inf;
-  realArr rainRate;
+    TimeSeries rain, evap;
+    InfiltrationModel inf;
+    realArr rainRate, evapRate;
 
-  TimeSeries evap;
-  realArr evapRate;
-
-  //real timerRainInf=0;
-
-  void allocate (Domain const &dom){
-    if (dom.isRain)
-      rainRate  = realArr ("rainRate", dom.nCellMem);
-
-    if (dom.isEvap) {
-        evapRate  = realArr ("evapRate", dom.nCellMem);
+    void allocateSW (Domain const &dom){
+        if (dom.isRain) {rainRate  = realArr ("rainRate", dom.nCellMem);}
+        if (dom.isEvap) {evapRate  = realArr ("evapRate", dom.nCellMem);}
+        if (inf.model)  {inf.allocate(dom);}
     }
-
-    if (inf.model)
-      inf.allocate(dom);
-  }
 
   inline void ComputeRain (const Domain &dom){
     if(dom.isRain){
@@ -337,8 +335,10 @@ public:
 	    int ix;
 	    int iy;
 
-      dom.unpackIndices (iGlob, iy, ix);
-      int ii = dom.getHaloExtension(ix,iy);
+      // dom.unpackIndices (iGlob, iy, ix);
+      // int ii = dom.getHaloExtension(ix,iy);
+      unpackIndicesUniformGrid(iGlob, dom.ny, dom.nx, iy, ix);
+      int ii = (hc+iy)*(dom.nx+2*hc) + hc+ix;
 
 	    int _x = ix / intervalx;
 	    int _y = iy / intervaly;
@@ -385,23 +385,23 @@ public:
 	  #endif
   }
 
-    inline void ComputeEvap (const Domain &dom){
-        if(dom.isEvap){
-            int intervalx = dom.nx; // approximate number of cells in
-            int intervaly = dom.ny; // approximate number of cells in
-            realArr &rr_e = evapRate;
-            findTimeBlock(evap,dom.etime);
-            TimeSeries revap = evap;
-            Kokkos::parallel_for("evap_interpolation",dom.nCell, KOKKOS_LAMBDA (int iGlob){
-                int ix;
-                int iy;
-                dom.unpackIndices (iGlob, iy, ix);
-                int ii = dom.getHaloExtension(ix,iy);
-                int evap_glob = 0;
-                real evapValue = interpolatePiecewise(revap, dom.etime, evap_glob);
-                rr_e(ii) = evapValue;
-            });
-        }
+  inline void ComputeEvap (const Domain &dom){
+      if(dom.isEvap){
+          int intervalx = dom.nx; // approximate number of cells in
+          int intervaly = dom.ny; // approximate number of cells in
+          realArr &rr_e = evapRate;
+          findTimeBlock(evap,dom.etime);
+          TimeSeries revap = evap;
+          Kokkos::parallel_for("evap_interpolation",dom.nCell, KOKKOS_LAMBDA (int iGlob){
+              int ix;
+              int iy;
+              dom.unpackIndices (iGlob, iy, ix);
+              int ii = dom.getHaloExtension(ix,iy);
+              int evap_glob = 0;
+              real evapValue = interpolatePiecewise(revap, dom.etime, evap_glob);
+              rr_e(ii) = evapValue;
+          });
+      }
   }
 
   inline void ComputeSWSourceSink(const State &state, const Domain &dom){
@@ -411,12 +411,136 @@ public:
     #endif
     ComputeRain(dom);
     ComputeEvap(dom);
-    inf.ComputeInfiltrationCapacity(dom);
+    // inf.ComputeInfiltrationCapacity(dom);
     //no rate correction is necessary here beacuse the rate correction is done in ComputeNewState, according to the new water depth
    // timerRainInf += timer.seconds();
    dom.timers.raininf += timer.seconds();
  }
 
+};
+
+
+
+// Subsurface source/sinks
+#if SERGHEI_SUBSURFACE_MODEL
+class GwSS{
+
+public:
+    TimeSeries root;
+    realArr rootRate;
+
+	int ncellsIT = 0;	// number of internal source/sink cells
+    int sstype;     // uniform or spatially-distributed source/sink
+	intArr icells; //array of indexes of boundary cells
+    realArr ssvals, ssdata;
+    TimeSeries ts;
+
+	MPI_Comm comm;	// communicator for ranks associated to the BC
+
+
+    void allodateGW (GwDomain const &gdom)  {
+        // if (gdom.hasRoot) {rootRate  = realArr ("rootRate", gdom.nCellMem);}
+
+        ssdata = realArr ("ssdata", gdom.nCellMem);
+        for (int idx = 0; idx < gdom.nCellMem; idx++)   {ssdata(idx) = 0.0;}
+    }
+
+    // find internal cells for applying source/sink conditions
+	inline int find_icells(GwState &gw, std::string &id, GwDomain &gdom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly, realArr &zPoly){
+		int foundInSubdom; // to keep track of which subdomains are associated to this boundary
+		std::vector<int> tmpicells; //array of indexes of internal cells
+		std::vector<int> tmpgcells; //array of indexes of ghost cells
+		std::vector<int> subdomains;	// keeps track of which subdomains are associated to the BC
+		// Loop over the entire domain to find internal source/sink cells
+		for (int kk = 0; kk < gdom.nz; kk++) {
+			for (int jj = 0; jj < gdom.ny; jj++) {
+				for (int ii = 0; ii < gdom.nx; ii++) {
+					int iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+					foundInSubdom = -1;
+		            real xCoord = gdom.xll + ( par.i_beg + ii + 0.5) * gdom.dx;
+		            real yCoord = gdom.yll + gdom.ny_glob*gdom.dx - ( par.j_beg + jj + 0.5) * gdom.dx;
+					real zCoord = gdom.z(iGlob);
+		            if (geometry::isInsidePoly3D(nPoly, xPoly, yPoly, zPoly, xCoord, yCoord, zCoord)){
+						tmpicells.push_back(iGlob);
+		            }
+				}
+			}
+		}
+		ncellsIT=int(tmpicells.size());
+		if(ncellsIT > 0) foundInSubdom = par.myrank; // if at least one cell in this subdomain (rank) is in the BC, tag as found
+
+		int ncells_all;
+        MPI_Allreduce(&ncellsIT, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+		int *subdoms;
+		subdoms = (int*) malloc(par.nranks * sizeof(int));
+		MPI_Allgather(&foundInSubdom,1,MPI_INT,subdoms,1,MPI_INT,MPI_COMM_WORLD);
+		for (int i=0; i<par.nranks; i++){
+			if (subdoms[i] >= 0)	{subdomains.push_back(subdoms[i]);}
+		}
+		MPI_Group group, subgroup;
+		MPI_Comm_group(MPI_COMM_WORLD,&group);
+		MPI_Group_incl(group,subdomains.size(),subdomains.data(),&subgroup);
+		MPI_Comm_create(MPI_COMM_WORLD,subgroup,&comm);
+		//we need the total internal cells detected by all subdomain to launch an error otherwise
+		if(ncells_all>0){
+			icells=intArr("icells", ncellsIT);
+			#ifdef __NVCC__
+				cudaMemcpyAsync( icells.data() , tmpicells.data() , ncellsIT*sizeof(int) , cudaMemcpyHostToDevice );
+				cudaDeviceSynchronize();
+			#else
+				std::memcpy(icells.data(), tmpicells.data(), ncellsIT*sizeof(int));
+			#endif
+		}
+		else{
+			if(par.masterproc){
+				std::cerr << RERROR << "No internal cells found for subsurface boundary with id '" << id << "'" << std::endl;
+			}
+			return 0;
+		}
+		return 1;
+	}
+
+    inline void applyMatSS(GwState &gw, GwDomain &gdom) {
+        if (ncellsIT > 0)   {
+            real qbc = interpolateLinear(ts, gdom.etime);
+            Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
+                    int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                    gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                    idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                    gw.coef(idom,7) += gdom.dt * qbc;
+            });
+        }
+    }
+
+    inline void applyWCSS(GwState &gw, GwDomain &gdom) {
+    	if (ncellsIT > 0)   {
+            real qbc = interpolateLinear(ts, gdom.etime);
+            Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
+                    int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                    gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                    idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                    gw.wc(iGlob,1) += gdom.dt * qbc;
+            });
+        }
+    }
+
+
+
+};
+#endif
+
+
+class SourceSink{
+public:
+	std::vector<std::string> id;
+    // #if SERGHEI_SWE_MODEL
+	// std::vector<SwSS> swss;
+    SourceSinkData swss;
+    // #endif
+    #if SERGHEI_SUBSURFACE_MODEL
+    std::vector<GwSS> gwss;
+    #endif
 };
 
 #endif

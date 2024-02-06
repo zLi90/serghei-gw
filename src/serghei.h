@@ -13,7 +13,7 @@
 #include "TimeIntegrator.h"
 #include "FileIO.h"
 #include "Exchange.h"
-#include "SWSourceSink.h"
+#include "SourceSink.h"
 #include "DomainIntegrator.h"
 #include "Vegetation.h"
 #include "ParticleTracking.h"
@@ -42,13 +42,18 @@ public:
 	GwInit ginit;
 	GwMPI gmpi;
 	GwFunction gwf;
-	GwBC gbc;
+	SubsurfaceBoundaries	gbc;
 	GwMatrix A;
-	GwSolver gsolver;
+	#ifdef __NVCC__
+	GwSolver<Kokkos::Cuda> gsolver;
+	#else
+	GwSolver<Kokkos::OpenMP> gsolver;
+	#endif
 	#endif
 
  private:
-	SourceSinkData      ss;
+	SourceSink      ss;
+	// SourceSinkData      ss;
 	ExternalBoundaries  ebc;
 	Parser              parser;
 	FileIO              io;
@@ -56,24 +61,19 @@ public:
 	TimeIntegrator      tint;
 	surfaceIntegrator   sint;
 	boundaryIntegrator  bint;
-  #if SERGHEI_TOOLS
-	  Observations obs;
+	#if SERGHEI_TOOLS
+		Observations obs;
 	#endif
-
-  #if SERGHEI_PARTICLE_TRACKING
+	#if SERGHEI_PARTICLE_TRACKING
 		ParticleTracker parTrack;
 	#endif
-
-
-
-
 
 	double oldVolume,newVolume, diffVolume;
 	double accumDt=0.0;
 
-  // Kokkos objects
-  Kokkos::Timer timer;
-  Kokkos::InitializationSettings kokkosSettings;
+	// Kokkos objects
+	Kokkos::Timer timer;
+	Kokkos::InitializationSettings kokkosSettings;
 
 public:
 	std::string inFolder, outFolder;
@@ -81,43 +81,42 @@ public:
 ////////////// METHODS ///////////////
 public:
 
-  int start(int argc, char **argv){
-    #if SERGHEI_DEBUG_WORKFLOW
+	int start(int argc, char **argv){
+		#if SERGHEI_DEBUG_WORKFLOW
 			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
-	  #endif
+		#endif
 
+	    init.initializeMPI( &argc , &argv , par );
 
-    init.initializeMPI( &argc , &argv , par );
+		#ifdef __NVCC__
+			kokkosSettings.set_device_id(par.myrank%par.nthreads);
+		#else
+			if(par.nthreads!=0) kokkosSettings.set_num_threads(par.nthreads);
+		#endif
+		#if SERGHEI_DEBUG_KOKKOS_SETUP
+			printKokkosInitArguments(args,par);
+			#if __NVCC__
+				printKokkosCuda(args,par);
+			#endif
+		#endif
 
-    #ifdef __NVCC__
-		  kokkosSettings.set_device_id(par.myrank%par.nthreads);
-	  #else
-		  if(par.nthreads!=0) kokkosSettings.set_num_threads(par.nthreads);
-	  #endif
-	  #if SERGHEI_DEBUG_KOKKOS_SETUP
-		  printKokkosInitArguments(args,par);
-		  #if __NVCC__
-			  printKokkosCuda(args,par);
-		  #endif
-	  #endif
+		#if SERGHEI_DEBUG_WORKFLOW
+			std::cerr << GGD "Initialising Kokkos - rank " << par.myrank << std::endl;
+		#endif
 
-	  #if SERGHEI_DEBUG_WORKFLOW
-	    std::cerr << GGD "Initialising Kokoks - rank " << par.myrank << std::endl;
-	  #endif
+		Kokkos::initialize(kokkosSettings);
 
-    Kokkos::initialize(kokkosSettings);
+		#if SERGHEI_DEBUG_WORKFLOW
+			std::cerr << GGD "Program instantiated, creating objects - rank " << par.myrank << std::endl;
+		#endif
 
-	  #if SERGHEI_DEBUG_WORKFLOW
-		  std::cerr << GGD "Program instantiated, creating objects - rank " << par.myrank << std::endl;
-	  #endif
-
-    // Initialize the model
-		if(!init.initialize(state, ss, ebc, dom, par, tint, sint, bint, parser, exch, io, inFolder, outFolder)){
+		// Initialize the model
+		if(!init.initialize(state, ss.swss, ebc, dom, par, tint, sint, bint, parser, exch, io, inFolder, outFolder)){
 			std::cerr << RERROR "Unable to start the simulation" << "\n";
 			return 0;
 		};
 
-    // Initialize subsurface model if activated
+		// Initialize subsurface model if activated
 		#if SERGHEI_SUBSURFACE_MODEL
 		if (!ginit.initialize_gw(gw, gdom, state, dom, gbc, gmpi, par, io, ss, inFolder, outFolder)) {
 			std::cerr << RERROR "Unable to initialize the subsurface domain" << "\n"; return 0;
@@ -127,12 +126,11 @@ public:
 		if( par.masterproc){std::cerr << GOK "Subsurface Solver has been initialized! " << std::endl;}
 		#endif
 
-    #if SERGHEI_TOOLS
-  	if(!obs.readInputFiles(inFolder,par)) return 0;
+		#if SERGHEI_TOOLS
+		if(!obs.readInputFiles(inFolder,par)) return 0;
 		if(!obs.configure(dom,outFolder)) return 0;	// observations for surface domain
 		//obs.printGauges(dom);
 		obs.update(state,par,dom);
-
 		if( par.masterproc){
 			obs.writeLinesSamplingCoordinates(outFolder);
 			obs.writeGauges(dom.etime);
@@ -142,12 +140,11 @@ public:
 
 		#if SERGHEI_DEBUG_WORKFLOW
 		for (int k = 0; k < ebc.extbc.size(); k ++) {
-		  std::cout << GGD << GRAY << __FILE__ << ":" << __LINE__ << RESET << "\tExtBC[" << k << "]: " << ebc.extbc[k].bcvals(0) << ", " << ebc.extbc[k].bcvals(1) << ", " << ebc.extbc[k].bcvals(2) << std::endl;
+			std::cout << GGD << GRAY << __FILE__ << ":" << __LINE__ << RESET << "\tExtBC[" << k << "]: " << ebc.extbc[k].bcvals(0) << ", " << ebc.extbc[k].bcvals(1) << ", " << ebc.extbc[k].bcvals(2) << std::endl;
 		}
-
 		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "Initialisation finished, starting to run main loop" << std::endl;
 		for(int i = 0; i < ebc.extbc.size(); i ++) {
-		  std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "ncellsBC for segment " << i << ": " << ebc.extbc[i].ncellsBC << "\n";
+			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "ncellsBC for segment " << i << ": " << ebc.extbc[i].ncellsBC << "\n";
 		}
 		#if SERGHEI_DEBUG_BOUNDARY
 		bint.integrate(ebc.extbc,dom,1);
@@ -156,33 +153,29 @@ public:
 		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "outflow accumulated (integrated) " << bint.outflowAccumulated << std::endl;
 		#endif
 		#endif
-
 		//integrator at the beginning or the simulation
-		sint.integrate(state,dom,ss);
-
+		sint.integrate(state,dom,ss.swss);
 		// Write initial time series data
-		io.writeTimeSeriesIni(state,dom,par,ss,sint,bint,ebc.extbc,outFolder);
+		io.writeTimeSeriesIni(state,dom,par,ss.swss,sint,bint,ebc.extbc,outFolder);
 		#if SERGHEI_SUBSURFACE_MODEL
 		io.writeSubTimeSeriesIni(gw,gdom,dom,par,outFolder);
+		io.outputSubsurface(gw, gdom, par, outFolder);
 		#endif
-
 		// capture initialisation time
 		dom.timers.init = timer.seconds();
-
 		std::cout << GOK << "Initialisation complete. Initialisation time: " << dom.timers.init << " [s]" << std::endl;
-    return 1;
-  }
+		return 1;
+	}
 
-  int compute(){
-    #if SERGHEI_DEBUG_WORKFLOW
+	int compute(){
+		#if SERGHEI_DEBUG_WORKFLOW
 			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
-	  #endif
+		#endif
 		if (par.masterproc){
 			std::cout << std::endl << GOK "SIMULATION STARTS" << std::endl;
 			std::cout << BDASH << "Start time: " << dom.startTime << std::endl;
 			std::cout << BDASH << "End time: " << dom.endTime << std::endl;
 		}
-
 		#if SERGHEI_SUBSURFACE_MODEL
 		gdom.dt = gdom.dt_init;
 		gdom.dtOld = gdom.dt_init;
@@ -191,67 +184,91 @@ public:
 		tint.computeDt(state,dom,io);
 		#endif
 
-
+		// Main Time Loop
+		#if SERGHEI_SUBSURFACE_MODEL
+		gdom.timers.solver = 0.0;
+		#endif
 		while (dom.etime < dom.endTime) {
-
 			//previous mass
 			oldVolume=sint.surfaceVolumeG;
 			bint.integrate(ebc.extbc,dom,1);//has to be called here (previous time step) with mode==1 (boundary flows)
-
-			tint.stepForward(state, ss, ebc.extbc, dom, exch, par, io);
-
-
+			// run surface model
+			#if SERGHEI_SWE_MODEL
+			tint.stepForward(state, ss.swss, ebc.extbc, dom, exch, par, io);
+			#else
+			ss.swss.ComputeSWSourceSink(state, dom);
+			#endif
 			// run subsurface model
 			#if SERGHEI_SUBSURFACE_MODEL
-
-			// rainfall
-	        if (dom.isRain) {
-	        	gwf.enforce_rainfall_bc(state, gdom, dom, ss);
-	        }
-			// evaporation
-			if (dom.isEvap) {
-	        	gwf.enforce_evaporation_bc(state, gdom, dom, ss);
-	        }
-
+				#if SERGHEI_SWE_MODEL
+				if (gdom.isRain) {Kokkos::deep_copy(gdom.rainRate, ss.swss.rainRate);}
+				Kokkos::deep_copy(gw.hs, state.h);
+				#endif
 			// Asynchronous coupling
 			if (gdom.async)	{
 				if (gdom.etime + gdom.dt < dom.etime)	{
-					std::cerr << "     Asynchrnous coupling, execute GW at dt = " << gdom.dt <<"\n";
 					gdom.etime += gdom.dt;
-					if (gdom.gw_scheme == 1)	{gwf.pca_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
-					else {gwf.picard_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
+					#ifdef __NVCC__
+					if (gdom.gw_scheme == 1)	{
+						gwf.pca_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+					}
+					else {
+						gwf.picard_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+					}
+					#else
+					if (gdom.gw_scheme == 1)	{
+						gwf.pca_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+					}
+					else {
+						gwf.picard_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+					}
+					#endif
 				}
 			}
 			else {
 				gdom.etime = dom.etime;
-				if (gdom.gw_scheme == 1)	{gwf.pca_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
-				else {gwf.picard_solve(gw, state, gdom, gbc, A, gsolver, ss, gmpi, par);}
+				#ifdef __NVCC__
+				if (gdom.gw_scheme == 1)	{
+					gwf.pca_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+				}
+				else {
+					gwf.picard_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+				}
+				#else
+				if (gdom.gw_scheme == 1)	{
+					gwf.pca_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+				}
+				else {
+					gwf.picard_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+				}
+				#endif
 			}
-			tint.computeGwExchange(state , dom);
+				// surface-subsurface exchange
+				#if SERGHEI_SWE_MODEL
+					Kokkos::deep_copy(state.qss, gw.qss);
+					tint.computeGwExchange(state , dom);
+				#endif
 			#endif
 
 			// Unify dt
-			tint.computeDt(state,dom,io);
-			#if SERGHEI_SUBSURFACE_MODEL
-			if (!gdom.async)	{
-				if (dom.dt < gdom.dt)	{gdom.dt = dom.dt;}
-				else {dom.dt = gdom.dt;}
-			}
-			else if (dom.dt > gdom.dt)	{dom.dt = gdom.dt;}
+			#if SERGHEI_SWE_MODEL
+				tint.computeDt(state,dom,io);
+				#if SERGHEI_SUBSURFACE_MODEL
+				if (!gdom.async)	{
+					if (dom.dt < gdom.dt)	{gdom.dt = dom.dt;}
+					else {dom.dt = gdom.dt;}
+				}
+				else if (dom.dt > gdom.dt)	{dom.dt = gdom.dt;}
+				#endif
+			#else
+				dom.dt = gdom.dt;
 			#endif
 
 			oldVolume+=(bint.inflowDischargeG - bint.outflowDischargeG)*dom.dt; //Boundary fluxes with the new dt
-
 			bint.integrate(ebc.extbc,dom,0);//called here with mode==0 (adjusted volume)
-
 			oldVolume+=bint.adjustedVolumeG; //Some mass changes can occur through the boundaries
-
-
-			sint.integrate(state,dom,ss); //new mass after the new time step integration
+			sint.integrate(state,dom,ss.swss); //new mass after the new time step integration
 			oldVolume+= (sint.rainFluxG-sint.infFluxG)*dom.dt; //after integrate, we have to sum the rain and inf mass
-
-
-			//new mass
 			newVolume=sint.surfaceVolumeG;
 
 			if(fabs(oldVolume)>TOL12){
@@ -270,11 +287,16 @@ public:
 					std::cerr << GSTAR "TIME: " << dom.etime << " average dt: " << accumDt/dom.countIterDt <<"\n";
 					std::cerr.precision(9);
 					std::cerr << std::scientific;
-					std::cerr << "     Diff Volume: " << diffVolume <<"\n";
 					std::cerr << std::fixed;
 					std::cerr.precision(12);
+					#if SERGHEI_SWE_MODEL
+					std::cerr << "     Ponding Volume:\t" << newVolume <<"\n";
 					std::cerr << "     Inflow Discharge: " << bint.inflowDischargeG <<"\n";
-					std::cerr << "     Outflow Discharge: " << bint.outflowDischargeG <<"\n";
+					std::cerr << "     Outflow Volume: " << bint.outflowDischargeG*dom.dt <<"\n";
+					#if SERGHEI_SUBSURFACE_MODEL
+					std::cerr << "     Exchange Volume: " << gw.Vexch <<"\n";
+					#endif
+					#endif
 
 					if(fabs(diffVolume)>TOL_MASS_ERROR){
 						// std::cerr << YEXC "   Old Volume:\t" << oldVolume <<"\n";
@@ -289,10 +311,9 @@ public:
                             getchar();
                         #endif
 					}
-
 				}
 				if(fabs(dom.etime - dom.startTime - io.numOut*io.outFreq) <= dom.dt){
-					io.output(state, dom, ss, par,outFolder);
+					io.output(state, dom, ss.swss, par,outFolder);
 					#if SERGHEI_SUBSURFACE_MODEL
 					io.outputSubsurface(gw, gdom, par,outFolder);
 					#endif
@@ -301,11 +322,7 @@ public:
 				if(par.masterproc) std::cerr << "-------------------------------------------------\n";
 				dom.countIterDt=0;
 				accumDt=0.0;
-
-
 			}
-
-
 
 			#if SERGHEI_PARTICLE_TRACKING
 			parTrack.update(dom,state);
@@ -315,45 +332,39 @@ public:
 				#if SERGHEI_TOOLS
 				obs.update(state,par,dom);
 				#endif
-
 				io.writeTimeSeries(state,dom,par,sint,bint,ebc.extbc);
 				#if SERGHEI_SUBSURFACE_MODEL
 				io.writeSubsurfaceTimeSeries(gw,gdom,dom,par);
 				#endif
-			  if (par.masterproc){
+				if (par.masterproc){
 					#if SERGHEI_TOOLS
-          obs.write(dom);
+					obs.write(dom);
 					#endif
-			  }
-
+				}
 			}
-
 		} 		// end of time loop
+		return 1;
+	}
 
-    return 1;
-  }
-
-  int finalise(){
-    #if SERGHEI_DEBUG_WORKFLOW
+	int finalise(){
+		#if SERGHEI_DEBUG_WORKFLOW
 			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
-	  #endif
-
-    dom.timers.total = timer.seconds();
+		#endif
+		dom.timers.total = timer.seconds();
 		if (par.masterproc){
 			std::cerr << GOK "SIMULATION FINISHED\n";
 			std::cerr << GOK "Time elapsed: " << dom.timers.total << std::endl;
 		}
-		io.writeLogFile(dom,par,outFolder);
-
-	  io.closeOutputStreams();
-	  #if SERGHEI_TOOLS
-	    if(par.masterproc) obs.closeOutputStreams();
-	  #endif
-
-
-    return 1;
-
-  }
+		#if SERGHEI_SUBSURFACE_MODEL
+		dom.timers.solver = gdom.timers.solver;
+		#endif
+		io.writeLogFile(dom, par, outFolder);
+		io.closeOutputStreams();
+		#if SERGHEI_TOOLS
+			if(par.masterproc) obs.closeOutputStreams();
+		#endif
+		return 1;
+	}
 
 
 };

@@ -103,7 +103,7 @@ public:
 	 isBound 	= intArr( "isBound" , dom.nCellMem );
     dsw0 			= realArr( "dsw0" , 3*dom.nCellMem );
     dsw1 			= realArr( "dsw1" , 3*dom.nCellMem );
-    qss 				= realArr( "qss" , dom.nCellMem );
+    qss 				= realArr( "qss" , dom.nCell );
     #if SERGHEI_MAXFLOOD
       hMax = realArr("hMax",dom.nCellMem);
       momentumMax = realArr("momMax",dom.nCellMem);

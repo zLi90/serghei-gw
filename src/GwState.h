@@ -37,8 +37,7 @@ public:
     realArr2 h, q, wc, k;
     // matrix system
     realArr2 resi, coef;
-    // Head and water content on lateral boundaries
-    realArr2 hbcX, hbcY;
+    realArr qss, hs;
     //
     // reasoning
     // ---------
@@ -63,9 +62,8 @@ public:
         vgTable = realArr ("vg", nVGparam * gdom.nSoilID);
         coef = realArr2("coef", gdom.nCell, 8);
 
-        hbcX = realArr2("hbcX", gdom.nz_glob*gdom.ny_glob, 2);
-        hbcY = realArr2("hbcY", gdom.nz_glob*gdom.nx_glob, 2);
-
+        qss = realArr("qss", gdom.nCellSw);
+        hs = realArr("hs", gdom.nCellSwMem);
     }
 
 };

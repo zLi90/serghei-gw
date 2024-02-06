@@ -86,6 +86,14 @@
 #define SERGHEI_SUBSURFACE_MODEL 1
 #endif
 
+#ifndef SERGHEI_SWE_MODEL
+#define SERGHEI_SWE_MODEL 1
+#endif
+
+#ifdef SERGHEI_KOKKOSKERNELS_SOLVER
+#define SERGHEI_KOKKOSKERNELS_SOLVER 1
+#endif
+
 #ifndef SERGHEI_DEBUG_PARALLEL_DECOMPOSITION
 #define SERGHEI_DEBUG_PARALLEL_DECOMPOSITION 0 //debug the subdomains ranks and neighbours
 #endif

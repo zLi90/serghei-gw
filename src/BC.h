@@ -5,11 +5,13 @@
 
 #include "define.h"
 #include "Indexing.h"
+#include "SourceSink.h"
 
 // DCV 05.05.2021, left these here defined for generic use in exchange.h, not for hydraulics.
-#define BC_PERIODIC 1
-#define BC_REFLECTIVE 2
-#define BC_TRANSMISSIVE 3
+// ZhiLi 02.02.2024, Moved to  define.h
+// #define BC_PERIODIC 1
+// #define BC_REFLECTIVE 2
+// #define BC_TRANSMISSIVE 3
 
 // these definitions are meant for hydraulics
 #define SWE_BC_PERIODIC 1
@@ -23,13 +25,6 @@
 #define SWE_BC_HZ_T_INLET 10
 #define SWE_BC_HZ_T_OUTLET 11
 #define SWE_BC_Q_T 12
-
-// subsurface bc types
-#define SUB_BC_NOFLOW 1
-#define SUB_BC_H_CONST 2
-#define SUB_BC_Q_CONST 3
-#define SUB_BC_H_FILE 4
-#define SUB_BC_H_SWE 5
 
 
 

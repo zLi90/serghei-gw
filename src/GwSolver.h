@@ -4,14 +4,37 @@
 #ifndef _GW_SOLVER_H_
 #define _GW_SOLVER_H_
 
+#include "KokkosKernels_config.h"
+#include "KokkosSparse_pcg.hpp"
+
+#include "KokkosKernels_Utils.hpp"
+#include "KokkosKernels_IOUtils.hpp"
+#include "KokkosKernels_default_types.hpp"
+#include <iostream>
+
 #include "GwDomain.h"
 #include "GwMatrix.h"
 
+template <typename execution_space>
 class GwSolver {
+
+	typedef typename KokkosSparse::CrsMatrix<default_scalar, default_lno_t, execution_space, void, default_size_type> crsMat_t;
+	typedef typename crsMat_t::StaticCrsGraphType graph_t;
+	typedef typename graph_t::row_map_type::non_const_type lno_view_t;
+	typedef typename graph_t::entries_type::non_const_type   lno_nnz_view_t;
+	typedef typename crsMat_t::values_type::non_const_type scalar_view_t;
+	typedef typename scalar_view_t::value_type scalar_t;
+	typedef typename crsMat_t::StaticCrsGraphType::row_map_type::non_const_type::value_type size_type;
+	typedef typename crsMat_t::StaticCrsGraphType::entries_type::non_const_type::value_type lno_t;
+
 
 public:
 	int iter, iter_max, gsteps, nrow, nnz;
 	real eps, eps_min;
+
+	lno_view_t ptr;
+	lno_nnz_view_t ind;
+	scalar_view_t val, rhs, vecx, diag;
 
 	inline void init(GwMatrix &A, GwDomain &gdom)	{
 		nrow = A.nrow;	nnz = A.nnz;
@@ -19,6 +42,15 @@ public:
 		gsteps = 20;
 		iter_max = iter_max * gsteps;
 		eps_min = 1e-7;
+		#if SERGHEI_KOKKOSKERNELS_SOLVER
+		ptr = lno_view_t("ptr", A.nrow+1);
+		ind = lno_nnz_view_t("ind", A.nnz);
+		val = scalar_view_t("val", A.nnz);
+		rhs = scalar_view_t("rhs", A.nrow);
+		vecx = scalar_view_t("vecx", A.nrow);
+		diag = scalar_view_t("diag", A.nrow);
+		Kokkos::deep_copy (ptr, A.ptr);
+		#endif
 	}
 
 	/*
@@ -28,6 +60,41 @@ public:
 		----------------------------------------------------------
 		----------------------------------------------------------
 	*/
+
+	/*
+		PCG from KokkosKernels
+	*/
+	// Top-level PCG solver
+	void kkpcg(GwMatrix &A)
+	{
+		bool usePreconditioner = 1;
+		const unsigned cg_iteration_limit = 1000000;
+		const double   cg_iteration_tolerance     = 1e-8 ;
+
+		decompose(A);
+		Kokkos::deep_copy (ind, A.ind);
+		Kokkos::deep_copy (val, A.val);
+		Kokkos::deep_copy (rhs, A.rhs);
+		Kokkos::deep_copy (diag, A.diag);
+
+		crsMat_t matA = crsMat_t("matA", A.nrow, A.nrow, A.nnz, val, ptr, ind);
+
+		// initialize KokkosKernels solver
+		KokkosKernels::Experimental::Example::CGSolveResult cg_result ;
+		typedef KokkosKernels::Experimental::KokkosKernelsHandle
+		  < size_type, lno_t, scalar_t, execution_space, execution_space, execution_space > KernelHandle;
+		KernelHandle kh;
+		kh.create_gs_handle();
+		//Kokkos::Impl::Timer timer1;
+		KokkosKernels::Experimental::Example::pcgsolve(kh, matA, rhs, vecx, diag
+		    , cg_iteration_limit, cg_iteration_tolerance, &cg_result, usePreconditioner);
+		Kokkos::fence();
+		//solve_time = timer1.seconds();
+		//std::cout  << "DEFAULT SOLVE: " << "(P)CG_NUM_ITER = [" << cg_result.iteration << "], " << "RESIDUAL = [" << cg_result.norm_res << "]"<< std::endl ;
+		kh.destroy_gs_handle();
+
+		Kokkos::deep_copy (A.x, vecx);
+	}
 
 	/*
     	CG Solver
@@ -67,7 +134,7 @@ public:
     */
     void precJACO(GwMatrix A)	{
 		Kokkos::parallel_for( A.nrow , KOKKOS_LAMBDA(int idom) {
-			A.z(idom) = A.r(idom) / A.diag(idom);
+			A.z(idom) = A.r(idom) * A.diag(idom);
 		});
     }
 
@@ -141,7 +208,7 @@ public:
 			int icol;
 			A.diag(idx) = 0.0;
 			for (icol = A.ptr(idx); icol < A.ptr(idx+1); icol++)	{
-				if (A.ind(icol) == idx)	{A.diag(idx) = A.val(icol);}
+				if (A.ind(icol) == idx)	{A.diag(idx) = 1.0 / A.val(icol);}
 			}
 		});
 	}

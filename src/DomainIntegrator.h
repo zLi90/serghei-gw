@@ -2,7 +2,7 @@
 #define _DOMAIN_INTEGRATOR_H_
 
 #include "State.h"
-#include "SWSourceSink.h"
+#include "SourceSink.h"
 #include "Domain.h"
 #include "Indexing.h"
 
@@ -195,7 +195,7 @@ public:
   dom.timers.integrate += timer.seconds();
   }
 
-	
+
 
 };
 

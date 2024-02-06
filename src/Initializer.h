@@ -8,7 +8,7 @@
 #include "TimeIntegrator.h"
 #include "Indexing.h"
 #include "Parser.h"
-#include "SWSourceSink.h"
+#include "SourceSink.h"
 
 
 class Initializer{
@@ -16,60 +16,47 @@ class Initializer{
 public:
 
 
-  void initializeMPI( int *argc , char ***argv , Parallel &par ) {
-  	#if SERGHEI_DEBUG_WORKFLOW
-	    std::cerr << GGD "Initialising MPI " << std::endl;
-	  #endif
-    int ierr = MPI_Init( argc , argv );
-    ierr = MPI_Comm_size(MPI_COMM_WORLD,&par.nranks);
-    ierr = MPI_Comm_rank(MPI_COMM_WORLD,&par.myrank);
-
-    //Determine if I'm the master process
-    if (par.myrank == SERGHEI_MASTERPROC) {
-      par.masterproc = 1;
-    } else {
-      par.masterproc = 0;
-    }
-  }
-
-  int initialize(State &state, SourceSinkData &ss, ExternalBoundaries &ebc, Domain &dom, Parallel &par, TimeIntegrator &tint, surfaceIntegrator &sint, boundaryIntegrator &bint, Parser &parser, Exchange &exch, FileIO &io, std::string inFolder, std::string outFolder) {
-
-    if(!parser.readDimensions(inFolder, dom, state, par, io)){
-      return 0;
+    void initializeMPI( int *argc , char ***argv , Parallel &par ) {
+        #if SERGHEI_DEBUG_WORKFLOW
+            std::cerr << GGD "Initialising MPI " << std::endl;
+        #endif
+        int ierr = MPI_Init( argc , argv );
+        ierr = MPI_Comm_size(MPI_COMM_WORLD,&par.nranks);
+        ierr = MPI_Comm_rank(MPI_COMM_WORLD,&par.myrank);
+        //Determine if I'm the master process
+        if (par.myrank == SERGHEI_MASTERPROC) {
+            par.masterproc = 1;
+        } else {
+            par.masterproc = 0;
+        }
     }
 
-    dom.buildDomainDecomposition(par);
-
-    dom.initialise();
-    state.allocate(dom);
-
-    if(!parser.readInputFiles(inFolder, dom, state, ss, ebc, par, io)){
-      return 0;
+    int initialize(State &state, SourceSinkData &ss, ExternalBoundaries &ebc, Domain &dom, Parallel &par, TimeIntegrator &tint,
+        surfaceIntegrator &sint, boundaryIntegrator &bint, Parser &parser, Exchange &exch, FileIO &io, std::string inFolder, std::string outFolder) {
+        if(!parser.readDimensions(inFolder, dom, state, par, io)){
+          return 0;
+        }
+        dom.buildDomainDecomposition(par);
+        dom.initialise();
+        state.allocate(dom);
+        if(!parser.readInputFiles(inFolder, dom, state, ss, ebc, par, io)){
+          return 0;
+        }
+        dom.getStatistics();
+        ss.allocateSW(dom);
+        sint.initialize(state,dom,ss);
+        bint.initialize(ebc.extbc);
+        //state.filterDomain(dom);
+        if(par.masterproc){
+            if(!parser.createOutputDir(outFolder)){return 0;}
+        }
+        exch.exchangeIniMPI(state,dom,exch,par);
+        //initialize boundaries
+        boundaryIni(state,dom,par,ebc.extbc);
+        // Output the initial model state
+        io.outputIni(state, dom, ss, par,outFolder);
+        return 1;
     }
-
-    dom.getStatistics();
-    ss.allocate(dom);
-    sint.initialize(state,dom,ss);
-    bint.initialize(ebc.extbc);
-    //state.filterDomain(dom);
-
-    if(par.masterproc){
-      if(!parser.createOutputDir(outFolder)){
-	return 0;
-      }
-    }
-
-    exch.exchangeIniMPI(state,dom,exch,par);
-
-    //initialize boundaries
-    boundaryIni(state,dom,par,ebc.extbc);
-
-    // Output the initial model state
-    io.outputIni(state, dom, ss, par,outFolder);
-
-    return 1;
-
-  }
 
 
 
