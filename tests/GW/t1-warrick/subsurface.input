@@ -1,0 +1,16 @@
+// Input parameters for saturated groundwater flow simulations
+// Legal syntax is <key> : <value>
+// Lines can end with comments
+
+height : 1.0          // Thickness of the subsurface domain
+dz_multiplier : 1.0		// Non-uniform dz
+ndepth  : 100          // Number of cells in z-direction.
+nSoilID : 1           // Number of soil types
+parNz   : 1           // Number of parallel tasks in z-direction.
+initialMode : 3        // saturated(1), file-h(2), file-theta(3), file-wt(4)
+dt_init : 0.0001          // initial (also minimum) dt for subsurface
+dt_max  : 0.1          // maximum allowable dt
+gw_scheme : 1           // numerical schemes, 1:PCA, 2:Picard
+async : 0				// Asynchronous coupling
+aev : 0.0           // air entry value
+// [*]: Recognized boundary conditions are TRANSMISSIVE, REFLECTIVE or PERIODIC

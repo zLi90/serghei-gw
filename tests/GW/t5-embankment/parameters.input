@@ -1,0 +1,12 @@
+
+// Input parameters for the model
+// Legal syntax is key : value
+// You can end input key:value lines with comments
+
+simLength  : 129600   // How long to simulate (s)
+cfl        : 0.1      // CFL value to use
+outFreq    : 8640      // Frequency for output in seconds
+obsFreq    : 600    // Frequency for time series output
+nScreen    : 600
+parNx      : 1       // Number of parallel tasks in the x-direction
+parNy      : 1        // Number of parallel tasks in the y-direction

@@ -1,0 +1,7 @@
+
+bccount : 1
+id : drainage
+direction : 5
+bctype : 2
+bcvals : 0.0
+polygon : polygonbot.input

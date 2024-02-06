@@ -1,0 +1,8 @@
+
+bccount : 1
+
+id : fixedflux
+direction : 6
+bctype : 3
+bcvals : -5.787e-6
+polygon : polygontop.input

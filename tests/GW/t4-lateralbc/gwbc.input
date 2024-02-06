@@ -1,0 +1,21 @@
+
+bccount : 3
+id : top
+direction : 6
+bctype : 3
+bcvals : 0.0
+polygon : polygontop.input
+
+id : left
+direction : 2
+bctype : 2
+bcvals : 0.0
+polygon : polygonleft.input
+bcfile : headleft.input
+
+id : right
+direction : 1
+bctype : 2
+bcvals : 0.0
+polygon : polygonright.input
+bcfile : headright.input
