@@ -7,24 +7,22 @@
 class GwDomain : public Domain {
 
 public:
-    real dt_init, dt_max, dt, dtOld;
-    real thickH, topZ, xll, yll, zll, dx, dy, aev, hmin, dz_multiplier;
-    int nz_glob, nhalo, nx, ny, nz, nSoilID, gw_scheme;
-    int isRain, isEvap, hasRoot;
-    int nxhc, nyhc, nzhc, n_substep;
+    // Time stepping options
+    real dt_init, dt_max, dtOld;
+    // Subsurface domain dimensions
+    real thickH, topZ, zll, dx, dy, dz_multiplier;
+    int nz, nz_glob, nhalo, nxhc, nyhc, nzhc;
     int nCellSw, nCellSwMem;
+    // Domain properties
+    int nSoilID, aev, hmin;
+    int hasRoot, hasET;
+    // Numerical scheme
+    int gw_scheme;
     bool async;
-    realArr z, dz, sinx, cosx, siny, cosy, rainRate, evapRate;
+    // Kokkos views
+    realArr z, dz, sinx, cosx, siny, cosy, rainRate, evapRate, etpmRate;
     intArr isnodata;
 
-    //raster variables
-    int nCellMem = 0;   // physical cells + halo cells
-    int nCell = 0;    // physical cells
-    int nCellValid = 0; // cells which have data
-    // global (reduced) variables
-    real areaGlobal;
-    int nCellValidGlobal;
-    int nCellGlobal;
     // other variables
     int BCtype;
     realArr globalBuffer;
@@ -49,15 +47,15 @@ public:
         return( k*nx_glob*ny_glob + (par.j_beg+j)*nx_glob + par.i_beg+i ); //index for the subdomain (par.j_beg+j,par.i_beg+i)
     };
     // Initialize surface domain
-    void initialise() {
-        // physical cells onlys
-        #if SERGHEI_MESH_UNIFORM
-        nCell = nx*ny*nz;
-        nCellMem = (ny+2*hc)*(nx+2*hc)*(nz+2*hc);
-        nCellGlobal = nx_glob * ny_glob * nz_glob;
-        #endif
-        globalBuffer = realArr("globalBuffer", nCellGlobal);
-    };
+    // void initialise() {
+    //     // physical cells onlys
+    //     #if SERGHEI_MESH_UNIFORM
+    //     nCell = nx*ny*nz;
+    //     nCellMem = (ny+2*hc)*(nx+2*hc)*(nz+2*hc);
+    //     nCellGlobal = nx_glob * ny_glob * nz_glob;
+    //     #endif
+    //     globalBuffer = realArr("globalBuffer", nCellGlobal);
+    // };
 
     void fetchFieldFromGlobalBuffer(const Parallel &par, realArr &data){
         Kokkos::parallel_for("fetch_from_global_buffer", nCell , KOKKOS_CLASS_LAMBDA (int iGlob) {

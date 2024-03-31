@@ -89,5 +89,5 @@ plt.ylabel('Z [m]', fontsize=fs)
 # plt.yticks([0,-0.5,-1.0],[0,-0.5,-1.0],fontsize=fs)
 plt.legend(['PC','MP','Experiment'], fontsize=fs)
 
-plt.savefig("t2-results.eps", format='eps')
+# plt.savefig("t2-results.eps", format='eps')
 plt.show()

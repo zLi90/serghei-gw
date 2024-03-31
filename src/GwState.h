@@ -38,6 +38,8 @@ public:
     // matrix system
     realArr2 resi, coef;
     realArr qss, hs;
+    // source/sink flow rate
+    realArr ssflow;
     //
     // reasoning
     // ---------
@@ -48,7 +50,7 @@ public:
     int nVGparam; /* number of van Genuchten parameters */
     // std::string initialMode;
     int initialMode;
-    real initialValue, Vtot, Vexch;
+    real initialValue;
 
     // Allocate state variables for groundwater
     inline void allocate (GwDomain &gdom) {
@@ -62,6 +64,8 @@ public:
         vgTable = realArr ("vg", nVGparam * gdom.nSoilID);
         coef = realArr2("coef", gdom.nCell, 8);
 
+		ssflow = realArr("ss", 1);
+		ssflow(0) = 0.0;
         qss = realArr("qss", gdom.nCellSw);
         hs = realArr("hs", gdom.nCellSwMem);
     }

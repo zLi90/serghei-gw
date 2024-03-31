@@ -27,6 +27,7 @@
 #include "GwMatrix.h"
 #include "GwState.h"
 #include "GwSolver.h"
+#include "GwIntegrator.h"
 #endif
 
 class SERGHEI{
@@ -44,6 +45,7 @@ public:
 	GwFunction gwf;
 	SubsurfaceBoundaries	gbc;
 	GwMatrix A;
+	GwIntegrator gint;
 	#ifdef __NVCC__
 	GwSolver<Kokkos::Cuda> gsolver;
 	#else
@@ -118,7 +120,7 @@ public:
 
 		// Initialize subsurface model if activated
 		#if SERGHEI_SUBSURFACE_MODEL
-		if (!ginit.initialize_gw(gw, gdom, state, dom, gbc, gmpi, par, io, ss, inFolder, outFolder)) {
+		if (!ginit.initialize_gw(gw, gdom, state, dom, gbc, gmpi, gint, par, io, ss, inFolder, outFolder)) {
 			std::cerr << RERROR "Unable to initialize the subsurface domain" << "\n"; return 0;
 		};
 		A.init(gdom);
@@ -158,12 +160,12 @@ public:
 		// Write initial time series data
 		io.writeTimeSeriesIni(state,dom,par,ss.swss,sint,bint,ebc.extbc,outFolder);
 		#if SERGHEI_SUBSURFACE_MODEL
-		io.writeSubTimeSeriesIni(gw,gdom,dom,par,outFolder);
+		io.writeSubTimeSeriesIni(gdom, gint, par, outFolder);
 		io.outputSubsurface(gw, gdom, par, outFolder);
 		#endif
 		// capture initialisation time
 		dom.timers.init = timer.seconds();
-		std::cout << GOK << "Initialisation complete. Initialisation time: " << dom.timers.init << " [s]" << std::endl;
+		if (par.masterproc) {std::cout << GOK << "Initialisation complete. Initialisation time: " << dom.timers.init << " [s]" << std::endl;}
 		return 1;
 	}
 
@@ -201,6 +203,8 @@ public:
 			// run subsurface model
 			#if SERGHEI_SUBSURFACE_MODEL
 				#if SERGHEI_SWE_MODEL
+				// If both surface and subsurface modules are on
+				// Rainfall is first read by the surface module, then copy to the subsurface
 				if (gdom.isRain) {Kokkos::deep_copy(gdom.rainRate, ss.swss.rainRate);}
 				Kokkos::deep_copy(gw.hs, state.h);
 				#endif
@@ -209,18 +213,20 @@ public:
 				if (gdom.etime + gdom.dt < dom.etime)	{
 					gdom.etime += gdom.dt;
 					#ifdef __NVCC__
+					//	PC scheme
 					if (gdom.gw_scheme == 1)	{
-						gwf.pca_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+						gwf.pca_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
 					}
+					//	Modified Picard scheme
 					else {
-						gwf.picard_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+						gwf.picard_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
 					}
 					#else
 					if (gdom.gw_scheme == 1)	{
-						gwf.pca_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+						gwf.pca_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
 					}
 					else {
-						gwf.picard_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+						gwf.picard_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
 					}
 					#endif
 				}
@@ -229,17 +235,17 @@ public:
 				gdom.etime = dom.etime;
 				#ifdef __NVCC__
 				if (gdom.gw_scheme == 1)	{
-					gwf.pca_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+					gwf.pca_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
 				}
 				else {
-					gwf.picard_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+					gwf.picard_solve<Kokkos::Cuda>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
 				}
 				#else
 				if (gdom.gw_scheme == 1)	{
-					gwf.pca_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+					gwf.pca_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
 				}
 				else {
-					gwf.picard_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, par);
+					gwf.picard_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
 				}
 				#endif
 			}
@@ -248,20 +254,6 @@ public:
 					Kokkos::deep_copy(state.qss, gw.qss);
 					tint.computeGwExchange(state , dom);
 				#endif
-			#endif
-
-			// Unify dt
-			#if SERGHEI_SWE_MODEL
-				tint.computeDt(state,dom,io);
-				#if SERGHEI_SUBSURFACE_MODEL
-				if (!gdom.async)	{
-					if (dom.dt < gdom.dt)	{gdom.dt = dom.dt;}
-					else {dom.dt = gdom.dt;}
-				}
-				else if (dom.dt > gdom.dt)	{dom.dt = gdom.dt;}
-				#endif
-			#else
-				dom.dt = gdom.dt;
 			#endif
 
 			oldVolume+=(bint.inflowDischargeG - bint.outflowDischargeG)*dom.dt; //Boundary fluxes with the new dt
@@ -334,7 +326,7 @@ public:
 				#endif
 				io.writeTimeSeries(state,dom,par,sint,bint,ebc.extbc);
 				#if SERGHEI_SUBSURFACE_MODEL
-				io.writeSubsurfaceTimeSeries(gw,gdom,dom,par);
+				io.writeSubsurfaceTimeSeries(gdom, gint);
 				#endif
 				if (par.masterproc){
 					#if SERGHEI_TOOLS
@@ -342,6 +334,20 @@ public:
 					#endif
 				}
 			}
+
+			// Unify dt
+			#if SERGHEI_SWE_MODEL
+				tint.computeDt(state,dom,io);
+				#if SERGHEI_SUBSURFACE_MODEL
+				if (!gdom.async)	{
+					if (dom.dt < gdom.dt)	{gdom.dt = dom.dt;}
+					else {dom.dt = gdom.dt;}
+				}
+				else if (dom.dt > gdom.dt)	{dom.dt = gdom.dt;}
+				#endif
+			#else
+				dom.dt = gdom.dt;
+			#endif
 		} 		// end of time loop
 		return 1;
 	}

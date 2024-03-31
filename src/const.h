@@ -19,18 +19,11 @@
 #define ioU 1001
 #define ioV 1002
 
-
 // Some physical constants
 #define GRAV 9.81
 #define SQRTGRAV 3.132091953
 
-#define Cweir 0.6
-
 #define NVG 7
-
-//#define GRAV 9.807
-//#define SQRTGRAV 3.13161300291
-
 
 //Some tolerances
 #define TOL4 1e-4
@@ -87,10 +80,10 @@
 #endif
 
 #ifndef SERGHEI_SWE_MODEL
-#define SERGHEI_SWE_MODEL 1
+#define SERGHEI_SWE_MODEL 0
 #endif
 
-#ifdef SERGHEI_KOKKOSKERNELS_SOLVER
+#ifndef SERGHEI_KOKKOSKERNELS_SOLVER
 #define SERGHEI_KOKKOSKERNELS_SOLVER 1
 #endif
 

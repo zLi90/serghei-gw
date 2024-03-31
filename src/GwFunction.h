@@ -11,6 +11,7 @@
 #include "GwMPI.h"
 #include "GwSolver.h"
 #include "GwState.h"
+#include "GwIntegrator.h"
 #include "State.h"
 #include <set>
 #include <math.h>
@@ -27,10 +28,13 @@ public:
     -------------------------------------------------- */
 	template <typename execution_space, typename type_solver>
     inline void pca_solve(GwState &gw, GwDomain &gdom, std::vector<GwBC> &gbc,
-            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, Parallel &par)  {
+            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, GwIntegrator &gint, Parallel &par)  {
         int iter, ierr=1;
         real dt_tmp;
 
+		for (int k = 0; k < gbc.size(); k++) {
+            gbc[k].applyHBC(gw, gdom, par);
+        }
         face_conductivity(gw, gdom, gbc, gmpi, par);
         linear_system(gw, gdom, gbc, gss, A, par);
 
@@ -65,13 +69,14 @@ public:
 
         dt_waco(gw, gdom);
         dt_tmp = gdom.dt;
+
         ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+
         Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
 
-        gw.Vtot = integrate(gw, gdom);
-        gw.Vexch = get_Vexchange(gw, gdom);
+        gint.integrate(gw, gdom, gbc, gss);
 
     }
 
@@ -80,8 +85,8 @@ public:
     -------------------------------------------------- */
 	template <typename execution_space, typename type_solver>
     inline void picard_solve(GwState &gw, GwDomain &gdom, std::vector<GwBC> &gbc,
-            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, Parallel &par)  {
-        int iter, iter_cg, iter_max = 100, ierr=1;
+            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, GwIntegrator &gint, Parallel &par)  {
+        int iter, iter_cg, iter_max = 50, ierr=1;
         real eps_diff = 1.0, eps_tmp, eps_old = 1.0, eps = 1.0, eps_min = 5e-6, dt_tmp;
 
         for (int k = 0; k < gbc.size(); k++) {
@@ -131,8 +136,7 @@ public:
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
 
-        gw.Vtot = integrate(gw, gdom);
-        gw.Vexch = get_Vexchange(gw, gdom);
+        gint.integrate(gw, gdom, gbc, gss);
     }
 
     /* --------------------------------------------------
@@ -175,6 +179,7 @@ public:
             ivgx = gw.soilID(iGlob+1) * NVG;                    ksx = gw.vgTable(ivgx);
             ivgy = gw.soilID(iGlob+gdom.nxhc) * NVG;            ksy = gw.vgTable(ivgy);
             ivgz = gw.soilID(iGlob+gdom.nxhc*gdom.nyhc) * NVG;  ksz = gw.vgTable(ivgz);
+
             // Kx
 			if (ii == 0)	{
 				gw.k(iGlob,0) = 0.5 * (ks * gw.k(iGlob,3) + ksx * gw.k(iGlob+1,3));
@@ -268,10 +273,6 @@ public:
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyQBC(gw, gdom, par);
         }
-
-        // SW-GW exchange
-        // Get exchange flux
-        // state.qss(iGlobSW) = gw.q(iGlob-gdom.nxhc*gdom.nyhc,2);
 	}
     // /* --------------------------------------------------
     //     End of flux block
@@ -323,16 +324,16 @@ public:
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyMatBC(gw, gdom, par);
         }
-		// Apply internal source/sink terms
+
+
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
+            gw.coef(idom,0) -= (gw.coef(idom,1)+gw.coef(idom,2)+gw.coef(idom,3)+gw.coef(idom,4)+gw.coef(idom,5)+gw.coef(idom,6));
+        });
+
+        // Apply internal source/sink terms
 		for (int k = 0; k < gss.size(); k++) {
             gss[k].applyMatSS(gw, gdom);
         }
-        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
-            gw.coef(idom,0) -= (gw.coef(idom,1)+gw.coef(idom,2)+gw.coef(idom,3)+gw.coef(idom,4)+gw.coef(idom,5)+gw.coef(idom,6));
-            int ii, jj, kk;
-            gdom.unpackIndices(idom, kk, jj, ii);
-            int iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-        });
 
         // Insert coefficients into Matrix A
         Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
@@ -420,13 +421,7 @@ public:
 						// To avoid confusing, in Case1, we recommend to set h=0.0001 to represent the thin-layer of water
                         if (gw.wc(iGlob,1) < wcs-TOL8NEG && gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) == 0.0)   {flag = 0;}
                         else {flag = 1;}
-
-                        /*if (ii == 10)	{
-                        	printf( "BEF -%f- : flag=%d : wc=%f : h=%f-%f : qss=%f \n",gdom.dt,flag,
-                        		gw.wc(iGlob,1),gw.h(iGlob,1),gw.h(iGlob-gdom.nxhc*gdom.nyhc,1), gw.q(iGlob-gdom.nxhc*gdom.nyhc,2));
-                        }*/
                     }
-
                     if (flag == 1)  {
                         real tmp = gw.wc(iGlob,1);
                         sbar = pow(1.0 + pow(fabs(alpha*gw.h(iGlob,1)), n), -m);
@@ -438,16 +433,9 @@ public:
                         if (gw.wc(iGlob,1) < wcs)   {
                             if (gw.wc(iGlob,1) < wcr)   {gw.wc(iGlob,1) = wcr + 1e-5;}
                             gw.h(iGlob,1) = -(1.0/alpha) * (pow(pow((wcm-wcr)/(gw.wc(iGlob,1)-wcr),(1/m)) - 1.0, 1/n));
-                            //else {
-                            //    gw.h(iGlob,1) = -(1.0/alpha) * (pow(pow((wcm-wcr)/(gw.wc(iGlob,1)-wcr),(1/m)) - 1.0, 1/n));
-                            //}
                         }
                         else {gw.h(iGlob,1) = 0.0;}
                     }
-                    /*if (kk == 0 && ii == 10)	{
-                        	printf( "AFT : wc=%f : h=%f-%f \n",
-                        		gw.wc(iGlob,1),gw.h(iGlob,1),gw.h(iGlob-gdom.nxhc*gdom.nyhc,1));
-                        }*/
                 }
             });
         }
@@ -528,39 +516,6 @@ public:
     // /* --------------------------------------------------
     //     End eps computation
     // -------------------------------------------------- */
-
-    // /* --------------------------------------------------
-    //     Integrator
-    // -------------------------------------------------- */
-    inline real integrate(GwState &gw, GwDomain &gdom)	{
-    	real V_tot;
-        Kokkos::parallel_reduce(gdom.nCell, KOKKOS_LAMBDA (int idx, real &tmp) {
-            int ii, jj, kk, iGlob;
-            gdom.unpackIndices(idx, kk, jj, ii);
-            iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-            tmp += gw.wc(iGlob,1) * gdom.dx * gdom.dx * gdom.dz(iGlob);
-		} , Kokkos::Sum<real>(V_tot) );
-        return V_tot;
-    }
-    inline real get_Vexchange(GwState &gw, GwDomain &gdom)	{
-    	real V_exch;
-        Kokkos::parallel_reduce(gdom.ny*gdom.nx, KOKKOS_LAMBDA (int idx, real &tmp) {
-            int ii, jj, iGlob;
-            unpackIndicesUniformGrid(idx, gdom.ny, gdom.nx, jj, ii);
-            //iGlob = (hc+jj)*gdom.nxhc + ii + hc;
-            iGlob = jj*gdom.nx + ii;
-            tmp += gw.qss(iGlob) * gdom.dx * gdom.dx * gdom.dt;
-		} , Kokkos::Sum<real>(V_exch) );
-        return V_exch;
-    }
-
-    // /* --------------------------------------------------
-    //     End integrating computation
-    // -------------------------------------------------- */
-
-
-
-
 };
 
 #endif

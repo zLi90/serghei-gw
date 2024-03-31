@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import netcdf
 
-fdir = ['out1-pc/']
+fdir = ['out-pc/']
 
 ind = [0, 1, 3, 7, 10, 15]
 """
@@ -76,6 +76,6 @@ plt.xticks([-40,-30,-20,-10,0],[-40,-30,-20,-10,0],fontsize=fs)
 plt.yticks([0,1,2,3,4],[0,1,2,3,4],fontsize=fs)
 plt.legend(['0 day','0.1 days','0.3 days','0.7 days','1 day','1.5 days','GFDM'], fontsize=fs)
 
-plt.savefig("t5-results.eps", format='eps')
+# plt.savefig("t5-results.eps", format='eps')
 
 plt.show()

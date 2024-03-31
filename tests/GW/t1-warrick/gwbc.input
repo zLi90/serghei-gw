@@ -3,5 +3,5 @@ bccount : 1
 id : fixedhead
 direction : 6
 bctype : 2
-bcvals : 0.0
+bcvals : 0.00001
 polygon : polygontop.input

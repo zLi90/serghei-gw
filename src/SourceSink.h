@@ -5,10 +5,8 @@
 #include "SArray.h"
 #include "State.h"
 
-// #include "Indexing.h"
 #include "GwDomain.h"
 #include "GwState.h"
-// #include "Parallel.h"
 
 
 #define INF_NONE 0
@@ -293,7 +291,6 @@ public:
 
 
 class SourceSinkData{
-// class SwSS{
 
 public:
 
@@ -411,7 +408,7 @@ public:
     #endif
     ComputeRain(dom);
     ComputeEvap(dom);
-    // inf.ComputeInfiltrationCapacity(dom);
+    inf.ComputeInfiltrationCapacity(dom);
     //no rate correction is necessary here beacuse the rate correction is done in ComputeNewState, according to the new water depth
    // timerRainInf += timer.seconds();
    dom.timers.raininf += timer.seconds();
@@ -426,21 +423,32 @@ public:
 class GwSS{
 
 public:
-    TimeSeries root;
-    realArr rootRate;
+	// subsurface ss directions
+	#define XPLUS 1
+	#define XMINUS 2
+	#define YPLUS 3
+	#define YMINUS 4
+	#define ZPLUS 5
+	#define ZMINUS 6
+	// The type of source/sink
+    //  0 : Evapotranspiration (from PM equation)
+    //  1 : Flux (constant or time series)
+    //  2 : Head for drainage (constant or time series)
 
+    int sstype;
+    int direction; // direction of source/sink, only needed for drainage ss
+    int ndepth;     // number of cells in the vertical direction of the polygon
 	int ncellsIT = 0;	// number of internal source/sink cells
-    int sstype;     // uniform or spatially-distributed source/sink
 	intArr icells; //array of indexes of boundary cells
     realArr ssvals, ssdata;
+    real Qinflow, Qoutflow, Cpipe;
     TimeSeries ts;
+    TimeSeries evap, tran;
+
 
 	MPI_Comm comm;	// communicator for ranks associated to the BC
 
-
     void allodateGW (GwDomain const &gdom)  {
-        // if (gdom.hasRoot) {rootRate  = realArr ("rootRate", gdom.nCellMem);}
-
         ssdata = realArr ("ssdata", gdom.nCellMem);
         for (int idx = 0; idx < gdom.nCellMem; idx++)   {ssdata(idx) = 0.0;}
     }
@@ -452,6 +460,7 @@ public:
 		std::vector<int> tmpgcells; //array of indexes of ghost cells
 		std::vector<int> subdomains;	// keeps track of which subdomains are associated to the BC
 		// Loop over the entire domain to find internal source/sink cells
+        int kmax = 0, kmin = gdom.nz;
 		for (int kk = 0; kk < gdom.nz; kk++) {
 			for (int jj = 0; jj < gdom.ny; jj++) {
 				for (int ii = 0; ii < gdom.nx; ii++) {
@@ -462,10 +471,15 @@ public:
 					real zCoord = gdom.z(iGlob);
 		            if (geometry::isInsidePoly3D(nPoly, xPoly, yPoly, zPoly, xCoord, yCoord, zCoord)){
 						tmpicells.push_back(iGlob);
+                        if (kk > kmax)  {kmax = kk;}
+                        if (kk < kmin)  {kmin = kk;}
 		            }
 				}
 			}
 		}
+        if (kmax > kmin)    {ndepth = kmax - kmin;}
+        else {ndepth = 1;}
+
 		ncellsIT=int(tmpicells.size());
 		if(ncellsIT > 0) foundInSubdom = par.myrank; // if at least one cell in this subdomain (rank) is in the BC, tag as found
 
@@ -503,25 +517,199 @@ public:
 
     inline void applyMatSS(GwState &gw, GwDomain &gdom) {
         if (ncellsIT > 0)   {
-            real qbc = interpolateLinear(ts, gdom.etime);
-            Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
-                    int ii, jj, kk, ivg, idom, iGlob = icells[idx];
-                    gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-                    idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-                    gw.coef(idom,7) += gdom.dt * qbc;
-            });
+        	// ET (Penman-Monteith)
+        	if (sstype == 0)	{
+        		real qt = interpolateLinear(tran, gdom.etime);
+                real qe = interpolateLinear(evap, gdom.etime);
+                Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
+                        int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                        gw.coef(idom,7) += gdom.dt * qt;
+                        if (kk == 1)    {
+                            gw.coef(idom,7) += gdom.dt * qe;
+                        }
+                });
+        	}
+            // Flux Source/Sink
+            else if (sstype == 1)    {
+                real qbc = interpolateLinear(ts, gdom.etime);
+                Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
+                        int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                        gw.coef(idom,7) += gdom.dt * qbc;
+                });
+            }
+            // Internal Drainage with Fixed Head
+            // Note: For now, this only supports draining in the saturated zone
+            else if (sstype == 2)   {
+                // real hbc = interpolateLinear(ts, gdom.etime);
+                real hbc = ssvals[0];
+                if (direction == XPLUS || direction == XMINUS)	{
+                	Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
+                        int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                        real flux = 0.0;
+                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                  		// get index of cells next to the source/sink
+                        int jp = idom+1, jm = idom-1, kp = idom+gdom.nx*gdom.ny, km = idom-gdom.nx*gdom.ny;
+                        // treat the source/sink as a pressure boundary
+                        gw.coef(jp,7) -= Cpipe * gw.coef(idom,3) * hbc;
+                        gw.coef(jm,7) -= Cpipe * gw.coef(idom,4) * hbc;
+                        gw.coef(kp,7) -= Cpipe * gw.coef(idom,5) * hbc;
+                        gw.coef(km,7) -= Cpipe * gw.coef(idom,6) * hbc;
+                        // exclude the source/sink cell from linear system
+                        gw.coef(idom,1) = 0.0; gw.coef(idom,3) = 0.0; gw.coef(idom,5) = 0.0;
+                        gw.coef(idom,2) = 0.0; gw.coef(idom,4) = 0.0; gw.coef(idom,6) = 0.0;
+                        gw.coef(jp,4) = 0.0;	gw.coef(jm,3) = 0.0;
+                        gw.coef(kp,6) = 0.0;	gw.coef(km,5) = 0.0;
+                	});
+                }
+                else if (direction == YPLUS || direction == YMINUS)	{
+                	Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
+                        int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                        int ip = idom+1, im = idom-1, kp = idom+gdom.nx*gdom.ny, km = idom-gdom.nx*gdom.ny;
+                        // Seepage as a fixed H condition
+                        gw.coef(ip,7) -= Cpipe * gw.coef(idom,1) * hbc;
+                        gw.coef(im,7) -= Cpipe * gw.coef(idom,2) * hbc;
+                        gw.coef(kp,7) -= Cpipe * gw.coef(idom,5) * hbc;
+                        gw.coef(km,7) -= Cpipe * gw.coef(idom,6) * hbc;
+
+                        gw.coef(idom,1) = 0.0; gw.coef(idom,3) = 0.0; gw.coef(idom,5) = 0.0;
+                        gw.coef(idom,2) = 0.0; gw.coef(idom,4) = 0.0; gw.coef(idom,6) = 0.0;
+                        gw.coef(ip,2) = 0.0;	gw.coef(im,1) = 0.0;
+                        gw.coef(kp,6) = 0.0;	gw.coef(km,5) = 0.0;
+                	});
+                }
+                else 	{
+                	Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
+                        int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                        real flux = 0.0;
+                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                        // get index of cells next to the source/sink
+                        int ip = idom+1, im = idom-1, jp = idom+1, jm = idom-1;
+                        // treat the source/sink as a pressure boundary
+                        gw.coef(jp,7) -= Cpipe * gw.coef(idom,3) * hbc;
+                        gw.coef(jm,7) -= Cpipe * gw.coef(idom,4) * hbc;
+                        gw.coef(ip,7) -= Cpipe * gw.coef(idom,1) * hbc;
+                        gw.coef(im,7) -= Cpipe * gw.coef(idom,2) * hbc;
+                        // exclude the source/sink cell from linear system
+                        gw.coef(idom,1) = 0.0; gw.coef(idom,3) = 0.0; gw.coef(idom,5) = 0.0;
+                        gw.coef(idom,2) = 0.0; gw.coef(idom,4) = 0.0; gw.coef(idom,6) = 0.0;
+                        gw.coef(jp,4) = 0.0;	gw.coef(jm,3) = 0.0;
+                        gw.coef(ip,2) = 0.0;	gw.coef(im,1) = 0.0;
+                	});
+                }
+
+            }
         }
     }
 
     inline void applyWCSS(GwState &gw, GwDomain &gdom) {
     	if (ncellsIT > 0)   {
-            real qbc = interpolateLinear(ts, gdom.etime);
-            Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
-                    int ii, jj, kk, ivg, idom, iGlob = icells[idx];
-                    gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-                    idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-                    gw.wc(iGlob,1) += gdom.dt * qbc;
-            });
+			Qoutflow = 0.0;
+			Qinflow = 0.0;
+    		// ET (Penman-Monteith)
+        	if (sstype == 0)	{
+        		real qt = interpolateLinear(tran, gdom.etime);
+                real qe = interpolateLinear(evap, gdom.etime);
+                Kokkos::parallel_reduce("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx, real &tmp){
+                        int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                        gw.wc(iGlob,1) += gdom.dt * qt;
+                        tmp += qt * gdom.dt;
+                        if (kk == 1)    {
+                            gw.wc(iGlob,1) += gdom.dt * qe;
+                            tmp += qe * gdom.dt;
+                        }
+				} , Kokkos::Sum<real>(Qoutflow) );
+        	}
+            // Flux Source/Sink
+            else if (sstype == 1)    {
+                real qbc = interpolateLinear(ts, gdom.etime);
+                Kokkos::parallel_reduce("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx, real &tmp){
+                        int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                        gw.wc(iGlob,1) += gdom.dt * qbc;
+                        if (qbc > 0)	{tmp += qbc * gdom.dt;}
+                        else {tmp -= qbc * gdom.dt;}
+                }, Kokkos::Sum<real>(Qinflow) );
+            }
+            else if (sstype == 2)   {
+                // real hbc = interpolateLinear(ts, gdom.etime);
+                real hbc = ssvals[0], flux;
+                if (direction == XPLUS || direction == XMINUS)	{
+                	Kokkos::parallel_reduce("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx, real &tmp){
+                        int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                        // Calculate the cumulative outflow
+                        int jp = iGlob+gdom.nxhc, jm = iGlob-gdom.nxhc, kp = iGlob+gdom.nxhc*gdom.nyhc, km = iGlob-gdom.nxhc*gdom.nyhc;
+                        if (hbc < gw.h(jp,1))	{
+                        	tmp += Cpipe * gdom.dx * gdom.dz(iGlob) * gw.k(iGlob,1) * (hbc - gw.h(jp,1)) / gdom.dy;
+                        }
+                        if (hbc < gw.h(jm,1))	{
+                        	tmp += Cpipe * gdom.dx * gdom.dz(iGlob) * gw.k(jm,1) * (hbc - gw.h(jm,1)) / gdom.dy;
+                        }
+                        if (hbc < gw.h(kp,1))	{
+                        	tmp += Cpipe * gdom.dx * gdom.dy * gw.k(iGlob,2) * (hbc - gw.h(kp,1)) / gdom.dz(kp);
+                        }
+                        if (hbc < gw.h(km,1))	{
+                        	tmp += Cpipe * gdom.dx * gdom.dy * gw.k(km,2) * (hbc - gw.h(km,1)) / gdom.dz(km);
+                        }
+                	}, Kokkos::Sum<real>(flux));
+                }
+                else if (direction == YPLUS || direction == YMINUS)	{
+                	Kokkos::parallel_reduce("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx, real &tmp){
+                        int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                        // Only consider drainage under fully saturated condition
+                        int ip = iGlob+1, im = iGlob-1, kp = iGlob+gdom.nxhc*gdom.nyhc, km = iGlob-gdom.nxhc*gdom.nyhc;
+                        if (hbc < gw.h(ip,1))	{
+                        	tmp += Cpipe * gdom.dy * gdom.dz(iGlob) * gw.k(iGlob,0) * (hbc - gw.h(ip,1)) / gdom.dx;
+                        }
+                        if (hbc < gw.h(im,1))	{
+                        	tmp += Cpipe * gdom.dy * gdom.dz(iGlob) * gw.k(im,0) * (hbc - gw.h(im,1)) / gdom.dx;
+                        }
+                        if (hbc < gw.h(kp,1))	{
+                        	tmp += Cpipe * gdom.dx * gdom.dy * gw.k(iGlob,2) * (hbc - gw.h(kp,1)) / gdom.dz(kp);
+                        }
+                        if (hbc < gw.h(km,1))	{
+                        	tmp += Cpipe * gdom.dx * gdom.dy * gw.k(km,2) * (hbc - gw.h(km,1)) / gdom.dz(km);
+                        }
+                	}, Kokkos::Sum<real>(flux));
+                }
+                else	{
+                	Kokkos::parallel_reduce("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx, real &tmp){
+                        int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                        // Only consider drainage under fully saturated condition
+                        int ip = iGlob+1, im = iGlob-1, jp = iGlob+gdom.nxhc, jm = iGlob-gdom.nxhc;
+                        if (hbc < gw.h(ip,1))	{
+                        	tmp += Cpipe * gdom.dy * gdom.dz(iGlob) * gw.k(iGlob,0) * (hbc - gw.h(ip,1)) / gdom.dx;
+                        }
+                        if (hbc < gw.h(im,1))	{
+                        	tmp += Cpipe * gdom.dy * gdom.dz(iGlob) * gw.k(im,0) * (hbc - gw.h(im,1)) / gdom.dx;
+                        }
+                        if (hbc < gw.h(jp,1))	{
+                        	tmp += Cpipe * gdom.dx * gdom.dz(iGlob) * gw.k(iGlob,1) * (hbc - gw.h(jp,1)) / gdom.dy;
+                        }
+                        if (hbc < gw.h(jm,1))	{
+                        	tmp += Cpipe * gdom.dx * gdom.dz(iGlob) * gw.k(jm,1) * (hbc - gw.h(jm,1)) / gdom.dy;
+                        }
+                	}, Kokkos::Sum<real>(flux));
+                }
+                Qoutflow = -flux;
+            }
+
         }
     }
 
@@ -534,10 +722,7 @@ public:
 class SourceSink{
 public:
 	std::vector<std::string> id;
-    // #if SERGHEI_SWE_MODEL
-	// std::vector<SwSS> swss;
     SourceSinkData swss;
-    // #endif
     #if SERGHEI_SUBSURFACE_MODEL
     std::vector<GwSS> gwss;
     #endif

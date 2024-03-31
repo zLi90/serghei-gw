@@ -1,19 +1,58 @@
-cmake_minimum_required (VERSION 3.10)
+#   This is the CMakeLists file for building and compiling SERGHEI-GW
+#   To use, open a terminal, cd to the SERGHEI-GW directory and type "cmake ."
+#   Then, type "make" to compile SERGHEI-GW
+#   Note: If you changed any cmake options herein, before rebuilding, delete "CMakeCache.txt" to erase old cmake settings
 
-IF(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.12.0")
-  MESSAGE(STATUS "Setting policy CMP0074 to use <Package>_ROOT variables")
-  CMAKE_POLICY(SET CMP0074 NEW)
-ENDIF()
+cmake_minimum_required (VERSION 3.14)
 
-project (serghei)
+#   If needed, specify the CXX compiler here, otherwise comment out these lines
+set(CMAKE_C_COMPILER /usr/local/bin/gcc-11)
+set(CMAKE_CXX_COMPILER /usr/local/bin/g++-11)
 
+# Name the project
+project (serghei LANGUAGES CXX)
+
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
+
+#   Specify the path to PnetCDF
+set(PNETCDF_ROOT "/Users/zli/Codes/PnetCDF")
+
+#   Specify the path where KokkosKernels is built
+set(KokkosKernels_ROOT "/Users/zli/Codes/kokkoskernels4-omp")
+
+#   Specify if using GPU or not
+set(Enable_GPU "OFF")
+
+#   Specify SERGHEI Macros (You can add more macros below)
+add_compile_definitions(SERGHEI_FRICTION_MODEL=1)
+execute_process(COMMAND git describe COMMAND tr -d '\n' OUTPUT_VARIABLE serghei_git_version)
+add_compile_definitions(SERGHEI_GIT_VERSION="${serghei_git_version}")
+
+option(SERGHEI_SUBSURFACE_MODEL ON "Enable subsurface model")
+option(SERGHEI_SWE_MODEL OFF "Enable surface flow model")
+option(SERGHEI_PARTICLE_TRACKING OFF "Enable particle tracking")
+option(SERGHEI_VEGETATION_MODEL OFF "Enable vegetation model")
+option(SERGHEI_TOOLS ON "Enable additional tools")
+option(SERGHEI_FRICTION_MODEL ON "Enable friction model")
+
+# debugging options
+option(SERGHEI_DEBUG_PARALLEL_DECOMPOSITION OFF "Enable parallel decomposition debugging")
+option(SERGHEI_DEBUG_WORKFLOW OFF "Enable workflow debugging")
+option(SERGHEI_DEBUG_KOKKOS_SETUP OFF "Enable Kokkos setup debugging")
+option(SERGHEI_DEBUG_BOUNDARY OFF "Enable boundary debugging")
+option(SERGHEI_DEBUG_DT OFF "Enable timestep debugging")
+option(SERGHEI_DEBUG_TOOLS OFF "Enable tools debugging")
+option(SERGHEI_DEBUG_MASS_CONS OFF "Enable mass conservation debugging")
+option(SERGHEI_DEBUG_INFILTRATION OFF "Enable infiltration debugging")
+option(SERGHEI_DEBUG_MPI OFF "Enable MPI debugging")
+option(SERGHEI_DEBUG_OUTPUT OFF "Enable output debugging")
+
+# just to print out the compile defintions
+get_directory_property( DirDefs DIRECTORY ${CMAKE_SOURCE_DIR} COMPILE_DEFINITIONS )
+message(STATUS "SERGHEI Compilation definitions")
+foreach( d ${DirDefs} )
+    message( STATUS "\t" ${d})
+endforeach()
+
+#   Add the subdirectory where the source codes are stored
 add_subdirectory(src)
-
-
-#----------------------------------------------------
-# Execution with OpenMP:
-# cmake -DEnable_GPU=False -DKokkos_ROOT=${path-to-kokkos-build(OpenMP)}
-#----------------------------------------------------
-# Execution with CUDA:
-# cmake -DEnable_GPU=True -DKokkos_ROOT=${path-to-kokkos-build(CUDA)}
-#----------------------------------------------------

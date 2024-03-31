@@ -6,7 +6,6 @@ height : 1.2          // Thickness of the subsurface domain
 dz_multiplier : 1.0		// Non-uniform dz
 ndepth  : 120          // Number of cells in z-direction.
 nSoilID : 4           // Number of soil types
-parNz   : 1           // Number of parallel tasks in z-direction.
 initialMode : 3        // saturated(1), file-h(2), file-theta(3), file-wt(4)
 dt_init : 0.001          // initial (also minimum) dt for subsurface
 dt_max  : 20.0          // maximum allowable dt

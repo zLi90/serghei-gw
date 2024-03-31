@@ -1,11 +1,13 @@
 
-file(GLOB sources *.h)
+file(GLOB LIB_HEADERS
+	${CMAKE_CURRENT_SOURCE_DIR}/*.h
+	${CMAKE_CURRENT_SOURCE_DIR}/*.hpp
+)
 
-add_executable(serghei ${sources} driver.cpp)
+add_executable(${CMAKE_PROJECT_NAME} ${LIB_HEADERS} driver.cpp)
 
-target_include_directories(serghei PUBLIC /Users/zli/Codes/PnetCDF/include)
-target_link_libraries(serghei PUBLIC /Users/zli/Codes/PnetCDF/lib/libpnetcdf.a)
-
+#	If use GPU(CUDA), specify the CUDA architecture
+#	Otherwise, link OpenMP
 IF(Enable_GPU)
 	if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   		set(CMAKE_CUDA_ARCHITECTURES 80)
@@ -15,13 +17,20 @@ ELSE()
 	target_link_libraries(serghei PUBLIC OpenMP::OpenMP_CXX)
 ENDIF()
 
+#	Link MPI
 find_package(MPI REQUIRED)
-target_link_libraries(serghei PUBLIC MPI::MPI_CXX)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE MPI::MPI_CXX)
 
+#	Link PNetCDF library
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${PNETCDF_ROOT}/include)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE     ${PNETCDF_ROOT}/lib/libpnetcdf.a)
+
+#	Link KokkosKernels
 find_package(KokkosKernels REQUIRED)
-target_link_libraries(serghei PUBLIC Kokkos::kokkoskernels)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE     Kokkos::kokkoskernels)
 
+#	Move the executable into bin/
 add_custom_command(TARGET serghei POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:serghei> ../bin/serghei
-    COMMENT "Executable in ../bin/serghei"
+    COMMENT "SERGHEI executable in ../bin/serghei"
 )

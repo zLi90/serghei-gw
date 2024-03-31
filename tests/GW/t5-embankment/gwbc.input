@@ -4,12 +4,12 @@ bccount : 2
 id : top
 direction : 6
 bctype : 2
-bcvals : 0.0
+bcvals : 0.00001
 polygon : polygontop.input
 
 id : bottom
 direction : 5
 bctype : 2
-bcvals : 0.0
+bcvals : 0.00001
 polygon : polygonbot.input
 bcfile : headbot.input
