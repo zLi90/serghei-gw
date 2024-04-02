@@ -58,7 +58,7 @@ public:
 	GwSolver<Kokkos::OpenMP> gsolver;
 	#endif
 	#endif
-	
+
 	#if SERGHEI_SUBSURFACE_TRANSPORT
 	RTState rt;
 	RTInit rtinit;
@@ -139,10 +139,10 @@ public:
 		gsolver.init(A, gdom);
 		if( par.masterproc){std::cerr << GOK "Subsurface Solver has been initialized! " << std::endl;}
 		#endif
-		
+
 		// Initialize transport module if activated
 		#if SERGHEI_SUBSURFACE_TRANSPORT
-		if (!rtinit.initialize_rt(rt, gw, gdom, gmpi, gint, par, io, ss, inFolder, outFolder)) {
+		if (!rtinit.initialize_rt(rt, gw, gdom, gmpi, par, io, ss, inFolder, outFolder)) {
 			std::cerr << RERROR "Unable to initialize the transport module" << "\n"; return 0;
 		};
 		#endif
@@ -274,7 +274,7 @@ public:
 					tint.computeGwExchange(state , dom);
 				#endif
 			#endif
-					
+
 			// solve the reactive transport equation
 			#if SERGHEI_SUBSURFACE_TRANSPORT
 			rtf.rt_solve(rt, gw, gdom, gmpi, par);

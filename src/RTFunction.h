@@ -23,18 +23,19 @@ public:
         Top-level RT solver
     -------------------------------------------------- */
     inline void rt_solve(RTState &rt, GwState &gw, GwDomain &gdom, GwMPI &gmpi, Parallel &par)  {
+		int ierr;
         real dt_tmp;
-		
+
 		/*
 			APPLY TRANSPORT BOUNDARY CONDITIONS
 		*/
-		
+
 		/*
 			CALCULATE DISPERSION TENSOR (rt.d)
 		*/
-		
+
 		/*
-			SOLVE THE TRANSPORT EQUATION 
+			SOLVE THE TRANSPORT EQUATION
 			e.g., c = c_old + dt*(advection+dispersion)
 		*/
         gmpi.mpi_sendrecv(rt.c, gdom, par);
@@ -46,7 +47,7 @@ public:
         Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {rt.c(iGlob,0) = rt.c(iGlob,1);});
     }
 
-    
+
 };
 
 #endif

@@ -106,7 +106,7 @@ protected:
 
   int ncid;
   int tDim, xDim, yDim, zDim;
-  int tVar, xVar, yVar, hVar, hzVar, uVar, vVar, zVar, z3Var, hdVar, wcVar, qVar;
+  int tVar, xVar, yVar, hVar, hzVar, uVar, vVar, zVar, z3Var, hdVar, wcVar, qVar, cVar;
   int infVar,infVolVar;
   std::ofstream domainOutputFile;
   std::ofstream SubsurfaceOutputFile;
@@ -180,7 +180,7 @@ public:
         numOut++;
 	}
     #endif
-	
+
 	#if SERGHEI_SUBSURFACE_TRANSPORT
     void outputIniRT(const RTState &rt, GwDomain const &gdom, Parallel const &par, std::string dir){
 		numOut=0;

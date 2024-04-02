@@ -48,12 +48,12 @@ class PsLn{
 
 public:
 
-    int initialize_rt(RTState &rt, GwState &gw, GwDomain &gdom, Parallel &par, FileIO &io, SourceSink &ss, std::string inFolder, std::string outFolder) {
+    int initialize_rt(RTState &rt, GwState &gw, GwDomain &gdom, GwMPI &gmpi, Parallel &par, FileIO &io, SourceSink &ss, std::string inFolder, std::string outFolder) {
         int flag = -1;
         int ii, jj, kk, idx, iGlob, iGlobSW;
         // Read subsurface input file
         std::string fNameIn = inFolder + "transport.input";
-        if (!readRTFile(fNameIn, rt))    {
+        if (!readRTFile(fNameIn, rt, par))    {
             std::cerr << GOK << " Reading in reactive transport input file failed." << std::endl;   return 0;
         }
         // allocate subsurface state variable
@@ -102,10 +102,10 @@ public:
     /*
         Read input file for the subsurface
     */
-    int readRTFile(std::string fNameIn, RTState &rt) {
+    int readRTFile(std::string fNameIn, RTState &rt, Parallel &par) {
         // Initialize all read-in values to -999
 		rt.n_mass = -999;
-		rt.d_base = -999;		
+		rt.d_base = -999;
         std::string strAux;
         // Read in colon-separated key: value file line by line
         std::ifstream fInStream(fNameIn);

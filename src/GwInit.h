@@ -194,25 +194,6 @@ public:
         for (int k = 0; k < gbc.gwbc.size(); k++) {
             gbc.gwbc[k].applyHBC(gw, gdom, par);
         }
-		// scalar transport 
-		#if SERGHEI_SUBSURFACE_TRANSPORT
-        // read subsurface source sink terms
-        fNameIn = inFolder + "scalar.input";
-        if (!readScalarFile(fNameIn, gw, gdom, par))   {
-            if (par.masterproc) {
-                std::cerr << RERROR << " Unable to read scalar transport file." << std::endl;
-                return 0;
-            }
-        }
-        // read initial conditions
-        fNameIn = inFolder;
-        if (!setScalarField(fNameIn, gw, gdom, par, io)) {
-            if (par.masterproc) {
-                std::cerr << RERROR "Unable to read scalar field IC" << std::endl;
-                return 0;
-            }
-        }
-		#endif
 		// integrator
         gint.initialize(gw, gdom, gbc.gwbc, ss.gwss);
         gint.integrate(gw, gdom, gbc.gwbc, ss.gwss);
