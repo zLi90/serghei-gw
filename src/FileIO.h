@@ -19,6 +19,7 @@
 
 #include "GwState.h"
 #include "GwDomain.h"
+#include "GwIntegrator.h"
 
 #ifndef SERGHEI_NC_MODE
 #define SERGHEI_NC_MODE NC_CLOBBER
@@ -1400,7 +1401,7 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
 
 
   // Write header and initial state for time series files
-  int writeSubTimeSeriesIni (const GwState &gw, GwDomain const &gdom, Domain const &dom, Parallel const &par, std::string dir){
+  int writeSubTimeSeriesIni (GwDomain const &gdom, GwIntegrator const &gint, Parallel const &par, std::string dir){
 
         numObs = 0;
         std::string filename = dir + "SubsurfaceTimeSeries.out";
@@ -1409,29 +1410,38 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
         if (SubsurfaceOutputFile.is_open ()){
             // Write the header
             SubsurfaceOutputFile << "Time ";
-            SubsurfaceOutputFile << "SubSurfaceVolume ";
+            SubsurfaceOutputFile << "SubSurfaceVolume [m3] ";
             SubsurfaceOutputFile << "ExchangeVolume ";
+            SubsurfaceOutputFile << "BoundaryInflow ";
+            SubsurfaceOutputFile << "BoundaryOutflow ";
+            SubsurfaceOutputFile << "Source/SinkInflow [m3/s] ";
+            SubsurfaceOutputFile << "Source/SinkOutflow [m3/s] ";
             SubsurfaceOutputFile << std::endl;
         }
         else
         {std::cerr << RERROR "Could not create domainTimeSeries.out file" << std::endl; return 0;}
 
-        if(par.masterproc)  {writeSubsurfaceTimeSeries (gw, gdom, dom, par);}
+        if(par.masterproc)  {writeSubsurfaceTimeSeries(gdom, gint);}
         numObs++;
         return 1;
   }
 
 
 
-  void writeSubsurfaceTimeSeries (GwState const &gw, GwDomain const &gdom, Domain const &dom, Parallel const &par){
+  void writeSubsurfaceTimeSeries (GwDomain const &gdom, GwIntegrator const &gint){
     // Write the data
     std::cout.precision(OUTPUT_PRECISION);
-    SubsurfaceOutputFile << std::scientific << dom.etime << " ";
-    SubsurfaceOutputFile << std::scientific << gw.Vtot << " ";
-    SubsurfaceOutputFile << std::scientific << gw.Vexch << " ";
+    SubsurfaceOutputFile << std::scientific << gdom.etime << " ";
+    SubsurfaceOutputFile << std::scientific << gint.Vtot_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.Vexch_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.QinBC_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.QoutBC_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.QinSS_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.QoutSS_glob << " ";
     SubsurfaceOutputFile << std::endl;
 
   }
+
   #endif
 
 // parallel netcdf input functionality
