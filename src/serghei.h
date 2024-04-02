@@ -30,6 +30,12 @@
 #include "GwIntegrator.h"
 #endif
 
+#if SERGHEI_SUBSURFACE_TRANSPORT
+#include "RTState.h"
+#include "RTInit.h"
+#include "RTFunction.h"
+#endif
+
 class SERGHEI{
 public:
 	Parallel       par;
@@ -51,6 +57,12 @@ public:
 	#else
 	GwSolver<Kokkos::OpenMP> gsolver;
 	#endif
+	#endif
+	
+	#if SERGHEI_SUBSURFACE_TRANSPORT
+	RTState rt;
+	RTInit rtinit;
+	RTFunction rtf;
 	#endif
 
  private:
@@ -126,6 +138,13 @@ public:
 		A.init(gdom);
 		gsolver.init(A, gdom);
 		if( par.masterproc){std::cerr << GOK "Subsurface Solver has been initialized! " << std::endl;}
+		#endif
+		
+		// Initialize transport module if activated
+		#if SERGHEI_SUBSURFACE_TRANSPORT
+		if (!rtinit.initialize_rt(rt, gw, gdom, gmpi, gint, par, io, ss, inFolder, outFolder)) {
+			std::cerr << RERROR "Unable to initialize the transport module" << "\n"; return 0;
+		};
 		#endif
 
 		#if SERGHEI_TOOLS
@@ -255,6 +274,11 @@ public:
 					tint.computeGwExchange(state , dom);
 				#endif
 			#endif
+					
+			// solve the reactive transport equation
+			#if SERGHEI_SUBSURFACE_TRANSPORT
+			rtf.rt_solve(rt, gw, gdom, gmpi, par);
+			#endif
 
 			oldVolume+=(bint.inflowDischargeG - bint.outflowDischargeG)*dom.dt; //Boundary fluxes with the new dt
 			bint.integrate(ebc.extbc,dom,0);//called here with mode==0 (adjusted volume)
@@ -285,18 +309,9 @@ public:
 					std::cerr << "     Ponding Volume:\t" << newVolume <<"\n";
 					std::cerr << "     Inflow Discharge: " << bint.inflowDischargeG <<"\n";
 					std::cerr << "     Outflow Volume: " << bint.outflowDischargeG*dom.dt <<"\n";
-					#if SERGHEI_SUBSURFACE_MODEL
-					std::cerr << "     Exchange Volume: " << gw.Vexch <<"\n";
-					#endif
 					#endif
 
 					if(fabs(diffVolume)>TOL_MASS_ERROR){
-						// std::cerr << YEXC "   Old Volume:\t" << oldVolume <<"\n";
-						// std::cerr << YEXC "   New Volume:\t" << newVolume <<"\n";
-						// std::cerr << YEXC "   Diff Volume:\t" << newVolume-oldVolume <<"\n";
-						// std::cerr << YEXC "   Inflow Volume:\t" << bint.inflowDischargeG*dom.dt <<"\n";
-						// std::cerr << YEXC "   Outflow Volume:\t" << bint.outflowDischargeG*dom.dt <<"\n";
-						// std::cerr << YEXC "   Adjusted Volume:\t" << bint.adjustedVolumeG <<"\n";
 						std::cerr << YEXC "   Rain Volume:\t" << sint.rainFluxG*dom.dt <<"\n";
 						// std::cerr << YEXC "   Inf Volume:\t" << sint.infFluxG*dom.dt <<"\n";
 						#if SERGHEI_DEBUG_MASS_CONS > 1
@@ -308,6 +323,9 @@ public:
 					io.output(state, dom, ss.swss, par,outFolder);
 					#if SERGHEI_SUBSURFACE_MODEL
 					io.outputSubsurface(gw, gdom, par,outFolder);
+					#endif
+					#if SERGHEI_SUBSURFACE_TRANSPORT
+					io.outputTransport(rt, gdom, par,outFolder);
 					#endif
 					if(par.masterproc) std::cerr << GIO "File " << io.numOut-1 << " written" << std::endl; //io.numOut already updated
 				}
@@ -348,6 +366,9 @@ public:
 			#else
 				dom.dt = gdom.dt;
 			#endif
+				/*
+					NEED TO CONSIDER TRANSPORT DT HERE!
+				*/
 		} 		// end of time loop
 		return 1;
 	}
