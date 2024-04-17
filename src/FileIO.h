@@ -173,9 +173,11 @@ public:
 	}
 
     void outputSubsurface(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir){
+        timer.reset();
         numOut--;
         outputNETCDFSubsurface(gw, gdom, par, dir);
         numOut++;
+        gdom.timers.out += timer.seconds();
 	}
     #endif
 

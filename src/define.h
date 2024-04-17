@@ -144,6 +144,7 @@ public:
   real gwlinsol = 0;
   real gwupdateK = 0;
   real gwupdateQ = 0;
+  real gwupdateH = 0;
   real gwupdateWC = 0;
   real gwexchange = 0;
   real gwintegrate = 0;

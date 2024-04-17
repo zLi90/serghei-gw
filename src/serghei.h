@@ -187,14 +187,6 @@ public:
 		#endif
 
 		// Main Time Loop
-		#if SERGHEI_SUBSURFACE_MODEL
-		gdom.timers.gw = 0.0;
-		gdom.timers.gwlinsol = 0.0;
-		gdom.timers.gwupdateK = 0.0;
-		gdom.timers.gwupdateQ = 0.0;
-		gdom.timers.gwupdateWC = 0.0;
-		gdom.timers.gwintegrate = 0.0;
-		#endif
 		while (dom.etime < dom.endTime) {
 			//previous mass
 			oldVolume=sint.surfaceVolumeG;
@@ -379,6 +371,7 @@ public:
 		dom.timers.gwupdateWC = gdom.timers.gwupdateWC;
 		dom.timers.gwintegrate = gdom.timers.gwintegrate;
 		dom.timers.gwexchange = gdom.timers.gwexchange;
+		dom.timers.out += gdom.timers.out;
 		#endif
 		io.writeLogFile(dom, par, outFolder);
 		io.closeOutputStreams();

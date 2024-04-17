@@ -54,12 +54,15 @@ public:
         #endif
         gdom.timers.gwlinsol += timer.seconds();
 
+		timer.reset();
         Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, iGlob;
             gdom.unpackIndices(idom, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             gw.h(iGlob,1) = A.x(idom);
         });
+		gdom.timers.gwupdateH += timer.seconds();
+
 		timer.reset();
         gmpi.mpi_sendrecv(gw.h, gdom, par);
 		gdom.timers.gwexchange += timer.seconds();
@@ -96,12 +99,17 @@ public:
 		timer.reset();
         dt_waco(gw, gdom);
         dt_tmp = gdom.dt;
-        ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
 		gdom.timers.gwdt += timer.seconds();
 
+		timer.reset();
+        ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+		gdom.timers.gwexchange += timer.seconds();
+
+		timer.reset();
         Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
+		gdom.timers.gwupdateH += timer.seconds();
 
 		timer.reset();
         gint.integrate(gw, gdom, gbc, gss);
@@ -141,6 +149,7 @@ public:
             #endif
             gdom.timers.gwlinsol += timer.seconds();
 
+			timer.reset();
             Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob;
                 gdom.unpackIndices(idom, kk, jj, ii);
@@ -148,6 +157,8 @@ public:
                 gw.h(iGlob,0) = gw.h(iGlob,1);
                 gw.h(iGlob,1) = A.x(idom);
             });
+			gdom.timers.gwupdateH += timer.seconds();
+
 			timer.reset();
             gmpi.mpi_sendrecv(gw.h, gdom, par);
 			gdom.timers.gwexchange += timer.seconds();
@@ -163,7 +174,10 @@ public:
             eps_old = eps;
             eps = get_eps(gw, gdom);
             eps_tmp = fabs(eps_old - eps);
+
+			timer.reset();
             ierr = MPI_Allreduce(&eps_tmp, &eps_diff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+			gdom.timers.gwexchange += timer.seconds();
 
 			timer.reset();
             update_wc(gw, gdom, gss);
@@ -179,12 +193,17 @@ public:
 		timer.reset();
         dt_iter(gw, gdom, iter);
         dt_tmp = gdom.dt;
-        ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
 		gdom.timers.gwdt += timer.seconds();
 
+		timer.reset();
+        ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+		gdom.timers.gwexchange += timer.seconds();
+
+		timer.reset();
         Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
+		gdom.timers.gwupdateH += timer.seconds();
 
 		timer.reset();
         gint.integrate(gw, gdom, gbc, gss);
