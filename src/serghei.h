@@ -188,7 +188,12 @@ public:
 
 		// Main Time Loop
 		#if SERGHEI_SUBSURFACE_MODEL
-		gdom.timers.solver = 0.0;
+		gdom.timers.gw = 0.0;
+		gdom.timers.gwlinsol = 0.0;
+		gdom.timers.gwupdateK = 0.0;
+		gdom.timers.gwupdateQ = 0.0;
+		gdom.timers.gwupdateWC = 0.0;
+		gdom.timers.gwintegrate = 0.0;
 		#endif
 		while (dom.etime < dom.endTime) {
 			//previous mass
@@ -209,6 +214,7 @@ public:
 				Kokkos::deep_copy(gw.hs, state.h);
 				#endif
 			// Asynchronous coupling
+			// timer.reset();
 			if (gdom.async)	{
 				if (gdom.etime + gdom.dt < dom.etime)	{
 					gdom.etime += gdom.dt;
@@ -249,6 +255,7 @@ public:
 				}
 				#endif
 			}
+			// gdom.timers.gw += timer.seconds();
 				// surface-subsurface exchange
 				#if SERGHEI_SWE_MODEL
 					Kokkos::deep_copy(state.qss, gw.qss);
@@ -362,7 +369,16 @@ public:
 			std::cerr << GOK "Time elapsed: " << dom.timers.total << std::endl;
 		}
 		#if SERGHEI_SUBSURFACE_MODEL
-		dom.timers.solver = gdom.timers.solver;
+		dom.timers.gw = gdom.timers.gw;
+		dom.timers.gwdt = gdom.timers.gwdt;
+		dom.timers.gwbc = gdom.timers.gwbc;
+		dom.timers.gwlinsys = gdom.timers.gwlinsys;
+		dom.timers.gwlinsol = gdom.timers.gwlinsol;
+		dom.timers.gwupdateK = gdom.timers.gwupdateK;
+		dom.timers.gwupdateQ = gdom.timers.gwupdateQ;
+		dom.timers.gwupdateWC = gdom.timers.gwupdateWC;
+		dom.timers.gwintegrate = gdom.timers.gwintegrate;
+		dom.timers.gwexchange = gdom.timers.gwexchange;
 		#endif
 		io.writeLogFile(dom, par, outFolder);
 		io.closeOutputStreams();

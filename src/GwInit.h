@@ -655,7 +655,7 @@ public:
             if (hasbcfile && readbc && fbc.good()) {
                 // get total data size should be read
 				if(fbc.is_open()) {
-                    std::cout << GOK << "Reading subsurface boundary file : " << fname << std::endl;
+                    if(par.masterproc){std::cout << GOK << "Reading subsurface boundary file : " << fname << std::endl;}
                     fbc.ignore(256,' ');
                     fbc >> nx >> ny >> nz;
                     if (nx * ny * nz != ndata)  {

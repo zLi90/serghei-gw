@@ -32,11 +32,19 @@ public:
         int iter, ierr=1;
         real dt_tmp;
 
+		timer.reset();
 		for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyHBC(gw, gdom, par);
         }
+		gdom.timers.gwbc += timer.seconds();
+
+		timer.reset();
         face_conductivity(gw, gdom, gbc, gmpi, par);
+		gdom.timers.gwupdateK += timer.seconds();
+
+		timer.reset();
         linear_system(gw, gdom, gbc, gss, A, par);
+		gdom.timers.gwlinsys += timer.seconds();
 
         timer.reset();
         #if SERGHEI_KOKKOSKERNELS_SOLVER
@@ -44,7 +52,7 @@ public:
         #else
         iter = gsolver.cg(A, gdom);
         #endif
-        gdom.timers.solver += timer.seconds();
+        gdom.timers.gwlinsol += timer.seconds();
 
         Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, iGlob;
@@ -52,32 +60,52 @@ public:
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             gw.h(iGlob,1) = A.x(idom);
         });
+		timer.reset();
         gmpi.mpi_sendrecv(gw.h, gdom, par);
+		gdom.timers.gwexchange += timer.seconds();
+
+		timer.reset();
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyHBC(gw, gdom, par);
         }
+		gdom.timers.gwbc += timer.seconds();
+
+		timer.reset();
         face_conductivity(gw, gdom, gbc, gmpi, par);
+		gdom.timers.gwupdateK += timer.seconds();
 
+		timer.reset();
         face_flux(gw, gdom, gbc, gmpi, par);
+		gdom.timers.gwupdateQ += timer.seconds();
 
+		timer.reset();
         update_wc(gw, gdom, gss);
+		gdom.timers.gwupdateWC += timer.seconds();
+
+		timer.reset();
         gmpi.mpi_sendrecv(gw.h, gdom, par);
         gmpi.mpi_sendrecv(gw.wc, gdom, par);
+		gdom.timers.gwexchange += timer.seconds();
+
+		timer.reset();
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyHBC(gw, gdom, par);
         }
+		gdom.timers.gwbc += timer.seconds();
 
+		timer.reset();
         dt_waco(gw, gdom);
         dt_tmp = gdom.dt;
-
         ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+		gdom.timers.gwdt += timer.seconds();
 
         Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
 
+		timer.reset();
         gint.integrate(gw, gdom, gbc, gss);
-
+		gdom.timers.gwintegrate += timer.seconds();
     }
 
     /* --------------------------------------------------
@@ -89,21 +117,30 @@ public:
         int iter, iter_cg, iter_max = 50, ierr=1;
         real eps_diff = 1.0, eps_tmp, eps_old = 1.0, eps = 1.0, eps_min = 5e-6, dt_tmp;
 
+		timer.reset();
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyHBC(gw, gdom, par);
         }
+		gdom.timers.gwbc += timer.seconds();
+
+		timer.reset();
         face_conductivity(gw, gdom, gbc, gmpi, par);
+		gdom.timers.gwupdateK += timer.seconds();
 
         iter = 0;
         while (iter < iter_max && eps_diff/eps_old > eps_min && eps > eps_min) {
+			timer.reset();
             linear_system(gw, gdom, gbc, gss, A, par);
+			gdom.timers.gwlinsys += timer.seconds();
+
             timer.reset();
             #if SERGHEI_KOKKOSKERNELS_SOLVER
             gsolver.kkpcg(A);
             #else
             iter = gsolver.cg(A, gdom);
             #endif
-            gdom.timers.solver += timer.seconds();
+            gdom.timers.gwlinsol += timer.seconds();
+
             Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob;
                 gdom.unpackIndices(idom, kk, jj, ii);
@@ -111,32 +148,47 @@ public:
                 gw.h(iGlob,0) = gw.h(iGlob,1);
                 gw.h(iGlob,1) = A.x(idom);
             });
+			timer.reset();
             gmpi.mpi_sendrecv(gw.h, gdom, par);
+			gdom.timers.gwexchange += timer.seconds();
 
+			timer.reset();
             face_conductivity(gw, gdom, gbc, gmpi, par);
+			gdom.timers.gwupdateK += timer.seconds();
 
+			timer.reset();
             face_flux(gw, gdom, gbc, gmpi, par);
+			gdom.timers.gwupdateQ += timer.seconds();
 
             eps_old = eps;
             eps = get_eps(gw, gdom);
             eps_tmp = fabs(eps_old - eps);
             ierr = MPI_Allreduce(&eps_tmp, &eps_diff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
+			timer.reset();
             update_wc(gw, gdom, gss);
+			gdom.timers.gwupdateWC += timer.seconds();
+
+			timer.reset();
             gmpi.mpi_sendrecv(gw.wc, gdom, par);
+			gdom.timers.gwexchange += timer.seconds();
 
             iter += 1;
         }
         // printf("    > Picard loop converges in %d iterations with eps = %f, %f\n",iter,eps,eps_diff);
-
+		timer.reset();
         dt_iter(gw, gdom, iter);
         dt_tmp = gdom.dt;
         ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+		gdom.timers.gwdt += timer.seconds();
+
         Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
 
+		timer.reset();
         gint.integrate(gw, gdom, gbc, gss);
+		gdom.timers.gwintegrate += timer.seconds();
     }
 
     /* --------------------------------------------------
