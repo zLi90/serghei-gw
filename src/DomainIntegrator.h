@@ -40,8 +40,6 @@ class surfaceIntegrator {
   void integrate(State const &state, Domain const &dom, SourceSinkData &ss){
     timer.reset();
 
-	 int ierr=0;
-
     surfaceVolume = 0;
 	  Kokkos::parallel_reduce( dom.nCell , KOKKOS_LAMBDA (int iGlob, real &valUpdate) {
       int ii = dom.getIndex(iGlob);
@@ -94,11 +92,11 @@ class surfaceIntegrator {
 	rainAccumG=0.0;
 	infFluxG=0.0;
 	infAccumG=0.0;
-	ierr=MPI_Allreduce(&surfaceVolume, &surfaceVolumeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-	ierr=MPI_Allreduce(&rainFlux, &rainFluxG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-	ierr=MPI_Allreduce(&rainAccum, &rainAccumG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-	ierr=MPI_Allreduce(&infFlux, &infFluxG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-	ierr=MPI_Allreduce(&infAccum, &infAccumG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+	MPI_Allreduce(&surfaceVolume, &surfaceVolumeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+	MPI_Allreduce(&rainFlux, &rainFluxG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+	MPI_Allreduce(&rainAccum, &rainAccumG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+	MPI_Allreduce(&infFlux, &infFluxG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+	MPI_Allreduce(&infAccum, &infAccumG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 
 	MPI_Barrier(MPI_COMM_WORLD);
 
@@ -138,7 +136,6 @@ public:
   void integrate (std::vector<ExtBC> &extbc, Domain const &dom, int mode){
     timer.reset();
 
-	 int ierr=0;
 
 	 //mode is a flag to integrate extra mass or boundary flows
 
@@ -149,7 +146,7 @@ public:
 			adjustedVolume += extbc[i].adjustedVolume;
 		}
 	 	adjustedVolumeG = 0.0;
-		ierr=MPI_Allreduce(&adjustedVolume, &adjustedVolumeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(&adjustedVolume, &adjustedVolumeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 		MPI_Barrier(MPI_COMM_WORLD);
 
 	 }else{
@@ -184,11 +181,11 @@ public:
 		inflowAccumulatedG=0.0;
 		outflowAccumulatedG=0.0;
         ncellsBCG = 0;
-		ierr=MPI_Allreduce(&inflowDischarge, &inflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-		ierr=MPI_Allreduce(&outflowDischarge, &outflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-		ierr=MPI_Allreduce(&inflowAccumulated, &inflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-		ierr=MPI_Allreduce(&outflowAccumulated, &outflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-        ierr=MPI_Allreduce(&ncellsBC, &ncellsBCG, 1, MPI_INT , MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(&inflowDischarge, &inflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(&outflowDischarge, &outflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(&inflowAccumulated, &inflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(&outflowAccumulated, &outflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(&ncellsBC, &ncellsBCG, 1, MPI_INT , MPI_SUM, MPI_COMM_WORLD);
 		MPI_Barrier(MPI_COMM_WORLD);
 	}
 

@@ -18,16 +18,16 @@ int main(int argc, char** argv) {
 
 	serghei.par.nthreads = atoi(argv[3]);
 
-	if(!serghei.start(argc, argv)) return 0;
-	if(!serghei.compute()) return 0;
-	if(!serghei.finalise()) return 0;
+	if(!serghei.start(argc, argv)) return 1;
+	if(!serghei.compute()) return 1;
+	if(!serghei.finalise()) return 1;
 
 	} // scope guard required to ensure serghei destructor is called
 
 	Kokkos::finalize();
   MPI_Finalize();
 
-	return 1;
+	return 0;	// success should return zero
 }
 
 /*

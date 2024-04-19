@@ -34,6 +34,7 @@ class SERGHEI{
 public:
 	Parallel       par;
 	Initializer    init;
+	FileIO				io;
 
 	State               state;
 	Domain              dom;
@@ -58,7 +59,6 @@ public:
 	// SourceSinkData      ss;
 	ExternalBoundaries  ebc;
 	Parser              parser;
-	FileIO              io;
 	Exchange            exch;
 	TimeIntegrator      tint;
 	surfaceIntegrator   sint;

@@ -15,6 +15,7 @@ class Initializer{
 
 public:
 
+	bool read = 1;
 
     void initializeMPI( int *argc , char ***argv , Parallel &par ) {
         #if SERGHEI_DEBUG_WORKFLOW

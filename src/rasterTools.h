@@ -92,10 +92,8 @@ int readRasterField(const std::string fNameIn, Domain &dom, const Parallel &par,
 		fInStream.close();
 	}
 	else{
-		if (par.masterproc) {
-			std::cerr << RERROR "Unable to open " << fNameIn << std::endl;
-			return 0;
-		}
+		if (par.masterproc) std::cerr << YEXC "Unable to open " << fNameIn << std::endl;
+		return 0;
 	}
 
 /*

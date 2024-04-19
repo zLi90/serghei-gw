@@ -889,17 +889,6 @@ inline int readEvaporationFile (std::string fNameIn, Domain &dom, TimeSeries &ev
     int nPoly;
 
 
-	//set domain boundaries
-	dom.iE=0;
-	dom.iW=0;
-	dom.iN=0;
-	dom.iS=0;
-
-	if(par.myrank % par.nproc_x ==0){dom.iW=1;} //west boundary of the full domain
-	if(par.myrank % par.nproc_x ==par.nproc_x-1){dom.iE=1;} //east boundary of the full domain
-	if(par.myrank / par.nproc_x ==0){dom.iN=1;} //north boundary of the full domain
-	if(par.myrank / par.nproc_x ==par.nproc_y-1){dom.iS=1;} //south boundary of the full domain
-
 
     dir = fNameIn.substr(0, fNameIn.length() - 11); // 11 chars equivalent to "extbc.input" to get the dir
 

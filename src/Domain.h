@@ -36,7 +36,11 @@ public:
   real dxConst;  // resolution
   #endif
 
-  int iE,iW,iS,iN; //flag to see if the subdomain touch with either a East, West, South or North boundaries
+  //flags to see if the subdomain touch with either a East, West, South or North boundaries
+  int iE=0;
+  int iW=0;
+  int iS=0;
+  int iN=0;
 
   // global (reduced) variables
   real areaGlobal;
@@ -76,7 +80,7 @@ public:
 
   // this is purposely programmed to fail at compilation time if !SERGHEI_MESH_UNIFORM because the alternative is not implemented
   #if SERGHEI_MESH_UNIFORM
-  KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int i, int j){
+  KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int i, int j) const{
     geometry::point p;
     p(_X) = i*dxConst + extent[0](_X);
     p(_Y) = j*dxConst + extent[0](_Y);
@@ -84,7 +88,7 @@ public:
   #endif
   }
 
-  KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int iGlob){
+  KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int iGlob) const{
     int i,j;
     unpackIndices(iGlob,j,i);
     return(getCellCenter(i,j));
@@ -161,7 +165,7 @@ void initialise() {
     #endif
 
     globalBuffer = realArr("globalBuffer", nCellGlobal);
-
+    if(id == 0) std::cout << GOK << "Domain initialised" << std::endl;
   };
 
 void getStatistics(){
@@ -218,6 +222,12 @@ void getStatistics(){
         par.neigh(j,i) = pyloc * par.nproc_x + pxloc;
       }
     }
+
+  	//set topological boundaries
+  	if(par.myrank % par.nproc_x ==0) iW=1; //west boundary of the full domain
+	  if(par.myrank % par.nproc_x ==par.nproc_x-1) iE=1; //east boundary of the full domain
+	  if(par.myrank / par.nproc_x ==0) iN=1; //north boundary of the full domain
+	if(par.myrank / par.nproc_x ==par.nproc_y-1) iS=1; //south boundary of the full domain
 
     // Debug output for the parallel decomposition
     #if SERGHEI_DEBUG_PARALLEL_DECOMPOSITION

@@ -173,7 +173,7 @@ public:
 
             eps_old = eps;
             eps = get_eps(gw, gdom);
-            eps_tmp = fabs(eps_old - eps);
+            eps_tmp = myfabs(eps_old - eps);
 
 			timer.reset();
             ierr = MPI_Allreduce(&eps_tmp, &eps_diff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
@@ -229,13 +229,13 @@ public:
             n = gw.vgTable(ivg+4);
             alpha = gw.vgTable(ivg+6);
             m = 1.0 - 1.0 / n;
-            wcm = wcr + (wcs-wcr)*pow((1.0 + pow(fabs(gdom.aev)*alpha,n)), m);
-            s = pow(1.0 + pow(fabs(alpha*gw.h(iGlob,1)), n), -m);
-            nume = 1.0-pow(1.0-pow(s*(wcs-wcr)/(wcm-wcr),1.0/m),m);
-            deno = 1.0-pow(1.0-pow((wcs-wcr)/(wcm-wcr),1.0/m),m);
+            wcm = wcr + (wcs-wcr)*mypow((1.0 + mypow(myfabs(gdom.aev)*alpha,n)), m);
+            s = mypow(1.0 + mypow(myfabs(alpha*gw.h(iGlob,1)), n), -m);
+            nume = 1.0-mypow(1.0-mypow(s*(wcs-wcr)/(wcm-wcr),1.0/m),m);
+            deno = 1.0-mypow(1.0-mypow((wcs-wcr)/(wcm-wcr),1.0/m),m);
             if (deno == 0.0)    {gw.k(iGlob,3) = 1.0;}
-            else {gw.k(iGlob,3) = pow(s,0.5) * pow(nume/deno, 2.0);}
-        	gw.k(iGlob,3) = pow(s,0.5) * pow(1-pow(1-pow(s,1.0/m),m), 2.0);
+            else {gw.k(iGlob,3) = mypow(s,0.5) * mypow(nume/deno, 2.0);}
+        	gw.k(iGlob,3) = mypow(s,0.5) * mypow(1-mypow(1-mypow(s,1.0/m),m), 2.0);
             if (gw.k(iGlob,3) > 1.0 | gw.h(iGlob,1) >= gdom.aev)	{gw.k(iGlob,3) = 1.0;}
             // set no data cells impermeable
             if (gdom.isnodata(iGlob) == 1)  {gw.k(iGlob,3) = 0.0;}
@@ -366,18 +366,18 @@ public:
             n = gw.vgTable(ivg+4);       alpha = gw.vgTable(ivg+6);
             m = 1.0 - 1.0 / n;
             if (gw.h(iGlob,1) < gdom.aev)	{
-                wcm = wcr + (wcs-wcr)*pow((1.0 + pow(fabs(gdom.aev)*alpha,n)), m);
-                nume = alpha*n*m*(wcm - wcr)*pow(fabs(alpha*gw.h(iGlob,1)),n-1.0);
-                deno = pow((1.0 + pow(fabs(alpha*gw.h(iGlob,1)),n)), m+1);
+                wcm = wcr + (wcs-wcr)*mypow((1.0 + mypow(myfabs(gdom.aev)*alpha,n)), m);
+                nume = alpha*n*m*(wcm - wcr)*mypow(myfabs(alpha*gw.h(iGlob,1)),n-1.0);
+                deno = mypow((1.0 + mypow(myfabs(alpha*gw.h(iGlob,1)),n)), m+1);
                 ch = nume / deno;
             }
             gw.coef(idom,0) = ch + ss*gw.wc(iGlob,1)/wcs;
-            gw.coef(idom,1) = - gdom.dt * gw.k(iGlob,0) * gdom.cosx(iGlob) / pow(gdom.dx, 2.0);
-            gw.coef(idom,2) = - gdom.dt * gw.k(iGlob-1,0) * gdom.cosx(iGlob-1) / pow(gdom.dx, 2.0);
-            gw.coef(idom,3) = - gdom.dt * gw.k(iGlob,1) * gdom.cosy(iGlob) / pow(gdom.dy, 2.0);
-            gw.coef(idom,4) = - gdom.dt * gw.k(iGlob-gdom.nxhc,1) * gdom.cosy(iGlob-gdom.nxhc) / pow(gdom.dy, 2.0);
-            gw.coef(idom,5) = - gdom.dt * gw.k(iGlob,2) / pow(gdom.dz(iGlob), 2.0);
-            gw.coef(idom,6) = - gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / pow(gdom.dz(iGlob), 2.0);
+            gw.coef(idom,1) = - gdom.dt * gw.k(iGlob,0) * gdom.cosx(iGlob) / mypow(gdom.dx, 2.0);
+            gw.coef(idom,2) = - gdom.dt * gw.k(iGlob-1,0) * gdom.cosx(iGlob-1) / mypow(gdom.dx, 2.0);
+            gw.coef(idom,3) = - gdom.dt * gw.k(iGlob,1) * gdom.cosy(iGlob) / mypow(gdom.dy, 2.0);
+            gw.coef(idom,4) = - gdom.dt * gw.k(iGlob-gdom.nxhc,1) * gdom.cosy(iGlob-gdom.nxhc) / mypow(gdom.dy, 2.0);
+            gw.coef(idom,5) = - gdom.dt * gw.k(iGlob,2) / mypow(gdom.dz(iGlob), 2.0);
+            gw.coef(idom,6) = - gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / mypow(gdom.dz(iGlob), 2.0);
             gw.coef(idom,7) = (ch + ss*gw.wc(iGlob,1)/wcs)*gw.h(iGlob,1)
                 - gdom.dt*(gw.k(iGlob,2) - gw.k(iGlob-gdom.nxhc*gdom.nyhc,2)) / gdom.dz(iGlob)
                 + gdom.dt*(gw.k(iGlob,0) * gdom.sinx(iGlob) - gw.k(iGlob-1,0) * gdom.sinx(iGlob-1))/gdom.dx
@@ -465,7 +465,7 @@ public:
                 wcs = gw.vgTable(ivg+2);     wcr = gw.vgTable(ivg+3);
                 n = gw.vgTable(ivg+4);       alpha = gw.vgTable(ivg+6);
                 m = 1.0 - 1.0 / n;
-                wcm = wcr + (wcs-wcr)*pow((1.0 + pow(fabs(gdom.aev)*alpha,n)), m);
+                wcm = wcr + (wcs-wcr)*mypow((1.0 + mypow(myfabs(gdom.aev)*alpha,n)), m);
 				// make choice
                 if (gw.wc(iGlob,1) - wcs > TOL8NEG)	{
                     gw.wc(iGlob,2) = gw.wc(iGlob,1)-wcs;    gw.wc(iGlob,1) = wcs;
@@ -495,7 +495,7 @@ public:
                     }
                     if (flag == 1)  {
                         real tmp = gw.wc(iGlob,1);
-                        sbar = pow(1.0 + pow(fabs(alpha*gw.h(iGlob,1)), n), -m);
+                        sbar = mypow(1.0 + mypow(myfabs(alpha*gw.h(iGlob,1)), n), -m);
                         if (gw.h(iGlob,1) > gdom.aev)   {gw.wc(iGlob,1) = wcs;}
                         else {gw.wc(iGlob,1) = sbar * (wcm - wcr) + wcr;}
                         gw.wc(iGlob,2) = tmp - gw.wc(iGlob,1);
@@ -503,7 +503,7 @@ public:
                     else    {
                         if (gw.wc(iGlob,1) < wcs)   {
                             if (gw.wc(iGlob,1) < wcr)   {gw.wc(iGlob,1) = wcr + 1e-5;}
-                            gw.h(iGlob,1) = -(1.0/alpha) * (pow(pow((wcm-wcr)/(gw.wc(iGlob,1)-wcr),(1/m)) - 1.0, 1/n));
+                            gw.h(iGlob,1) = -(1.0/alpha) * (mypow(mypow((wcm-wcr)/(gw.wc(iGlob,1)-wcr),(1/m)) - 1.0, 1/n));
                         }
                         else {gw.h(iGlob,1) = 0.0;}
                     }
@@ -520,8 +520,8 @@ public:
                 wcs = gw.vgTable(ivg+2);     wcr = gw.vgTable(ivg+3);
                 n = gw.vgTable(ivg+4);       alpha = gw.vgTable(ivg+6);
                 m = 1.0 - 1.0 / n;
-                wcm = wcr + (wcs-wcr)*pow((1.0 + pow(fabs(gdom.aev)*alpha,n)), m);
-                sbar = pow(1.0 + pow(fabs(alpha*gw.h(iGlob,1)), n), -m);
+                wcm = wcr + (wcs-wcr)*mypow((1.0 + mypow(myfabs(gdom.aev)*alpha,n)), m);
+                sbar = mypow(1.0 + mypow(myfabs(alpha*gw.h(iGlob,1)), n), -m);
                 if (gw.h(iGlob,1) > gdom.aev)   {gw.wc(iGlob,1) = wcs;}
                 else {gw.wc(iGlob,1) = sbar * (wcm - wcr) + wcr;}
                 if (gw.wc(iGlob,1) > wcs)	{gw.wc(iGlob,2) += (gw.wc(iGlob,1)-wcs); gw.wc(iGlob,1) = wcs;}
@@ -548,7 +548,7 @@ public:
             gdom.unpackIndices(idx, kk, jj, ii);
             // gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-            real dwc = fabs(gw.wc(iGlob,1) - gw.wc(iGlob,0));
+            real dwc = myfabs(gw.wc(iGlob,1) - gw.wc(iGlob,0));
 			tmp = (dwc > tmp) ? dwc : tmp;
 		} , Kokkos::Max<real>(dwc_max) );
     	if (dwc_max > 0.02)	{gdom.dt = gdom.dt * 0.9;}
@@ -578,7 +578,7 @@ public:
     inline real get_eps(GwState &gw, GwDomain &gdom)	{
     	real eps;
         Kokkos::parallel_reduce(gdom.nCell, KOKKOS_LAMBDA (int idx, real &tmp) {
-            real dwc = fabs(gw.h(idx,1) - gw.h(idx,0));
+            real dwc = myfabs(gw.h(idx,1) - gw.h(idx,0));
 			tmp = (dwc > tmp) ? dwc : tmp;
 		} , Kokkos::Max<real>(eps) );
         return eps;

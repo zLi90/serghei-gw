@@ -85,6 +85,7 @@ KOKKOS_INLINE_FUNCTION double mysqrt( double const x ) { return sqrt (x); }
 KOKKOS_INLINE_FUNCTION float  mysqrt( float  const x ) { return sqrtf(x); }
 KOKKOS_INLINE_FUNCTION double myfabs( double const x ) { return fabs (x); }
 KOKKOS_INLINE_FUNCTION float  myfabs( float  const x ) { return fabsf(x); }
+KOKKOS_INLINE_FUNCTION int  myfabs( int  const x ) { return abs(x); }
 
 /*
 template <class T> KOKKOS_INLINE_FUNCTION T min( T const v1 , T const v2 ) {

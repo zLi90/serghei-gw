@@ -506,7 +506,7 @@ public:
     Kokkos::parallel_for("ncwrap_h+z", dom.nCell , KOKKOS_LAMBDA(int iGlob) {
 	 	 int i,j;
 		dom.unpackIndices(iGlob,j,i);
-		int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
+		int ii=(hc+j)*(dom.nx+2*hc)+hc+i;//index with the extended domain (including halo cells)
       data(iGlob) = state.h(ii)+state.z(ii);
 			#if SERGHEI_NC_ENABLE_NAN
 			if(state.isnodata(ii)) data(iGlob) = SERGHEI_NAN;
@@ -657,8 +657,8 @@ public:
 			int of_bc = of_sw;
 			#if SERGHEI_DEBUG_BOUNDARY
 			of_bc++;
-			#endif
 			int offset_bc = of_bc*ncells;
+			#endif
 			int of_inf = of_bc + 1;
 			int offset_infrate = of_inf * ncells;
 			int offset_infVol = (of_inf+1) * ncells;
