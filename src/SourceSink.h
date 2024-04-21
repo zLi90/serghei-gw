@@ -14,6 +14,7 @@
 #define INF_HORTON 2
 #define INF_GREENAMPT 3
 
+
 //class State;	// forward declaration
 
 /*
@@ -284,6 +285,7 @@ public:
                             inf_p(ii) = fc(id) + (f0(id)-fc(id))*exp(-k(id) * t);
                         });
                         break;
+
                     }
             }
     }
@@ -303,6 +305,7 @@ public:
         if (dom.isEvap) {evapRate  = realArr ("evapRate", dom.nCellMem);}
         if (inf.model)  {inf.allocate(dom);}
     }
+
 
   inline void ComputeRain (const Domain &dom){
     if(dom.isRain){

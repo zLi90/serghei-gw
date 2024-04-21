@@ -362,15 +362,14 @@ public:
 		}
 		#if SERGHEI_SUBSURFACE_MODEL
 		dom.timers.gw = gdom.timers.gw;
-		dom.timers.gwdt = gdom.timers.gwdt;
-		dom.timers.gwbc = gdom.timers.gwbc;
+		dom.timers.gwBC = gdom.timers.gwBC;
 		dom.timers.gwlinsys = gdom.timers.gwlinsys;
 		dom.timers.gwlinsol = gdom.timers.gwlinsol;
-		dom.timers.gwupdateK = gdom.timers.gwupdateK;
-		dom.timers.gwupdateQ = gdom.timers.gwupdateQ;
-		dom.timers.gwupdateWC = gdom.timers.gwupdateWC;
-		dom.timers.gwintegrate = gdom.timers.gwintegrate;
-		dom.timers.gwexchange = gdom.timers.gwexchange;
+		dom.timers.gwUpdateK = gdom.timers.gwUpdateK;
+		dom.timers.gwUpdateQ = gdom.timers.gwUpdateQ;
+		dom.timers.gwUpdateWC = gdom.timers.gwUpdateWC;
+		dom.timers.gwIntegrate = gdom.timers.gwIntegrate;
+		dom.timers.gwMPI = gdom.timers.gwMPI;
 		dom.timers.out += gdom.timers.out;
 		#endif
 		io.writeLogFile(dom, par, outFolder);

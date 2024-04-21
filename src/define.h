@@ -139,16 +139,14 @@ public:
   real solver=0;
   // timers for the subsurface solver
   real gw = 0;
-  real gwdt = 0;
-  real gwbc = 0;
+  real gwBC = 0;
   real gwlinsys = 0;
   real gwlinsol = 0;
-  real gwupdateK = 0;
-  real gwupdateQ = 0;
-  real gwupdateH = 0;
-  real gwupdateWC = 0;
-  real gwexchange = 0;
-  real gwintegrate = 0;
+  real gwUpdateK = 0;
+  real gwUpdateQ = 0;
+  real gwUpdateWC = 0;
+  real gwMPI = 0;
+  real gwIntegrate = 0;
 
 };
 

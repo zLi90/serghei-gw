@@ -1089,24 +1089,25 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
           ratio = dom.timers.dt / dom.timers.total;
           logFile << "dtComputeTime : " << dom.timers.dt << " : " << ratio << std::endl;
           #if SERGHEI_SUBSURFACE_MODEL
-          ratio = dom.timers.gwdt/dom.timers.total;
-          logFile << "gwDtComputeTime : " << dom.timers.dt << " : " << ratio << std::endl;
-          ratio = dom.timers.gwbc/dom.timers.total;
-          logFile << "gwBCTime : " << dom.timers.gwbc << " : " << ratio << std::endl;
-          ratio = dom.timers.gwexchange/dom.timers.total;
-          logFile << "gwExchangeTime : " << dom.timers.gwexchange << " : " << ratio << std::endl;
+          logFile << " -------- GW Times --------" << std::endl;
+          ratio = dom.timers.gw/dom.timers.total;
+          logFile << "gwTime : " << dom.timers.gw << " : " << ratio << std::endl;
           ratio = dom.timers.gwlinsys/dom.timers.total;
           logFile << "gwLinSysTime : " << dom.timers.gwlinsys << " : " << ratio << std::endl;
           ratio = dom.timers.gwlinsol/dom.timers.total;
           logFile << "gwLinSolTime : " << dom.timers.gwlinsol << " : " << ratio << std::endl;
-          ratio = dom.timers.gwupdateK/dom.timers.total;
-          logFile << "gwUpdateKTime : " << dom.timers.gwupdateK << " : " << ratio << std::endl;
-          ratio = dom.timers.gwupdateQ/dom.timers.total;
-          logFile << "gwUpdateQTime : " << dom.timers.gwupdateQ << " : " << ratio << std::endl;
-          ratio = dom.timers.gwupdateWC/dom.timers.total;
-          logFile << "gwUpdateWCTime : " << dom.timers.gwupdateWC << " : " << ratio << std::endl;
-          ratio = dom.timers.gwintegrate/dom.timers.total;
-          logFile << "gwIntegrateTime : " << dom.timers.gwintegrate << " : " << ratio << std::endl;
+          ratio = dom.timers.gwUpdateK/dom.timers.total;
+          logFile << "gwUpdateKTime : " << dom.timers.gwUpdateK << " : " << ratio << std::endl;
+          ratio = dom.timers.gwUpdateQ/dom.timers.total;
+          logFile << "gwUpdateQTime : " << dom.timers.gwUpdateQ << " : " << ratio << std::endl;
+          ratio = dom.timers.gwUpdateWC/dom.timers.total;
+          logFile << "gwUpdateWCTime : " << dom.timers.gwUpdateWC << " : " << ratio << std::endl;
+          ratio = dom.timers.gwBC/dom.timers.total;
+          logFile << "gwBCTime : " << dom.timers.gwBC << " : " << ratio << std::endl;
+          ratio = dom.timers.gwIntegrate/dom.timers.total;
+          logFile << "gwIntegrateTime : " << dom.timers.gwIntegrate << " : " << ratio << std::endl;
+          ratio = dom.timers.gwMPI/dom.timers.total;
+          logFile << "gwExchangeTime : " << dom.timers.gwMPI << " : " << ratio << std::endl;
           #endif
           }
       }
@@ -1124,15 +1125,15 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
           writeTimerRank(par,dom.timers.exchange,"exchangeTime");
           writeTimerRank(par,dom.timers.dt,"dtComputeTime");
           #if SERGHEI_SUBSURFACE_MODEL
-          writeTimerRank(par,dom.timers.gwdt,"gwDtComputeTime");
-          writeTimerRank(par,dom.timers.gwbc,"gwBCTime");
-          writeTimerRank(par,dom.timers.gwexchange,"gwExchangeTime");
+          writeTimerRank(par,dom.timers.gw,"gwTime");
           writeTimerRank(par,dom.timers.gwlinsys,"gwLinSysTime");
           writeTimerRank(par,dom.timers.gwlinsol,"gwLinSolTime");
-           writeTimerRank(par,dom.timers.gwupdateK,"gwUpdateKTime");
-           writeTimerRank(par,dom.timers.gwupdateQ,"gwUpdateQTime");
-           writeTimerRank(par,dom.timers.gwupdateWC,"gwUpdateWCTime");
-           writeTimerRank(par,dom.timers.gwintegrate,"gwIntegrateTime");
+           writeTimerRank(par,dom.timers.gwUpdateK,"gwUpdateKTime");
+           writeTimerRank(par,dom.timers.gwUpdateQ,"gwUpdateQTime");
+           writeTimerRank(par,dom.timers.gwUpdateWC,"gwUpdateWCTime");
+           writeTimerRank(par,dom.timers.gwBC,"gwBCTime");
+           writeTimerRank(par,dom.timers.gwIntegrate,"gwIntegrateTime");
+           writeTimerRank(par,dom.timers.gwMPI,"gwExchangeTime");
           #endif
           if(par.masterproc){
               auto nowtime = std::chrono::system_clock::now();

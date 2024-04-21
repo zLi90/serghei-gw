@@ -21,6 +21,7 @@ class GwFunction   {
 
 private:
 	Kokkos::Timer timer;
+	Kokkos::Timer timer2;
 
 public:
     /* --------------------------------------------------
@@ -33,14 +34,13 @@ public:
         real dt_tmp;
 
 		timer.reset();
+		timer2.reset();
 		for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyHBC(gw, gdom, par);
         }
-		gdom.timers.gwbc += timer.seconds();
+		gdom.timers.gwBC += timer.seconds();
 
-		timer.reset();
         face_conductivity(gw, gdom, gbc, gmpi, par);
-		gdom.timers.gwupdateK += timer.seconds();
 
 		timer.reset();
         linear_system(gw, gdom, gbc, gss, A, par);
@@ -54,66 +54,55 @@ public:
         #endif
         gdom.timers.gwlinsol += timer.seconds();
 
-		timer.reset();
         Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, iGlob;
             gdom.unpackIndices(idom, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             gw.h(iGlob,1) = A.x(idom);
         });
-		gdom.timers.gwupdateH += timer.seconds();
 
 		timer.reset();
         gmpi.mpi_sendrecv(gw.h, gdom, par);
-		gdom.timers.gwexchange += timer.seconds();
+		gdom.timers.gwMPI += timer.seconds();
 
 		timer.reset();
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyHBC(gw, gdom, par);
         }
-		gdom.timers.gwbc += timer.seconds();
+		gdom.timers.gwBC += timer.seconds();
 
-		timer.reset();
         face_conductivity(gw, gdom, gbc, gmpi, par);
-		gdom.timers.gwupdateK += timer.seconds();
 
-		timer.reset();
         face_flux(gw, gdom, gbc, gmpi, par);
-		gdom.timers.gwupdateQ += timer.seconds();
 
 		timer.reset();
         update_wc(gw, gdom, gss);
-		gdom.timers.gwupdateWC += timer.seconds();
+		gdom.timers.gwUpdateWC += timer.seconds();
 
 		timer.reset();
         gmpi.mpi_sendrecv(gw.h, gdom, par);
         gmpi.mpi_sendrecv(gw.wc, gdom, par);
-		gdom.timers.gwexchange += timer.seconds();
+		gdom.timers.gwMPI += timer.seconds();
 
 		timer.reset();
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyHBC(gw, gdom, par);
         }
-		gdom.timers.gwbc += timer.seconds();
+		gdom.timers.gwBC += timer.seconds();
 
-		timer.reset();
         dt_waco(gw, gdom);
         dt_tmp = gdom.dt;
-		gdom.timers.gwdt += timer.seconds();
-
-		timer.reset();
         ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
-		gdom.timers.gwexchange += timer.seconds();
 
-		timer.reset();
         Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
-		gdom.timers.gwupdateH += timer.seconds();
 
 		timer.reset();
         gint.integrate(gw, gdom, gbc, gss);
-		gdom.timers.gwintegrate += timer.seconds();
+		gdom.timers.gwIntegrate += timer.seconds();
+
+		gdom.timers.gw += timer2.seconds();
     }
 
     /* --------------------------------------------------
@@ -123,20 +112,20 @@ public:
     inline void picard_solve(GwState &gw, GwDomain &gdom, std::vector<GwBC> &gbc,
             GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, GwIntegrator &gint, Parallel &par)  {
         int iter, iter_cg, iter_max = 50, ierr=1;
-        real eps_diff = 1.0, eps_tmp, eps_old = 1.0, eps = 1.0, eps_min = 5e-6, dt_tmp;
-
+        real eps_diff = 1.0, eps_old = 1.0, eps = 1.0, eps_diff_tmp = 1.0, eps_old_emp = 1.0, eps_tmp = 1.0;
+		real eps_min = 1e-5, dt_tmp;
 		timer.reset();
+		timer2.reset();
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyHBC(gw, gdom, par);
         }
-		gdom.timers.gwbc += timer.seconds();
+		gdom.timers.gwBC += timer.seconds();
 
-		timer.reset();
         face_conductivity(gw, gdom, gbc, gmpi, par);
-		gdom.timers.gwupdateK += timer.seconds();
 
         iter = 0;
         while (iter < iter_max && eps_diff/eps_old > eps_min && eps > eps_min) {
+
 			timer.reset();
             linear_system(gw, gdom, gbc, gss, A, par);
 			gdom.timers.gwlinsys += timer.seconds();
@@ -149,7 +138,6 @@ public:
             #endif
             gdom.timers.gwlinsol += timer.seconds();
 
-			timer.reset();
             Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob;
                 gdom.unpackIndices(idom, kk, jj, ii);
@@ -157,57 +145,39 @@ public:
                 gw.h(iGlob,0) = gw.h(iGlob,1);
                 gw.h(iGlob,1) = A.x(idom);
             });
-			gdom.timers.gwupdateH += timer.seconds();
 
-			timer.reset();
-            gmpi.mpi_sendrecv(gw.h, gdom, par);
-			gdom.timers.gwexchange += timer.seconds();
-
-			timer.reset();
             face_conductivity(gw, gdom, gbc, gmpi, par);
-			gdom.timers.gwupdateK += timer.seconds();
 
-			timer.reset();
             face_flux(gw, gdom, gbc, gmpi, par);
-			gdom.timers.gwupdateQ += timer.seconds();
 
-            eps_old = eps;
-            eps = get_eps(gw, gdom);
-            eps_tmp = myfabs(eps_old - eps);
-
-			timer.reset();
-            ierr = MPI_Allreduce(&eps_tmp, &eps_diff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-			gdom.timers.gwexchange += timer.seconds();
+			eps_old = eps_tmp;
+			eps_tmp = get_eps(gw, gdom);
+			eps_diff_tmp = myfabs(eps_old - eps_tmp);
+			MPI_Allreduce(&eps_tmp, &eps, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+			MPI_Allreduce(&eps_diff_tmp, &eps_diff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
 			timer.reset();
             update_wc(gw, gdom, gss);
-			gdom.timers.gwupdateWC += timer.seconds();
+			gdom.timers.gwUpdateWC += timer.seconds();
 
-			timer.reset();
-            gmpi.mpi_sendrecv(gw.wc, gdom, par);
-			gdom.timers.gwexchange += timer.seconds();
-
+			// printf("    > RANK -%d- : Picard loop %d completed : epsOLD=%f, eps=%f, epsDIFF=%f\n",par.myrank,iter,eps_old,eps,eps_diff);
             iter += 1;
         }
         // printf("    > Picard loop converges in %d iterations with eps = %f, %f\n",iter,eps,eps_diff);
-		timer.reset();
+
         dt_iter(gw, gdom, iter);
         dt_tmp = gdom.dt;
-		gdom.timers.gwdt += timer.seconds();
-
-		timer.reset();
         ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
-		gdom.timers.gwexchange += timer.seconds();
 
-		timer.reset();
         Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
         });
-		gdom.timers.gwupdateH += timer.seconds();
 
 		timer.reset();
         gint.integrate(gw, gdom, gbc, gss);
-		gdom.timers.gwintegrate += timer.seconds();
+		gdom.timers.gwIntegrate += timer.seconds();
+
+		gdom.timers.gw += timer2.seconds();
     }
 
     /* --------------------------------------------------
@@ -215,6 +185,7 @@ public:
     -------------------------------------------------- */
     inline void face_conductivity(GwState &gw, GwDomain &gdom, std::vector<GwBC> &gbc, GwMPI &gmpi, Parallel &par)	{
         // Initialize K to zero (this also set boundary K=0 by default)
+		timer.reset();
         Kokkos::parallel_for( gdom.nCellMem , KOKKOS_LAMBDA(int iGlob) {
             gw.k(iGlob,0) = 0.0; gw.k(iGlob,1) = 0.0;   gw.k(iGlob,2) = 0.0;
         });
@@ -250,7 +221,6 @@ public:
             ivgx = gw.soilID(iGlob+1) * NVG;                    ksx = gw.vgTable(ivgx);
             ivgy = gw.soilID(iGlob+gdom.nxhc) * NVG;            ksy = gw.vgTable(ivgy);
             ivgz = gw.soilID(iGlob+gdom.nxhc*gdom.nyhc) * NVG;  ksz = gw.vgTable(ivgz);
-
             // Kx
 			if (ii == 0)	{
 				gw.k(iGlob,0) = 0.5 * (ks * gw.k(iGlob,3) + ksx * gw.k(iGlob+1,3));
@@ -271,7 +241,6 @@ public:
 				gw.k(iGlob,0) = 0.5 * (ks * gw.k(iGlob,3) + ksx * gw.k(iGlob+1,3));
 				if (ks * ksx == 0.0)    {gw.k(iGlob,0) = 0.0;}
 			}
-
             // Ky
 			if (jj == 0)	{
 				gw.k(iGlob,1) = 0.5 * (ks * gw.k(iGlob,3) + ksy * gw.k(iGlob+gdom.nxhc,3));
@@ -292,20 +261,26 @@ public:
 				gw.k(iGlob,1) = 0.5 * (ks * gw.k(iGlob,3) + ksy * gw.k(iGlob+gdom.nxhc,3));
                 if (ks * ksy == 0.0)    {gw.k(iGlob,1) = 0.0;}
 			}
-
-
             // Kz
             if (kk < gdom.nz-1) {
                 gw.k(iGlob,2) = 0.5 * (ks * gw.k(iGlob,3) + ksz * gw.k(iGlob+gdom.nxhc*gdom.nyhc,3));
                 if (ks * ksz == 0.0)    {gw.k(iGlob,2) = 0.0;}
             }
         });
+		gdom.timers.gwUpdateK += timer.seconds();
+
         // MPI exchange of K
+		timer.reset();
         gmpi.mpi_sendrecv(gw.k, gdom, par);
+		gdom.timers.gwMPI += timer.seconds();
+
         // Apply boundary conditions
+		timer.reset();
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyKBC(gw, gdom, par);
         }
+		gdom.timers.gwBC += timer.seconds();
+
         // Zero K for reduced dimension simulation
         if (gdom.nx == 1)   {
             Kokkos::parallel_for( gdom.nCellMem , KOKKOS_LAMBDA(int iGlob) {gw.k(iGlob,0) = 0.0;});
@@ -324,6 +299,7 @@ public:
     // -------------------------------------------------- */
     inline void face_flux(GwState &gw, GwDomain &gdom, std::vector<GwBC> &gbc, GwMPI &gmpi, Parallel &par)	{
         // Initialize Q to zero (this also set boundary Q=0 by default)
+		timer.reset();
         Kokkos::parallel_for( gdom.nCellMem , KOKKOS_LAMBDA(int iGlob) {
             gw.q(iGlob,0) = 0.0; gw.q(iGlob,1) = 0.0;   gw.q(iGlob,2) = 0.0;
         });
@@ -338,12 +314,19 @@ public:
             gw.q(iGlob,2) = gw.k(iGlob,2) * (gw.h(iGlob+gdom.nxhc*gdom.nyhc,1) - gw.h(iGlob,1)) / gdom.dz(iGlob)
                 - gw.k(iGlob,2);
         });
+		gdom.timers.gwUpdateQ += timer.seconds();
+
         // MPI exchange of flux
+		timer.reset();
         gmpi.mpi_sendrecv(gw.q, gdom, par);
+		gdom.timers.gwMPI += timer.seconds();
+
         // Apply boundary conditions
+		timer.reset();
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyQBC(gw, gdom, par);
         }
+		gdom.timers.gwBC += timer.seconds();
 	}
     // /* --------------------------------------------------
     //     End of flux block
