@@ -311,7 +311,9 @@ public:
                 + gw.k(iGlob,0) * gdom.sinx(iGlob);
             gw.q(iGlob,1) = gw.k(iGlob,1) * gdom.cosy(iGlob) * (gw.h(iGlob+gdom.nxhc,1) - gw.h(iGlob,1)) / gdom.dy
                 + gw.k(iGlob,1) * gdom.siny(iGlob);
-            gw.q(iGlob,2) = gw.k(iGlob,2) * (gw.h(iGlob+gdom.nxhc*gdom.nyhc,1) - gw.h(iGlob,1)) / gdom.dz(iGlob)
+            // gw.q(iGlob,2) = gw.k(iGlob,2) * (gw.h(iGlob+gdom.nxhc*gdom.nyhc,1) - gw.h(iGlob,1)) / gdom.dz(iGlob)
+            //     - gw.k(iGlob,2);
+			gw.q(iGlob,2) = gw.k(iGlob,2) * (gw.h(iGlob+gdom.nxhc*gdom.nyhc,1) - gw.h(iGlob,1)) / (0.5*(gdom.dz(iGlob)+gdom.dz(iGlob+gdom.nxhc*gdom.nyhc)))
                 - gw.k(iGlob,2);
         });
 		gdom.timers.gwUpdateQ += timer.seconds();
@@ -359,8 +361,10 @@ public:
             gw.coef(idom,2) = - gdom.dt * gw.k(iGlob-1,0) * gdom.cosx(iGlob-1) / mypow(gdom.dx, 2.0);
             gw.coef(idom,3) = - gdom.dt * gw.k(iGlob,1) * gdom.cosy(iGlob) / mypow(gdom.dy, 2.0);
             gw.coef(idom,4) = - gdom.dt * gw.k(iGlob-gdom.nxhc,1) * gdom.cosy(iGlob-gdom.nxhc) / mypow(gdom.dy, 2.0);
-            gw.coef(idom,5) = - gdom.dt * gw.k(iGlob,2) / mypow(gdom.dz(iGlob), 2.0);
-            gw.coef(idom,6) = - gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / mypow(gdom.dz(iGlob), 2.0);
+            // gw.coef(idom,5) = - gdom.dt * gw.k(iGlob,2) / mypow(gdom.dz(iGlob), 2.0);
+            // gw.coef(idom,6) = - gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / mypow(gdom.dz(iGlob), 2.0);
+			gw.coef(idom,5) = - gdom.dt * gw.k(iGlob,2) / gdom.dz(iGlob) / (0.5*(gdom.dz(iGlob)+gdom.dz(iGlob+gdom.nxhc*gdom.nyhc)));
+            gw.coef(idom,6) = - gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / gdom.dz(iGlob) / (0.5*(gdom.dz(iGlob)+gdom.dz(iGlob-gdom.nxhc*gdom.nyhc)));
             gw.coef(idom,7) = (ch + ss*gw.wc(iGlob,1)/wcs)*gw.h(iGlob,1)
                 - gdom.dt*(gw.k(iGlob,2) - gw.k(iGlob-gdom.nxhc*gdom.nyhc,2)) / gdom.dz(iGlob)
                 + gdom.dt*(gw.k(iGlob,0) * gdom.sinx(iGlob) - gw.k(iGlob-1,0) * gdom.sinx(iGlob-1))/gdom.dx

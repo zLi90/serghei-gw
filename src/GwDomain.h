@@ -10,7 +10,7 @@ public:
     // Time stepping options
     real dt_init, dt_max, dtOld;
     // Subsurface domain dimensions
-    real thickH, topZ, zll, dx, dy, dz_multiplier;
+    real thickH, topZ, zll, dx, dy, dz_multiplier, dz_base;
     int nz, nz_glob, nhalo, nxhc, nyhc, nzhc;
     int nCellSw, nCellSwMem;
     // Domain properties

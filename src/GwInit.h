@@ -98,12 +98,22 @@ public:
         for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++) {
             gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
             iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj, ii);
-            dz_base = gdom.thickH / gdom.nz_glob;
+            //dz_base = gdom.thickH / gdom.nz_glob;
             // Note that when dz_multiplier > 1, the actual domain height will be > gdom.thickH
-            gdom.dz(iGlob) = dz_base * mypow(gdom.dz_multiplier, kk);
-            gdom.z(iGlob) = state.z(iGlobSW) - (kk-hc+0.5)*gdom.dz(iGlob);
+            gdom.dz(iGlob) = gdom.dz_base * mypow(gdom.dz_multiplier, kk);
+            //gdom.z(iGlob) = state.z(iGlobSW) - (kk-hc+0.5)*gdom.dz(iGlob);
             // no data cells
             if (state.isnodata(iGlobSW) == 1)   {gdom.isnodata(iGlob) == 1;}
+        }
+        for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++) {
+            gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+            iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj, ii);
+            gdom.z(iGlob) = state.z(iGlobSW);
+            for (int krow = 0; krow < kk; krow++)   {
+                int idx = (hc+krow)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+                gdom.z(iGlob) -= gdom.dz(idx);
+            }
+            gdom.z(iGlob) -= 0.5*gdom.dz(iGlob);
         }
         gmpi.mpi_sendrecv1(gdom.z, gdom, par);
         gmpi.mpi_sendrecv1(gdom.dz, gdom, par);
@@ -212,6 +222,7 @@ public:
         gdom.nz_glob = -999;
         gdom.thickH = -999;
         gdom.dz_multiplier = -999;
+        gdom.dz_base = -999;
         gdom.dt_init = -999;
         gdom.dt_max = -999;
         gdom.nSoilID = -999;
@@ -235,6 +246,7 @@ public:
                     if      ( !strcmp( "ndepth" , pline.key.c_str() ) ) { pline.value >> gdom.nz_glob; }
                     else if ( !strcmp( "height"    , pline.key.c_str() ) ) { pline.value >> gdom.thickH; }
                     else if ( !strcmp( "dz_multiplier"    , pline.key.c_str() ) ) { pline.value >> gdom.dz_multiplier; }
+                    else if ( !strcmp( "dz_base"    , pline.key.c_str() ) ) { pline.value >> gdom.dz_base; }
                     else if ( !strcmp( "dt_init"    , pline.key.c_str() ) ) { pline.value >> gdom.dt_init; }
                     else if ( !strcmp( "dt_max"    , pline.key.c_str() ) ) { pline.value >> gdom.dt_max; }
                     else if ( !strcmp( "nSoilID", pline.key.c_str()))   {pline.value >> gdom.nSoilID;}
@@ -258,8 +270,10 @@ public:
         if (gdom.gw_scheme    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "gw_scheme" << " not set."; exit(-1); }
         if (gdom.aev    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "aev" << " not set."; exit(-1); }
         if (gdom.async    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "async" << " not set."; exit(-1); }
+        if (gdom.dz_multiplier > 1 && gdom.dz_base == -999) { if (par.masterproc) std::cerr << RERROR "key " << "dz_base" << " not set."; exit(-1); }
       // Print out the values
         if (par.masterproc) {
+            std::cerr << BDASH "Richards solver scheme  : "  << gdom.gw_scheme    << "\n";
             std::cerr << BDASH "Number of grids (nz)  : "  << gdom.nz_glob    << "\n";
             std::cerr << BDASH "Domain thickness : "  << gdom.thickH    << "\n";
             std::cerr << BDASH "Maximum dt   : "  << gdom.dt_max    << "\n";
