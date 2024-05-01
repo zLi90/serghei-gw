@@ -79,7 +79,7 @@
 #endif
 
 #ifndef SERGHEI_SWE_MODEL
-#define SERGHEI_SWE_MODEL 0
+#define SERGHEI_SWE_MODEL 1
 #endif
 
 #ifndef SERGHEI_KOKKOSKERNELS_SOLVER

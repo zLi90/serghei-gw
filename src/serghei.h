@@ -285,7 +285,7 @@ public:
 					std::cerr << "     Inflow Discharge: " << bint.inflowDischargeG <<"\n";
 					std::cerr << "     Outflow Volume: " << bint.outflowDischargeG*dom.dt <<"\n";
 					#if SERGHEI_SUBSURFACE_MODEL
-					std::cerr << "     Exchange Volume: " << gw.Vexch <<"\n";
+					std::cerr << "     Exchange Volume: " << gint.Vexch_glob <<"\n";
 					#endif
 					#endif
 

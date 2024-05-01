@@ -521,7 +521,8 @@ public:
 	 	 int i,j;
 		dom.unpackIndices(iGlob,j,i);
 		int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
-      data(iGlob) = state.qss(ii);
+      // data(iGlob) = state.qss(ii);
+      data(iGlob) = state.qss(iGlob);
     });
     Kokkos::fence();
     ncwrap( ncmpi_put_vara_real_all( ncid , qVar , st , ct , data.data() ) , __LINE__ );
@@ -1443,7 +1444,7 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
             // Write the header
             SubsurfaceOutputFile << "Time ";
             SubsurfaceOutputFile << "SubSurfaceVolume [m3] ";
-            SubsurfaceOutputFile << "ExchangeVolume ";
+            SubsurfaceOutputFile << "ExchangeRate [m3/s] ";
             SubsurfaceOutputFile << "BoundaryInflow ";
             SubsurfaceOutputFile << "BoundaryOutflow ";
             SubsurfaceOutputFile << "Source/SinkInflow [m3/s] ";
