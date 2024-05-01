@@ -1,0 +1,5 @@
+initialMode  : file
+initialValue : 0.0
+friction     : none
+roughness    : 0.0
+dryDepth     : 1E-10

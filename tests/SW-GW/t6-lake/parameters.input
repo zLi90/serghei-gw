@@ -1,0 +1,12 @@
+simLength  : 600	    	// How long to simulate [s]
+cfl        : 0.1		// CFL value to use
+outFreq    : 10	// Frequency for spatial output [s]
+obsFreq    : 1.0		// Frequency for time series output [s]
+parNx      : 1			// Number of parallel tasks in the x-direction
+parNy      : 1			// Number of parallel tasks in the y-direction
+outFormat  : NETCDF		// Output format: NETCDF or VTK
+BCtype     : TRANSMISSIVE	// Outer boundaries: TRANSMISSIVE, REFLECTIVE or PERIODIC
+nScreen    : 100 		//number of iterations to display on the screen
+
+
+// this simulation is setup for 3 periods, with outputs every 1/2 period
