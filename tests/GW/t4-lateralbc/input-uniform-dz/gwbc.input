@@ -2,9 +2,10 @@
 bccount : 3
 id : top
 direction : 6
-bctype : 3
+bctype : 6
 bcvals : 0.0
 polygon : polygontop.input
+timeseries : atmosphere.input
 
 id : left
 direction : 2

@@ -6,13 +6,8 @@ file(GLOB LIB_HEADERS
 
 add_executable(${CMAKE_PROJECT_NAME} ${LIB_HEADERS} driver.cpp)
 
-#	If use GPU(CUDA), specify the CUDA architecture
-#	Otherwise, link OpenMP
-IF(Enable_GPU)
-	if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  		set(CMAKE_CUDA_ARCHITECTURES 80)
-	endif()
-ELSE()
+#	Link OpenMP
+IF (NOT Enable_GPU)
 	find_package(OpenMP REQUIRED)
 	target_link_libraries(serghei PUBLIC OpenMP::OpenMP_CXX)
 ENDIF()

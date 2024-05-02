@@ -113,18 +113,19 @@ public:
     int ierr[Nfiles];
     std::string tempStr;
 
-		#if SERGHEI_INPUT_NETCDF
-			tempStr = fNameIn + "input.nc";
-			int nvar;
-    	if(!io.readNetCDFvariable(par,dom,state,io.ncin,"z")){
-        if(par.masterproc) std::cout << RERROR << tempStr << " not found" << std::endl;
-        return 0;
-      };
-		#else
-			tempStr = fNameIn + "dem.input";
-    	ierr[0] = readDEMFile(tempStr,dom,state,par);
-		#endif
+    #if SERGHEI_INPUT_NETCDF
+        tempStr = fNameIn + "input.nc";
+        int nvar;
+        if(!io.readNetCDFvariable(par,dom,state,io.ncin,"z")){
+            if(par.masterproc) std::cout << RERROR << tempStr << " not found" << std::endl;
+            return 0;
+        };
+    #else
+        tempStr = fNameIn + "dem.input";
+        ierr[0] = readDEMFile(tempStr,dom,state,par);
+    #endif
 
+    #if SERGHEI_SWE_MODEL
     tempStr = fNameIn + "sw.input";
     ierr[1] = readSWFile(tempStr, dom, par, state, fNameIn, io);
 
@@ -165,6 +166,8 @@ public:
     for (int i = 0; i < Nfiles; i++){
       if (!ierr[i])	return 0;
     }
+    #endif
+
     return 1;
   }
 

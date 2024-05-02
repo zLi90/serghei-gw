@@ -4,6 +4,7 @@
 
 height : 6.0          // Thickness of the subsurface domain
 dz_multiplier : 1.0		// Non-uniform dz
+dz_base : 0.06
 ndepth  : 100          // Number of cells in z-direction.
 nSoilID : 1           // Number of soil types
 initialMode : 1        // saturated(1), file-h(2), file-theta(3), file-wt(4)

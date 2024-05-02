@@ -5,8 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import netcdf
 
-fdir = ['out-debug/']
-lgd = ['SERGHEI-GW','Hydrus']
+fdir = ['out-pc-cuda/','out-pc-cuda-vardz/']
+lgd = ['SERGHEI-GW(PC)','SERGHEI-GW(MP)','Hydrus']
 tt = 60
 L = 4000
 H = 15
@@ -80,7 +80,8 @@ x_time.append(1825)
                                 Make plot
     --------------------------------------------------------------------
 """
-color1=[143/255,38/255,126/255]
+color1=[[143/255,38/255,126/255],[141/255,159/255,209/255]]
+ls = ['-','--']
 
 fs = 9
 cm2inch = 1.0/2.54
@@ -95,7 +96,8 @@ pos2 = [pos1.x0-0.01, pos1.y0+0.05, pos1.width*1.1, pos1.height*1.05]
 ax.set_position(pos2)
 xticks = range(0, 5 * 365+1, 365)
 xtick_labels = [str(i) for i in range(0, 5 * 365+1, 365)]
-plt.plot(x_time[1:], hcentre[1:], '-', color=color1)  
+for ff in range(len(fdir)):
+	plt.plot(x_time[1:], hcentre[1:], color=color1[ff], linestyle=ls[ff])  
 plt.scatter(hydrus2[:-1,0], hydrus2[:-1,1],  marker='^', facecolor='None', edgecolor='k')  
 plt.legend(lgd, loc="lower right",fontsize=fs)
 plt.xticks(xticks, xtick_labels,fontsize=fs)
@@ -111,7 +113,7 @@ pos1 = ax.get_position()
 pos2 = [pos1.x0-0.01, pos1.y0, pos1.width*1.1, pos1.height*1.05]
 ax.set_position(pos2)
 for ff in range(len(fdir)):
-	plt.plot(x, wt_out[ff], '-', color=color1)    
+	plt.plot(x, wt_out[ff], color=color1[ff], linestyle=ls[ff])    
 plt.scatter(hydrus1[:,0], hydrus1[:,1],  marker='^', facecolor='None', edgecolor='k')
 plt.xlim([0,L])
 plt.xticks([0,1000,2000,3000,4000],[0,1000,2000,3000,4000],fontsize=fs)

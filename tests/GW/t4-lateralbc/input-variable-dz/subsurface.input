@@ -3,14 +3,15 @@
 // Lines can end with comments
 
 height : 15.0          // Thickness of the subsurface domain
-dz_multiplier : 1.0		// Non-uniform dz
-ndepth  : 60          // Number of cells in z-direction.
+dz_multiplier : 1.05		// Non-uniform dz
+dz_base : 0.1
+ndepth  : 44 //60          // Number of cells in z-direction.
 nSoilID : 1           // Number of soil types
-parNz   : 1           // Number of parallel tasks in z-direction.
 initialMode : 2        // saturated(1), file-h(2), file-theta(3), file-wt(4)
 dt_init : 0.01          // initial (also minimum) dt for subsurface
-dt_max  : 180.0          // maximum allowable dt
+dt_max  : 300.0          // maximum allowable dt
 gw_scheme : 1           // numerical schemes, 1:PCA, 2:Picard
 async : 0				// Asynchronous coupling
+aev : 0.0
 
 // [*]: Recognized boundary conditions are TRANSMISSIVE, REFLECTIVE or PERIODIC

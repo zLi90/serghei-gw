@@ -23,6 +23,13 @@ set(KokkosKernels_ROOT "/Users/zli/Codes/kokkoskernels4-omp")
 #   Specify if using GPU or not
 set(Enable_GPU "OFF")
 
+#	If use GPU(CUDA), specify the CUDA architecture
+IF(Enable_GPU)
+	if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  		set(CMAKE_CUDA_ARCHITECTURES 80)
+	endif()
+ENDIF()
+
 #   Specify SERGHEI Macros (You can add more macros below)
 add_compile_definitions(SERGHEI_FRICTION_MODEL=1)
 execute_process(COMMAND git describe COMMAND tr -d '\n' OUTPUT_VARIABLE serghei_git_version)
