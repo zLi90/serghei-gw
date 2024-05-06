@@ -290,14 +290,7 @@ public:
 					#endif
 
 					if(fabs(diffVolume)>TOL_MASS_ERROR){
-						// std::cerr << YEXC "   Old Volume:\t" << oldVolume <<"\n";
-						// std::cerr << YEXC "   New Volume:\t" << newVolume <<"\n";
-						// std::cerr << YEXC "   Diff Volume:\t" << newVolume-oldVolume <<"\n";
-						// std::cerr << YEXC "   Inflow Volume:\t" << bint.inflowDischargeG*dom.dt <<"\n";
-						// std::cerr << YEXC "   Outflow Volume:\t" << bint.outflowDischargeG*dom.dt <<"\n";
-						// std::cerr << YEXC "   Adjusted Volume:\t" << bint.adjustedVolumeG <<"\n";
 						std::cerr << YEXC "   Rain Volume:\t" << sint.rainFluxG*dom.dt <<"\n";
-						// std::cerr << YEXC "   Inf Volume:\t" << sint.infFluxG*dom.dt <<"\n";
 						#if SERGHEI_DEBUG_MASS_CONS > 1
                             getchar();
                         #endif
