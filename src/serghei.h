@@ -21,14 +21,14 @@
 #include "tools.h"
 
 class SERGHEI{
-public: 
+public:
 	Parallel       par;
 	Initializer    init;
 
 	State               state;
 	Domain              dom;
 	FileIO              io;
-  
+
  private:
 	SourceSinkData      ss;
 	ExternalBoundaries  ebc;
@@ -40,11 +40,11 @@ public:
   #if SERGHEI_TOOLS
 	  Observations obs;
 	#endif
-		
+
   #if SERGHEI_PARTICLE_TRACKING
 		ParticleTracker parTrack;
 	#endif
-		
+
 	#if SERGHEI_SUBSURFACE_MODEL
 		DomainSubsurface	  domsub;
 		SubsurfaceState 	statesub;
@@ -52,9 +52,9 @@ public:
 
 	double oldVolume,newVolume, diffVolume;
 	double accumDt=0.0;
-  
+
   // Kokkos objects
-  Kokkos::Timer timer; 
+  Kokkos::Timer timer;
   Kokkos::InitializationSettings kokkosSettings;
 
 public:
@@ -68,9 +68,9 @@ public:
 			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 	  #endif
 
-    
+
     init.initializeMPI( &argc , &argv , par );
-    
+
     #ifdef __NVCC__
 		  kokkosSettings.set_device_id(par.myrank%par.nthreads);
 	  #else
@@ -86,7 +86,7 @@ public:
 	  #if SERGHEI_DEBUG_WORKFLOW
 	    std::cerr << GGD "Initialising Kokoks - rank " << par.myrank << std::endl;
 	  #endif
-	  
+
     Kokkos::initialize(kokkosSettings);
 
 	  #if SERGHEI_DEBUG_WORKFLOW
@@ -158,7 +158,7 @@ public:
 			std::cout << std::endl << GOK "SIMULATION STARTS" << std::endl;
 			std::cout << BDASH << "Start time: " << dom.startTime << std::endl;
 			std::cout << BDASH << "End time: " << dom.endTime << std::endl;
-		} 
+		}
 
 		while (dom.etime < dom.endTime) {
 
@@ -206,14 +206,7 @@ public:
 					std::cerr << "     Outflow Discharge: " << bint.outflowDischargeG <<"\n";
 
 					if(fabs(diffVolume)>TOL_MASS_ERROR){
-						std::cerr << YEXC "   Old Volume:\t" << oldVolume <<"\n";
-						std::cerr << YEXC "   New Volume:\t" << newVolume <<"\n";
-						std::cerr << YEXC "   Diff Volume:\t" << newVolume-oldVolume <<"\n";
-						std::cerr << YEXC "   Inflow Volume:\t" << bint.inflowDischargeG*dom.dt <<"\n";
-						std::cerr << YEXC "   Outflow Volume:\t" << bint.outflowDischargeG*dom.dt <<"\n";
-						std::cerr << YEXC "   Adjusted Volume:\t" << bint.adjustedVolumeG <<"\n";
 						std::cerr << YEXC "   Rain Volume:\t" << sint.rainFluxG*dom.dt <<"\n";
-						std::cerr << YEXC "   Inf Volume:\t" << sint.infFluxG*dom.dt <<"\n";
 						#if SERGHEI_DEBUG_MASS_CONS > 1
                             getchar();
                         #endif
@@ -260,7 +253,7 @@ public:
     #if SERGHEI_DEBUG_WORKFLOW
 			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 	  #endif
-    
+
     dom.timers.total = timer.seconds();
 		if (par.masterproc){
 			std::cerr << GOK "SIMULATION FINISHED\n";
@@ -272,10 +265,10 @@ public:
 	  #if SERGHEI_TOOLS
 	    if(par.masterproc) obs.closeOutputStreams();
 	  #endif
-	
-  
-    return 1; 
-  
+
+
+    return 1;
+
   }
 
 
