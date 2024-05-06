@@ -2,12 +2,12 @@
 #define _DOMAIN_INTEGRATOR_H_
 
 #include "State.h"
-#include "SourceSink.h"
+#include "SWSourceSink.h"
 #include "Domain.h"
 #include "Indexing.h"
 
 class surfaceIntegrator {
-
+  
   Kokkos::Timer timer;
 
   public:
@@ -111,7 +111,7 @@ Kokkos::Timer timer;
 
 public:
 
-  int ncellsBC, ncellsBCG;
+  int ncellsBC;
 
   real adjustedVolume ;  // boundary water volume in domain [L^3] adjusted (e.g. impose water depth) (local)
   real outflowDischarge; // boundary outflow discharge in domain [L^3/T] (local)
@@ -180,19 +180,18 @@ public:
 		outflowDischargeG=0.0;
 		inflowAccumulatedG=0.0;
 		outflowAccumulatedG=0.0;
-        ncellsBCG = 0;
-        MPI_Allreduce(&inflowDischarge, &inflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(&inflowDischarge, &inflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 		MPI_Allreduce(&outflowDischarge, &outflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 		MPI_Allreduce(&inflowAccumulated, &inflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 		MPI_Allreduce(&outflowAccumulated, &outflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-        MPI_Allreduce(&ncellsBC, &ncellsBCG, 1, MPI_INT , MPI_SUM, MPI_COMM_WORLD);
 		MPI_Barrier(MPI_COMM_WORLD);
+
 	}
 
   dom.timers.integrate += timer.seconds();
   }
 
-
+	
 
 };
 

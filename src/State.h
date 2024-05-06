@@ -40,9 +40,6 @@ public:
   realArr dsw0; //3 variables (h,hu,hv). left and south contribs
   realArr dsw1; //3 variables (h,hu,hv). right and north contribs
 
-  // surface-subsurface exchange flux
-  realArr qss;
-
   boolArr isnodata; //contains 0 if is a regular cell, 1 if is nodata cell
   intArr isBound; //positive values for inlet boundaries, negative values for outlet bvoundaries, 0 for inner cells
 
@@ -63,7 +60,7 @@ public:
 	 isBound 	= intArr( "isBound" , dom.nCellMem );
     dsw0 			= realArr( "dsw0" , 3*dom.nCellMem );
     dsw1 			= realArr( "dsw1" , 3*dom.nCellMem );
-    qss 				= realArr( "qss" , dom.nCell );
+
     #if SERGHEI_MAXFLOOD
       hMax = realArr("hMax",dom.nCellMem);
       momentumMax = realArr("momMax",dom.nCellMem);
