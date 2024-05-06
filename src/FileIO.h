@@ -14,7 +14,6 @@
 #include "Indexing.h"
 #include "DomainIntegrator.h"
 #include "tools.h"
-#include "Subsurface.h"
 #include "ParticleTracking.h"
 
 #ifndef SERGHEI_NC_MODE
@@ -28,7 +27,7 @@
 #define SERGHEI_WRITE_SUBDOMS 0
 #endif
 
-#ifndef SERGHEI_NC_REAL 
+#ifndef SERGHEI_NC_REAL
   #if SERGHEI_REAL == SERGHEI_DOUBLE
     #define SERGHEI_NC_REAL NC_DOUBLE
   #elif SERGHEI_REAL == SERGHEI_FLOAT
@@ -93,8 +92,8 @@ class ncStream{
 };
 
 class FileIO {
-public: 
-	ncStream ncin; 
+public:
+	ncStream ncin;
 
 protected:
 
@@ -114,7 +113,7 @@ protected:
 	#if SERGHEI_WRITE_SUBDOMS
 		int subdomVar;
 	#endif
-	
+
 
 private:
   Kokkos::Timer timer;
@@ -131,7 +130,7 @@ private:
 				return( ncmpi_put_vara_float_all( ncid , varid, start , count , (float*) buf));
 			#else
 				return( ncmpi_put_vara_float_all( ncid , varid, start , count , buf));
-			#endif 
+			#endif
 		#endif
 	}
 */
@@ -148,8 +147,8 @@ public:
 
 // Writes spatial fields for initial state
 	void outputIni(const State &state, Domain const &dom, SourceSinkData &ss, Parallel const &par, std::string dir){
-		nOut = floor(dom.simLength / outFreq); 
-		numOut=0; 
+		nOut = floor(dom.simLength / outFreq);
+		numOut=0;
 		if(outFormat==OUT_NETCDF){
 			outputInitNETCDF(state,dom,ss,par,dir);
 		}
@@ -233,17 +232,17 @@ public:
       ncwrap( ncmpi_def_var( ncid , "inf" , SERGHEI_NC_REAL , 3 , dimids , &infVar  ) , __LINE__,par.myrank );
       ncwrap( ncmpi_def_var( ncid , "infVol" , SERGHEI_NC_REAL , 3 , dimids , &infVolVar  ) , __LINE__,par.myrank );
     }
-    
+
 		#if SERGHEI_MAXFLOOD > 0
 		int nc_ndims = 2+SERGHEI_MAXFLOOD-1;
 		if(nc_ndims==2){
-			dimids[0] = yDim; 
+			dimids[0] = yDim;
 			dimids[1] = xDim;
 		}
 		ncwrap( ncmpi_def_var( ncid , "hMax"    , SERGHEI_NC_REAL , nc_ndims , dimids , &hMaxVar ) , __LINE__ , par.myrank);
 		ncwrap( ncmpi_def_var( ncid , "momMax"    , SERGHEI_NC_REAL , nc_ndims , dimids , &momMaxVar ) , __LINE__ , par.myrank);
 		ncwrap( ncmpi_def_var( ncid , "timehMax"    , SERGHEI_NC_REAL , nc_ndims , dimids , &timehMaxVar ) , __LINE__ , par.myrank);
-		
+
 		longname.assign("Maximum water depth");
 		ncwrap( ncmpi_put_att_text(ncid, hMaxVar, "long_name", longname.length(),longname.c_str()),__LINE__);
 		units.assign("m");
@@ -259,12 +258,12 @@ public:
 		units.assign("s");
 		ncwrap( ncmpi_put_att_text(ncid, timehMaxVar, "units", units.length(),units.c_str()),__LINE__);
 		#endif
-		
+
 		#if SERGHEI_WRITE_SUBDOMS
 			dimids[0] = yDim; dimids[1] = xDim;
 			ncwrap( ncmpi_def_var( ncid , "subdom"    , NC_INT , 2 , dimids , &subdomVar ) , __LINE__ );
 		#endif
-    
+
 		dimids[0] = yDim; dimids[1] = xDim;
     ncwrap( ncmpi_def_var( ncid , "z"    , SERGHEI_NC_REAL , 2 , dimids , &zVar ) , __LINE__,par.myrank );
 
@@ -277,10 +276,10 @@ public:
 
 		auto nowtime = std::chrono::system_clock::now();
 		std::time_t now_time = std::chrono::system_clock::to_time_t(nowtime);
-		source = std::string("Simulation started on ") + std::ctime(&now_time); 
+		source = std::string("Simulation started on ") + std::ctime(&now_time);
 		ncwrap( ncmpi_put_att(ncid, NC_GLOBAL, "history", NC_CHAR,source.length()-1,source.c_str()), __LINE__,par.myrank);
 
-		// define variable attributes 
+		// define variable attributes
 		// seems unnecessary if NAN is used
 		/*
 		#if SERGHEI_NC_ENABLE_NAN
@@ -310,7 +309,7 @@ public:
 		ncwrap( ncmpi_put_att_text(ncid, zVar, "long_name", longname.length(),longname.c_str()),__LINE__,par.myrank);
 		units.assign("m");
 		ncwrap( ncmpi_put_att_text(ncid, zVar, "units", units.length(),units.c_str()),__LINE__,par.myrank);
-		
+
 		longname.assign("Water depth");
 		ncwrap( ncmpi_put_att_text(ncid, hVar, "long_name", longname.length(),longname.c_str()),__LINE__,par.myrank);
 		units.assign("m");
@@ -386,13 +385,13 @@ public:
 		real missing_value = dom.MISSING_VALUE;
   	ncwrap(nc_put_att_float(ncid, zVar, SERGHEI_NC_MISSING_VALUE, SERGHEI_NC_REAL, 1, &missing_value));
 		#endif
-		#if SERGHEI_DEBUG_OUTPUT	
+		#if SERGHEI_DEBUG_OUTPUT
 			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << " NetCDF coordinates written" << std::endl; ;
 		#endif
 
 		// write elevation
 		writeNetCDFfield(dom,ncid,zVar,st,ct,state.isnodata,state.z,data);
-		#if SERGHEI_DEBUG_OUTPUT	
+		#if SERGHEI_DEBUG_OUTPUT
 			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << " NetCDF z written" << std::endl; ;
 		#endif
 
@@ -404,11 +403,11 @@ public:
 			});
 			Kokkos::fence();
 			writeNetCDFfield(dom,ncid,subdomVar,st,ct,state.isnodata,subdom,data);
-			#if SERGHEI_DEBUG_OUTPUT	
+			#if SERGHEI_DEBUG_OUTPUT
 				std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << " NetCDF subdom written" << std::endl; ;
 			#endif
 		#endif
-		
+
 
     writeStateNETCDF(state, dom, ss, par);
 
@@ -442,7 +441,7 @@ public:
     	ncwrap( ncmpi_inq_varid( ncid , "momMax" , &momMaxVar ) , __LINE__ );
     	ncwrap( ncmpi_inq_varid( ncid , "timehMax" , &timehMaxVar  ) , __LINE__ );
 		#endif
-	
+
 	  writeStateNETCDF(state, dom, ss, par);
 
     ncwrap( ncmpi_close(ncid) , __LINE__,par.myrank );
@@ -451,7 +450,7 @@ public:
 
 	// Builds the NetCDF dataset for the state
   void writeStateNETCDF(const State &state, Domain const &dom, SourceSinkData &ss, Parallel const &par) {
-		#if SERGHEI_DEBUG_OUTPUT	
+		#if SERGHEI_DEBUG_OUTPUT
 			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl; ;
 		#endif
   	ncArr data = ncArr("data",dom.nCell);
@@ -535,13 +534,13 @@ public:
 				if(numOut == nOut){
     			st[0] = par.j_beg; st[1] = par.i_beg;
     			ct[0] = dom.ny   ; ct[1] = dom.nx   ;
-				#endif 
+				#endif
 				writeNetCDFfield(dom,ncid,hMaxVar,st,ct,state.isnodata,state.hMax,data);
 				writeNetCDFfield(dom,ncid,momMaxVar,st,ct,state.isnodata,state.momentumMax,data);
 				writeNetCDFfield(dom,ncid,timehMaxVar,st,ct,state.isnodata,state.time_hMax,data);
 			#if SERGHEI_MAXFLOOD == 1
 			}
-			#endif 
+			#endif
 		#endif
 }
 
@@ -588,7 +587,7 @@ public:
 		#else
 			data_cpu = data.data();
 		#endif
-		
+
 		xCoord=(real*) malloc((dom.nx+1)*sizeof(real));
 		yCoord=(real*) malloc((dom.ny+1)*sizeof(real));
 
@@ -624,8 +623,8 @@ public:
 			int offset_infVol = (of_inf+1) * ncells;
 
 		#if SERGHEI_DEBUG_OUTPUT
-			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << " VTK offsets generated" << std::endl; 
-			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << " offset_z" << std::endl; 
+			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << " VTK offsets generated" << std::endl;
+			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << " offset_z" << std::endl;
 		#endif
 
     	Kokkos::parallel_for("vtkwrap_all", ncells , KOKKOS_LAMBDA(int iGlob) {
@@ -645,7 +644,7 @@ public:
       // WARNING if you implement a new variable, you have to handle the offsets in a general case (yes, you!), to handle the possibility of different variable combinations
     	});
     	Kokkos::fence();
-		
+
 		#if SERGHEI_DEBUG_OUTPUT
 			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << " VTK data wrappers set" << std::endl; ;
 		#endif
@@ -973,8 +972,8 @@ public:
 	   	domainOutputFile << std::scientific << bint.inflowAccumulatedG << " ";
       domainOutputFile << std::scientific << bint.outflowDischargeG << " ";
 	   	domainOutputFile << std::scientific << bint.outflowAccumulatedG << " ";
-			for (int i = 0; i < extbc.size(); i ++) domainOutputFile << extbc[i].netQ << " "; 
-			for (int i = 0; i < extbc.size(); i ++) domainOutputFile << extbc[i].netVol << " "; 
+			for (int i = 0; i < extbc.size(); i ++) domainOutputFile << extbc[i].netQ << " ";
+			for (int i = 0; i < extbc.size(); i ++) domainOutputFile << extbc[i].netVol << " ";
     }
 
     if (dom.isRain)
@@ -1008,7 +1007,7 @@ public:
 			for(int ii=0; ii<par.nranks; ii++) avg += logdata[ii];
 			avg = avg/par.nranks;
  			if(par.masterproc) logFile << name << "_lb\t\t"  ; for(int ii=0; ii<par.nranks; ii++) logFile << " :\t"<< logdata[ii]/avg; logFile << std::endl;
-			
+
 	}
 
   void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
@@ -1065,7 +1064,7 @@ public:
 			if(par.masterproc){
 				auto nowtime = std::chrono::system_clock::now();
 				std::time_t now_time = std::chrono::system_clock::to_time_t(nowtime);
-			
+
 				logFile << std::endl << "DateTime : " << std::ctime(&now_time) << std::endl;
 
 				char hostbuffer[256];
@@ -1125,7 +1124,7 @@ static void handle_error(Parallel &par, int status, int lineno) {
 
   if (par.masterproc) std::cerr << RERROR << "Error at line: " << lineno << ": " << ncmpi_strerror(status) << std::endl;
   MPI_Abort(MPI_COMM_WORLD, 1);
-  
+
 }
 
 #if SERGHEI_INPUT_NETCDF
@@ -1148,7 +1147,7 @@ int readNetCDFheader(const Parallel &par, ncStream &nc, Domain &dom){
   var_natts = -1;
 
   ncwrap(ncmpi_inq(nc.id, &nc.ndims, &nc.nvars, &nc.ngatts, &nc.unlimited),__LINE__,par.myrank);
-	
+
   #if SERGHEI_DEBUG_INPUT_NETCDF
 		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "\tNetCDF ndims: " << nc.ndims << std::endl;
 		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "\tNetCDF nvars: " << nc.nvars << std::endl;
@@ -1171,7 +1170,7 @@ int readNetCDFheader(const Parallel &par, ncStream &nc, Domain &dom){
 	int varid;
 	ncwrap(ncmpi_inq_varid(nc.id,"t",&varid),__LINE__,par.myrank);
 	ncwrap(ncmpi_get_var_double_all(nc.id,varid,&dom.startTime),__LINE__,par.myrank);
-	std::cout << BDASH << "Current time read from NetCDF input: " << dom.startTime << std::endl; 
+	std::cout << BDASH << "Current time read from NetCDF input: " << dom.startTime << std::endl;
 
 	char dimname[NC_MAX_NAME+1];
 
@@ -1203,7 +1202,7 @@ int readNetCDFcoordinates(const Parallel &par, ncStream &nc, Domain &dom){
   ncwrap(ncmpi_inq_var(nc.id, varid, varname, &vtype, &var_ndims, dimids, &var_natts),__LINE__,par.myrank);
 
   //ncwrap(ncmpi_get_var_double_all(ncin,varid,data),__LINE__,par.myrank);
-	
+
   ncwrap(ncmpi_get_var_double_all(nc.id,varid,data.data()),__LINE__,par.myrank);
 
 	// find the westmost corner, xll
@@ -1213,7 +1212,7 @@ int readNetCDFcoordinates(const Parallel &par, ncStream &nc, Domain &dom){
 	Kokkos::fence();
 
 	dom.dxConst = data(1)-data(0);
-	
+
 	// the y-coordinates
 	Kokkos::resize(data,dom.ny_glob);
 	ncwrap(ncmpi_inq_varid(nc.id,"y",&varid),__LINE__,par.myrank);
@@ -1222,15 +1221,15 @@ int readNetCDFcoordinates(const Parallel &par, ncStream &nc, Domain &dom){
 	Kokkos::parallel_reduce( dom.ny_glob , KOKKOS_LAMBDA (int ii, double &y) {
        y =  min(y,data(ii));
     } , Kokkos::Min<double>(dom.yll) );
-	
+
 	Kokkos::fence();
 	// find the cell vertex, instead of cell center
 	dom.xll -= 0.5 * dom.dxConst;
 	dom.yll -= 0.5 * dom.dxConst;
-	
+
 	std::cout << GOK << "dx = " << dom.dx() << std::endl;
 	std::cout << GOK << "Extent : (" << dom.xll << ", " << dom.yll << ") (" << dom.xll + dom.dx() * dom.nx_glob << ", " << dom.yll + dom.dx() * dom.ny_glob<< ")" << std::endl;
-	
+
 	if(par.masterproc)	std::cout << GOK << "Coordinates read from " << nc.fname << std::endl;
 	return 1;
 }
@@ -1249,14 +1248,14 @@ int readNetCDFvariable(const Parallel &par, const Domain &dom, State &state, ncS
   int varid=-1;
 
 	ncwrap(ncmpi_inq_varid(nc.id,vname.c_str(),&varid),__LINE__,par.myrank);
-	
-	
+
+
 	#if SERGHEI_DEBUG_INPUT_NETCDF
 		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "\tTarget NetCDF variable " << vname << " has index " << varid << std::endl;
     #endif
-		
+
   // it is possible to read directly into the raw pointer of a Kokkos::View. However, because the order of dimensions is different, this is avoided here and we use a buffer
-  double *data = new double[nc.ndata];  
+  double *data = new double[nc.ndata];
   ncwrap(ncmpi_get_var_double_all(nc.id,varid,data),__LINE__,par.myrank);
   // this is how you read into a Kokkos::View
   //ncwrap(ncmpi_get_var_double_all(ncin,ivar,state.h.data()),__LINE__,par.myrank);
@@ -1266,9 +1265,9 @@ int readNetCDFvariable(const Parallel &par, const Domain &dom, State &state, ncS
   std::cout << GGD << vname << " is internal var " << var << std::endl;
   #endif
   if(var < 0 ){
-		std::cerr << RERROR << "Internal variable " << vname << " not found." << std::endl; 
+		std::cerr << RERROR << "Internal variable " << vname << " not found." << std::endl;
 		return 0;
-	} 
+	}
 
   Kokkos::parallel_for(nc.ndata, KOKKOS_LAMBDA(int iGlob) {
     int i, j;
@@ -1288,11 +1287,11 @@ int readNetCDFvariable(const Parallel &par, const Domain &dom, State &state, ncS
     if(var == ioV) state.hv(ii1) = data[ii2]*state.h(ii1);
 	});
 
-	
+
   if(par.masterproc) std::cout << GOK << "NetCDF variable " << GREEN << BOLD << vname << RESET << " read" << std::endl;
   free(data);
   return 1;
-  
+
 }
 #endif
 

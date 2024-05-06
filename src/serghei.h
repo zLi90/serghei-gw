@@ -14,7 +14,6 @@
 #include "FileIO.h"
 #include "Exchange.h"
 #include "SWSourceSink.h"
-#include "Subsurface.h"
 #include "DomainIntegrator.h"
 #include "Vegetation.h"
 #include "ParticleTracking.h"
@@ -43,11 +42,6 @@ public:
 
   #if SERGHEI_PARTICLE_TRACKING
 		ParticleTracker parTrack;
-	#endif
-
-	#if SERGHEI_SUBSURFACE_MODEL
-		DomainSubsurface	  domsub;
-		SubsurfaceState 	statesub;
 	#endif
 
 	double oldVolume,newVolume, diffVolume;
@@ -99,13 +93,6 @@ public:
 			return 0;
 		};
 
-    // Initialize subsurface model if activated
-		#if SERGHEI_SUBSURFACE_MODEL
-		if(!init.initializeSubsurface(statesub, state, domsub, dom, par, tint, parser, io, inFolder, outFolder)){
-		  std::cerr << RERROR "Unable to initialise the subsurface domain" << "\n";
-		  return 0;
-		};
-		#endif
 
     #if SERGHEI_TOOLS
   	if(!obs.readInputFiles(inFolder,par)) return 0;

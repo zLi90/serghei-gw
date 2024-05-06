@@ -15,11 +15,9 @@
 #include "define.h"
 #include "string.h"
 #include "Domain.h"
-#include "DomainSubsurface.h"
 #include "FileIO.h"
 #include "Parallel.h"
 #include "SWSourceSink.h"
-#include "Subsurface.h"
 #include "rasterTools.h"
 
 class Parser {
@@ -95,11 +93,11 @@ public:
  	tempStr = fNameIn + "parameters.input";
  	if(!readParamsFile(tempStr,dom,par,io)) return 0;
   #if SERGHEI_INPUT_NETCDF
-	  io.ncin.fname = fNameIn + "input.nc"; 
+	  io.ncin.fname = fNameIn + "input.nc";
  	  if(!io.readNetCDFheader(par,io.ncin,dom)) return 0;
     if(!io.readNetCDFcoordinates(par,io.ncin,dom)) return 0;
   #else
-	  tempStr = fNameIn + "dem.input"; 
+	  tempStr = fNameIn + "dem.input";
  	  if(!readHeaderDEMFile(tempStr,dom,par));
   #endif
 
@@ -324,7 +322,7 @@ public:
   int readDEMFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
 
 		if(!readRasterField(fNameIn, dom, par, state.z)) return 0;
-  
+
 		Kokkos::parallel_reduce("init_z", dom.nCell , KOKKOS_LAMBDA (int iGlob, int &ncell) {
 			int ii = dom.getIndex(iGlob);
 
@@ -346,25 +344,25 @@ public:
   int readRoughnessFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
 
 		int found = readRasterField(fNameIn, dom, par, state.roughness);
-		
+
 		if(!found){
 			if (par.masterproc){
-				std::cerr << YEXC << fNameIn << " not found" << std::endl; 
+				std::cerr << YEXC << fNameIn << " not found" << std::endl;
 				std::cerr << BDASH "A constant roughness is set " << std::endl;
-			}	
+			}
 		}
 
 		int err=0;
 		Kokkos::parallel_reduce("init_roughness", dom.nCell , KOKKOS_LAMBDA (int iGlob, int &err) {
  			int ii = dom.getIndex(iGlob);
-      
+
 			if(state.isnodata(ii)){
 				state.roughness(ii) = NAN;
 			}else{
         if(state.roughness(ii) < 0.0 ) err++;
-      }     
+      }
 		}, Kokkos::Sum<int>(err));
-	
+
 		if(err > 0){
 			if(par.masterproc){
 				std::cerr << RERROR "There are negative roughness values in " << fNameIn << std::endl;
@@ -382,12 +380,12 @@ public:
 	int readHiniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
 
 		int found = readRasterField(fNameIn, dom, par, state.h);
-		
+
 		if(!found){
 			if (par.masterproc){
-				std::cerr << YEXC << fNameIn << " not found" << std::endl; 
+				std::cerr << YEXC << fNameIn << " not found" << std::endl;
 				std::cerr << BDASH "A dry domain is set " << std::endl;
-			}	
+			}
 		}
 
 		int err=0;
@@ -396,7 +394,7 @@ public:
 			if(state.h(ii) < 0.0 ) err++;
 			if(state.isnodata(ii)) state.h(ii)=0.0;
 		}, Kokkos::Sum<int>(err));
-	
+
 		if(err > 0){
 			if(par.masterproc){
 				std::cerr<< RERROR "There are negative depth values in " << fNameIn << std::endl;
@@ -415,26 +413,26 @@ public:
 
 		int found;
 		const real constVel=0.0;
-		
+
 		found = readRasterField(fNameIn, dom, par, state.hu);
 		if(!found){
 			if (par.masterproc){
-				std::cerr << YEXC << fNameIn << " not found" << std::endl; 
+				std::cerr << YEXC << fNameIn << " not found" << std::endl;
 				std::cerr << BDASH "A constant value of "<< constVel << " set for initial x-velocity" << std::endl;
-			}	
+			}
 		}
 
 		int err=0;
 		Kokkos::parallel_reduce("init_hu", dom.nCell , KOKKOS_LAMBDA (int iGlob, int &err) {
  			int ii = dom.getIndex(iGlob);
-			if(!found) state.hu(ii) = constVel; 
+			if(!found) state.hu(ii) = constVel;
 			if(state.isnodata(ii)){
 				state.hu(ii) = NAN;
 			}else{
 				state.hu(ii) *= state.h(ii);
 			}
 		}, Kokkos::Sum<int>(err));
-	
+
 		if (par.masterproc) std::cerr<<GOK "Initial x-velocity (u) set" << std::endl;
 
 	 	return 1;
@@ -445,26 +443,26 @@ public:
 
 		int found;
 		const real constVel=0.0;
-		
+
 		found = readRasterField(fNameIn, dom, par, state.hv);
 		if(!found){
 			if (par.masterproc){
-				std::cerr << YEXC << fNameIn << " not found" << std::endl; 
+				std::cerr << YEXC << fNameIn << " not found" << std::endl;
 				std::cerr << BDASH "A constant value of "<< constVel << " set for initial y-velocity" << std::endl;
-			}	
+			}
 		}
 
 		int err=0;
 		Kokkos::parallel_reduce("init_hu", dom.nCell , KOKKOS_LAMBDA (int iGlob, int &err) {
  			int ii = dom.getIndex(iGlob);
-			if(!found) state.hv(ii) = constVel; 
+			if(!found) state.hv(ii) = constVel;
 			if(state.isnodata(ii)){
 				state.hv(ii) = NAN;
 			}else{
 				state.hv(ii) *= state.h(ii);
 			}
 		}, Kokkos::Sum<int>(err));
-	
+
 		if (par.masterproc) std::cerr<<GOK "Initial y-velocity (v) set" << std::endl;
 
 	 	return 1;
@@ -960,7 +958,7 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
         std::string fname = dir + hydrographFile[k];
         std::ifstream fHydro(fname);
         int ndata=0;
-        
+
 				// read in kth polygon
 				int readHydro=0;
 				switch(ebc.extbc[k].bctype){
@@ -972,7 +970,7 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 				}
 				if(readHydro){
 					#if SERGHEI_DEBUG_BOUNDARY
-						std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "Reading BC hydrograph file " << k << ": " << fname << std::endl; 
+						std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "Reading BC hydrograph file " << k << ": " << fname << std::endl;
 					#endif
 					if(fHydro.is_open()) {
 						fHydro.ignore(256,' ');
@@ -1016,7 +1014,7 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
     });
 
 
-	 for (int k = 0; k < ebc.extbc.size(); k ++) { 
+	 for (int k = 0; k < ebc.extbc.size(); k ++) {
 		  int value;
 		  switch (ebc.extbc[k].bctype){
 			case SWE_BC_CRITICAL:
@@ -1366,628 +1364,6 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 
   }
 
-
-#if SERGHEI_SUBSURFACE_MODEL
-  // read subsurface.input, ZhiLi20210219
-  int readSubsurfaceDimensions(std::string fNameIn, DomainSubsurface &dom, Parallel &par)
-  {
-    int flag = -1;
-    std::string tempStr;
-    tempStr = fNameIn + "subsurface.input";
-    flag = readSubsurfaceFile(tempStr,dom,par);
-    return flag;
-  }
-
-  /* io (Wed Mar 10 12:46:00 PST 2021): implemented the read in
-     functionality for the van Genuchten parameters.
-
-     vgTable structure
-     =================
-
-                        parameter index
-                ------------------------------->
-        s
-        o |  Ks1 | Phi1 | ThS1 | ThR1 | n1 | m1 | a1
-        i |  Ks2 | Phi2 | ThS2 | ThR2 | n2 | m2 | a2
-        l |  Ks3 | Phi3 | ThS3 | ThR3 | n3 | m3 | a3
-        i v
-        d
-
-   */
-  int readVGParameters(std::string fNameIn, SubsurfaceState &state, DomainSubsurface &dom, Parallel &par)
-  {
-    int flag = -1;
-    std::string fname;
-    fname = fNameIn + "vg.input";
-
-    std::ifstream fInStream(fname);
-    std::string line;
-    ParserLine pline;
-
-    if (fInStream.is_open())
-      {
-	while (std::getline(fInStream, line))
-	  {
-	    pline.line = line;
-	    pline.parse();
-
-	    if (!pline.key.empty())
-	      {
-		if(!strcmp("alpha", pline.key.c_str()))
-		  {
-		    std::string tail;
-		    std::string head;
-
-		    pline.value >> tail;
-
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " " << tail << std::endl;
-		    #endif
-
-		    uint splitloc = tail.find(';', 0);
-
-		    for (int i = 0; i < dom.nsoilID - 1; i ++)
-		      {
-			head = tail.substr(0, splitloc);
-			tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-
-			#if SERGHEI_DEBUG_SUBSURFACE
-			std::cerr << GGD " a-" << (i + 1) << " " << head << std::endl;
-			#endif
-
-			state.vgTable(packIndices(dom.nsoilID, state.nVGparam, i, 6)) = std::stof(head);
-
-		      }
-
-		    /* last entry must be handled outside of the loop */
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " a-" << dom.nsoilID << " " << tail << std::endl;
-		    #endif
-
-		    state.vgTable(packIndices(dom.nsoilID, state.nVGparam, dom.nsoilID - 1, 6)) = std::stof(tail);
-		  }
-		else if(!strcmp("n", pline.key.c_str()))
-		  {
-		    std::string tail;
-		    std::string head;
-
-		    pline.value >> tail;
-
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " " << tail << std::endl;
-		    #endif
-
-		    uint splitloc = tail.find(';', 0);
-
-		    for (int i = 0; i < dom.nsoilID - 1; i ++)
-		      {
-			head = tail.substr(0, splitloc);
-			tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-
-			#if SERGHEI_DEBUG_SUBSURFACE
-			std::cerr << GGD " n-" << (i + 1) << " " << head << std::endl;
-			#endif
-
-			state.vgTable(packIndices(dom.nsoilID, state.nVGparam, i, 4)) = std::stof(head);
-		      }
-
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " n-" << dom.nsoilID << " " << tail << std::endl;
-		    #endif
-
-		    state.vgTable(packIndices(dom.nsoilID, state.nVGparam, dom.nsoilID - 1, 4)) = std::stof(tail);
-		  }
-		else if(!strcmp("Ks", pline.key.c_str()))
-		  {
-		    std::string tail;
-		    std::string head;
-
-		    pline.value >> tail;
-
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " " << tail << std::endl;
-		    #endif
-
-		    uint splitloc = tail.find(';', 0);
-
-		    for (int i = 0; i < dom.nsoilID - 1; i ++)
-		      {
-			head = tail.substr(0, splitloc);
-			tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-
-			#if SERGHEI_DEBUG_SUBSURFACE
-			std::cerr << GGD " Ks-" << (i + 1) << " " << head << std::endl;
-			#endif
-
-			state.vgTable(packIndices(dom.nsoilID, state.nVGparam, i, 0)) = std::stof(head);
-		      }
-
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " Ks-" << dom.nsoilID << " " << tail << std::endl;
-		    #endif
-
-		    state.vgTable(packIndices(dom.nsoilID, state.nVGparam, dom.nsoilID - 1, 0)) = std::stof(tail);
-		  }
-		else if(!strcmp("Phi", pline.key.c_str()))
-		  {
-		    std::string tail;
-		    std::string head;
-
-		    pline.value >> tail;
-
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " " << tail << std::endl;
-		    #endif
-
-		    uint splitloc = tail.find(';', 0);
-
-		    for (int i = 0; i < dom.nsoilID - 1; i ++)
-		      {
-			head = tail.substr(0, splitloc);
-			tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-
-			#if SERGHEI_DEBUG_SUBSURFACE
-			std::cerr << GGD " Phi-" << (i + 1) << " " << head << std::endl;
-			#endif
-
-			state.vgTable(packIndices(dom.nsoilID, state.nVGparam, i, 1)) = std::stof(head);
-		      }
-
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " Phi-" << dom.nsoilID << " " << tail << std::endl;
-		    #endif
-
-		    state.vgTable(packIndices(dom.nsoilID, state.nVGparam, dom.nsoilID - 1, 1)) = std::stof(tail);
-		  }
-		else if(!strcmp("ThetaR", pline.key.c_str()))
-		  {
-		    std::string tail;
-		    std::string head;
-
-		    pline.value >> tail;
-
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " " << tail << std::endl;
-		    #endif
-
-		    uint splitloc = tail.find(';', 0);
-
-		    for (int i = 0; i < dom.nsoilID - 1; i ++)
-		      {
-			head = tail.substr(0, splitloc);
-			tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-
-			#if SERGHEI_DEBUG_SUBSURFACE
-			std::cerr << GGD " Phi-" << (i + 1) << " " << head << std::endl;
-			#endif
-
-			state.vgTable(packIndices(dom.nsoilID, state.nVGparam, i, 3)) = std::stof(head);
-		      }
-
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " Phi-" << dom.nsoilID << " " << tail << std::endl;
-		    #endif
-
-		    state.vgTable(packIndices(dom.nsoilID, state.nVGparam, dom.nsoilID - 1, 3)) = std::stof(tail);
-		  }
-		else if(!strcmp("ThetaS", pline.key.c_str()))
-		  {
-		    std::string tail;
-		    std::string head;
-
-		    pline.value >> tail;
-
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " " << tail << std::endl;
-		    #endif
-
-		    uint splitloc = tail.find(';', 0);
-
-		    for (int i = 0; i < dom.nsoilID - 1; i ++)
-		      {
-			head = tail.substr(0, splitloc);
-			tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-
-			#if SERGHEI_DEBUG_SUBSURFACE
-			std::cerr << GGD " Phi-" << (i + 1) << " " << head << std::endl;
-			#endif
-
-			state.vgTable(packIndices(dom.nsoilID, state.nVGparam, i, 2)) = std::stof(head);
-		      }
-
-		    #if SERGHEI_DEBUG_SUBSURFACE
-		    std::cerr << GGD " Phi-" << dom.nsoilID << " " << tail << std::endl;
-		    #endif
-
-		    state.vgTable(packIndices(dom.nsoilID, state.nVGparam, dom.nsoilID - 1, 2)) = std::stof(tail);
-		  }
-		else
-		  {
-		  	 if(par.masterproc){
-		    	std::cerr << RERROR "key " << pline.key << " not understood in file " << fNameIn << std::endl;
-		    }
-			 flag = -1;
-		  }
-	      }
-	  }
-      }
-
-      if (par.masterproc){
-          std::cerr<< GOK "van Genuchten parameters read\n";
-
-	  #if SERGHEI_DEBUG_SUBSURFACE
-	  for (int i = 0; i < dom.nsoilID; i ++)
-	    {
-
-	      std::cerr << GGD << " ";
-
-	      for (int j = 0; j < state.nVGparam; j ++)
-		{
-
-		  std::cerr << state.vgTable(packIndices(dom.nsoilID, state.nVGparam, i, j)) << " ";
-
-		}
-
-	      std::cerr << std::endl;
-
-	    }
-	  #endif
-      }
-
-    flag = 1;
-    return flag;
-  }
-
-
-  // assign soilID to each grid cell
-  int readSoilID(std::string fNameIn, SubsurfaceState &statesub, DomainSubsurface &domsub, Parallel &par)
-  {
-      intArr tmpVar=intArr("var", domsub.nx_glob*domsub.ny_glob*domsub.nz_glob );
-      std::ifstream fInStream(fNameIn);
-      std::string line, str;
-      int tmp;
-      int n_soil=1;
-  	 int ndata=domsub.ny_glob*domsub.nx_glob*domsub.nz_glob;
-
-  	if (fInStream.is_open()){
-      std::getline(fInStream,str,' ');
-      std::getline(fInStream,str);
-      std::stringstream(str) >> n_soil;
-
-        //compare the values t* with the DEM file just to check if we are using the same values, otherwise error
-        if(n_soil != domsub.nsoilID){
-		  			 if(par.masterproc){
-
-        		std::cerr<< RERROR "Number of soilID does not equal to that specified in the VG Table. Unable to continue\n";
-			}
-            if (par.masterproc) {std::cerr << BDASH "n_soil: " 	<< n_soil 	<< ", in the Table : " << statesub.nVGparam <<"\n";}
-        	return 0;
-        }
-
-      	for (int ii=0; ii<ndata; ii++) {
-  			if (!fInStream.fail() && !fInStream.eof()){
-  				fInStream >> tmp;
-  				tmpVar(ii)=tmp;
-  			}else{
-				if(par.masterproc){
-  				std::cerr<< RERROR "Error reading soil ID content file. Not enough data\n";
-  				return 0;
-				}
-  			}
-  		}
-  		fInStream.close();
-  	}
-
-     Kokkos::parallel_for("init_soilID", domsub.ny*domsub.nx*domsub.nz , KOKKOS_LAMBDA (int iGlob) {
-         int i,j,k;
-         unpackIndices(iGlob,domsub.nz,domsub.ny,domsub.nx,k,j,i);
-         // get global index for the extended domain (including halo cells)
-         int ii1 = (hc+k)*(domsub.nx+2*hc)*(domsub.ny+2*hc) + (hc+j)*(domsub.nx+2*hc) + i + hc;
-         // get index for the subdomain (par.j_beg+j,par.i_beg+i)
-         // note: As of 2021-03-20, ii2 is calculated following serial implementation (i.e. par.j_beg=0, etc.)
-         int ii2 = k*domsub.nx*domsub.ny + j*domsub.nx + i;
-         statesub.soilID(ii1)=tmpVar(ii2);
-         if(statesub.soilID(ii1) < 0 || statesub.soilID(ii1) > n_soil-1){
-				if(par.masterproc){
-             	std::cerr<< RERROR "Error: soil ID must be > 0 and < " << n_soil << "!!!\n";
-					return 0;
-				 }
-         }
-     });
-  	if (par.masterproc)   {std::cerr<<GOK "Soil ID  set\n";}
-   	return 1;
-  }
-
-  // read subsurface.input for subsurface domain information, ZhiLi20210219
-  int readSubsurfaceFile(std::string fNameIn, DomainSubsurface &dom, Parallel &par) {
-    // Initialize all read-in values to -999
-    dom.nz_glob = -999;
-    dom.bottomZ = -999;
-    par.nproc_z = -999;
-    std::string strAux;
-
-    // Read in colon-separated key: value file line by line
-    std::ifstream fInStream(fNameIn);
-    std::string line;
-    ParserLine pline;
-
-    if (fInStream.is_open()){
-        while (std::getline(fInStream, line)) {
-             pline.line = line;
-             pline.parse();
-             // If the line was valid and a key is stored
-	     /* Rational for naming:
-		ndepth  : since we have ncols and nrows
-		parNz   : consistent with parNx and parNy
-		bottomZ : conveys the intent more clearly */
-             if(!pline.key.empty()){
-                if      ( !strcmp( "ndepth" , pline.key.c_str() ) ) { pline.value >> dom.nz_glob  ; }
-                else if ( !strcmp( "parNz" , pline.key.c_str() ) ) { pline.value >> par.nproc_z  ; }
-                else if ( !strcmp( "bottomZ"    , pline.key.c_str() ) ) { pline.value >> dom.bottomZ     ; }
-		else if (!strcmp("nSoilID", pline.key.c_str()))
-		  {
-		    pline.value >> dom.nsoilID;
-		  }
-                else if ( !strcmp( "BCtype"  , pline.key.c_str() ) ) { pline.value >> strAux 		; handleSubsurfaceBCtype(strAux,dom,fNameIn);}
-                // allow useless fields to exist in subsurface.input
-                // else {
-                //   std::cerr << RERROR "key " << pline.key << " not understood in file " << fNameIn << "\n";
-                //   exit(-1);
-                // }
-            }
-        }
-    }
-    else{
-	 	if(par.masterproc){
-        std::cerr<< RERROR "Unable to open " << fNameIn << "\n";
-        return 0;
-		 }
-    }
-
-    // Test to make sure all values were initialized
-    if (dom.nz_glob   == -999) { if (par.masterproc) std::cerr << RERROR "key " << "ndepth" << " not set."; exit(-1); }
-    if (dom.bottomZ   == -999) { if (par.masterproc) std::cerr << RERROR "key " << "bottomZ" << " not set."; exit(-1); }
-    if (par.nproc_z   == -999) { if (par.masterproc) std::cerr << RERROR "key " << "parNz" << " not set."; exit(-1); }
-    if (dom.BCtype    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "BCtype" << " not set."; exit(-1); }
-
-    // Print out the values
-    if (par.masterproc) {
-      std::cerr << BDASH "ndepth  : "  << dom.nz_glob    << "\n";
-      std::cerr << BDASH "bottomZ : "  << dom.bottomZ    << "\n";
-      std::cerr << BDASH "parNz   : "  << par.nproc_z    << "\n";
-      std::cerr << BDASH "BCtype  : "  << dom.BCtype     << "\n";
-    }
-    if (par.masterproc){
-        std::cerr<< GOK "Subsurface parameters read\n";
-    }
-
-    return 1;
-
-  }
-
-  // Currently this function is just a copy of "handleBCtype"
-  // Need to implement BC types that will be used in the subsurface solver, ZhiLi20210219
-  void handleSubsurfaceBCtype(std::string &str, DomainSubsurface &dom, std::string &fNameIn) {
-    size_t splitloc = str.find("//",0);
-    std::string strloc;
-    if (splitloc != std::string::npos){
-      strloc = str.substr(0,splitloc);
-    } else {
-      strloc = str;
-    }
-    if      ( !strcmp(strloc.c_str(),"PERIODIC") ) { dom.BCtype = SUB_BC_PERIODIC; }
-    else if ( !strcmp(strloc.c_str(),"REFLECTIVE"  ) ) { dom.BCtype  = SUB_BC_REFLECTIVE ; }
-    else if ( !strcmp(strloc.c_str(),"TRANSMISSIVE"  ) ) { dom.BCtype  = SUB_BC_TRANSMISSIVE ; }
-    else  {
-	 	if (par.masterproc) {
-      	std::cerr << RERROR " unrecognized BCtype " << strloc.c_str() << " in file " << fNameIn << "\n";
-      	exit(-1);
-		}
-    }
-  }
-
-
-  int readSubsurfaceInitialState(std::string fDir, std::string fNameIn, DomainSubsurface &domsub, SubsurfaceState &statesub, Parallel &par) {
-
- 	 realArr tmpVar=realArr("var", domsub.nx_glob*domsub.ny_glob*domsub.nz_glob );
-     std::ifstream fInStream(fDir+fNameIn);
-     std::string line;
-
- 	 int tnx,tny,tnz;
- 	 real txll,tyll,tzll, tdx;
- 	 real nodata;
-
- 	 tnx=-999;    tny=-999;   tnz=domsub.nz;
-
- 	 int ndata=domsub.ny_glob*domsub.nx_glob*domsub.nz_glob;
-    std::string str;
- 	if (fInStream.is_open()){
-     std::getline(fInStream,str,' ');
-     std::getline(fInStream,str);
-     std::stringstream(str) >> tnx;
-
-     std::getline(fInStream,str,' ');
-     std::getline(fInStream,str);
-     std::stringstream(str) >> tny;
-
- 		//compare the values t* with the DEM file just to check if we are using the same values, otherwise error
- 		if(domsub.ny_glob !=tny || domsub.nx_glob !=tnx){
- 			if (par.masterproc) {
-			std::cerr<< RERROR "Initial head/water content file parameters don't match DEM file parameters. Unable to continue\n";
-     		// Print out the values
- 			 if (par.masterproc) {
- 				std::cerr << BDASH "nx_glob: " 	<< domsub.nx_glob 	<< tnx <<"\n";
- 				std::cerr << BDASH "ny_glob: "<< domsub.ny_glob 	<< tny << "\n";
- 			 }
-
- 			return 0;
-			}
- 		}
-
- 		real tmp;
-
-     	for (int ii=0; ii<ndata; ii++) {
- 			if (!fInStream.fail() && !fInStream.eof()){
- 				fInStream >> tmp;
- 				tmpVar(ii)=tmp;
- 			}else{
-				if (par.masterproc) {
- 					std::cerr<< RERROR "Error reading initial head/water content file. Not enough data\n";
- 					return 0;
-				}
- 			}
- 		}
-
- 		fInStream.close();
-
- 	}
-
-
-    if (!strcmp(fNameIn.c_str(), "head.input"))
-    {
-        Kokkos::parallel_for("init_sub_h", domsub.ny*domsub.nx*domsub.nz , KOKKOS_LAMBDA (int iGlob) {
-            int i,j,k;
-            unpackIndices(iGlob,domsub.nz,domsub.ny,domsub.nx,k,j,i);
-            // get global index for the extended domain (including halo cells)
-            int ii1 = (hc+k)*(domsub.nx+2*hc)*(domsub.ny+2*hc) + (hc+j)*(domsub.nx+2*hc) + i + hc;
-            // get index for the subdomain (par.j_beg+j,par.i_beg+i)
-            // note: As of 2021-03-20, ii2 is calculated following serial implementation (i.e. par.j_beg=0, etc.)
-            int ii2 = k*domsub.nx*domsub.ny + j*domsub.nx + i;
-            statesub.h(ii1)=tmpVar(ii2);
-            if(statesub.isnodata(ii1)){
-                statesub.h(ii1)=0.0;
-            }
-            // get VG parameters from the VG table
-            int ii3 = statesub.soilID(ii1) * statesub.nVGparam;
-            real wcs = statesub.vgTable(ii3 + 2);
-            real wcr = statesub.vgTable(ii3 + 3);
-            real n = statesub.vgTable(ii3 + 4);
-            real alpha = statesub.vgTable(ii3 + 6);
-            // Calculate water content from head using VG model
-            statesub.wc(ii1) = h_to_wc(statesub.h(ii1), alpha, n, wcs, wcr);
-        });
-    }
-    else if (!strcmp(fNameIn.c_str(), "theta.input"))
-    {
-        Kokkos::parallel_for("init_sub_wc", domsub.ny*domsub.nx*domsub.nz , KOKKOS_LAMBDA (int iGlob) {
-            int i,j,k;
-            unpackIndices(iGlob,domsub.nz,domsub.ny,domsub.nx,k,j,i);
-            int ii1 = (hc+k)*(domsub.nx+2*hc)*(domsub.ny+2*hc) + (hc+j)*(domsub.nx+2*hc) + i + hc;
-            int ii2 = k*domsub.nx*domsub.ny + j*domsub.nx + i;
-            statesub.wc(ii1)=tmpVar(ii2);
-            if(statesub.isnodata(ii1)){
-                statesub.wc(ii1)=0.0;
-            }
-            int ii3 = statesub.soilID(ii1) * statesub.nVGparam;
-            real wcs = statesub.vgTable(ii3 + 2);
-            real wcr = statesub.vgTable(ii3 + 3);
-            real n = statesub.vgTable(ii3 + 4);
-            real alpha = statesub.vgTable(ii3 + 6);
-            statesub.h(ii1) = wc_to_h(statesub.wc(ii1), alpha, n, wcs, wcr);
-        });
-    }
-    else
-    {
-	 	if (par.masterproc) {
-        std::cerr<< RERROR "Error reading initial head/theta file. File name must be head.input or theta.input!!!\n";
-        return 0;
-		  }
-    }
-
-    if (par.masterproc)   {std::cerr<<GOK "Subsurface head/water content  set\n";}
-    return 1;
-   }
-
-
-
-
-
-// read subsurface initial conditions
-   int readSubsurfaceState(std::string fNameIn, DomainSubsurface &domsub, SubsurfaceState &statesub, State &state, Parallel &par, FileIO &io){
-
-     std::ifstream fInStream(fNameIn+"subsurface.input");
-     std::string line;
-     ParserLine pline;
-     SubsurfaceModel sub;
-     std::string tempStr;
-
-     sub.initialMode="saturated";
-
-
-     if (fInStream.is_open()){
-       while (std::getline(fInStream, line)) {
-         pline.line = line;
-           pline.lowercase();
-         pline.parse();
-         // If the line was valid and a key is stored
-           if(!pline.key.empty()){
-           // Match the key, and store the value
-           if(!strcmp("initialmode",pline.key.c_str())){ pline.value >> sub.initialMode;}
-             if(!strcmp("initialvalue",pline.key.c_str())){ pline.value >> sub.initialValue ; }
-         }
-       }
-     }else{
-       if (par.masterproc){
-          std::cerr << RERROR "File " << fNameIn << " not found" << std::endl;
-          return 0;
-       }
-     }
-
-
-     if(!checkValidOption(sub.initialMode, sub.initialModes)){
-	  		if (par.masterproc) {
-      	 	std::cerr << RERROR "Invalid initial SW mode. Please correct subsurface.input" << std::endl;
-       		return 0;
-		 	}
-     }
-
-     // Initialize soil ID
-     if (!readSoilID(fNameIn + "soilID.input", statesub, domsub, par)){
-	 	 	if (par.masterproc) {
-         	std::cerr << RERROR "Unable to read soilID from soilID.input" << std::endl;
-         	return 0;
-			}
-     }
-
-     // initialize state variables (head or water content)
-     if(!sub.initialMode.compare("file-h")){
-       tempStr = fNameIn + "head.input";
-       if(!readSubsurfaceInitialState(fNameIn,"head.input",domsub,statesub,par)) return 0;
-     }
-     else if (!sub.initialMode.compare("file-theta")){
-         tempStr = fNameIn + "theta.input";
-         if(!readSubsurfaceInitialState(fNameIn,"theta.input",domsub,statesub,par)) return 0;
-     }
-     else if (!sub.initialMode.compare("saturated")){
-         Kokkos::parallel_for("set_init_sub_sat", domsub.nCellDomain , KOKKOS_LAMBDA (int iGlob) {
-           int i,j,k;
-           unpackIndices(iGlob,domsub.nz,domsub.ny,domsub.nx,k,j,i);
-           int ii = (hc+k)*(domsub.nx+2*hc)*(domsub.ny+2*hc) + (hc+j)*(domsub.nx+2*hc) + i + hc;
-           int ii3 = statesub.soilID(ii) * statesub.nVGparam;
-           real wcs = statesub.vgTable(ii3 + 2);
-           statesub.wc(ii) = wcs;
-           // calculate hydrostatic head profile (Need to check halo cells in the future!)
-           int iGlobSW = packIndices(domsub.ny+2*hc, domsub.nx+2*hc, j, i);
-           statesub.h(ii) = state.h(iGlobSW) + state.z(iGlobSW) - statesub.z(iGlob) - 0.5*statesub.dz(iGlob);
-       	});
-     }
-     else{
-	  		if (par.masterproc) {
-         	std::cerr << RERROR "Initial mode must be file-h, file-theta or saturated! Other options will be implemented soon!" << std::endl;
-         	return 0;
-			}
-     }
-     if (par.masterproc){
-         std::cerr<<GOK "Subsurface initial condition set" << std::endl;
-     }
-
-     return 1;
-   }
-
-
-
-#endif
-  /* end of subsurface model */
 
 };
 
