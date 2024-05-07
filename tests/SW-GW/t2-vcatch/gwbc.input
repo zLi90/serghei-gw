@@ -1,0 +1,8 @@
+
+bccount : 1
+id : surface
+direction : 6
+bctype : 8
+bcvals : 0.0
+polygon : polygontop.input
+

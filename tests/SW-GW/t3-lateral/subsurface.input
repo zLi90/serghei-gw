@@ -2,17 +2,16 @@
 // Legal syntax is <key> : <value>
 // Lines can end with comments
 
-BCtype  : REFLECTIVE  // Boundary condition. [*]
-hbc     : 0.0
 height : 15.0          // Thickness of the subsurface domain
-maxZ    : 0.39             // Maximum elevation of surface domain (needs to be replace by internal functions)
+dz_multiplier : 1.0
 ndepth  : 60          // Number of cells in z-direction.
 nSoilID : 1           // Number of soil types
 parNz   : 1           // Number of parallel tasks in z-direction.
-initialMode : file-h        // saturated, file-h, file-theta
-initialValue : 0.4      // head or water content constant value
+initialMode : 2        // saturated, file-h, file-theta
 dt_init : 0.01          // initial (also minimum) dt for subsurface
 dt_max  : 90.0          // maximum allowable dt
 gw_scheme : 1           // numerical schemes, 1:PCA, 2:Picard
+async     : 0           // Asynchrnous surface-subsurface coupling
+aev : 0
 
 // [*]: Recognized boundary conditions are TRANSMISSIVE, REFLECTIVE or PERIODIC

@@ -4,12 +4,15 @@
 
 BCtype  : REFLECTIVE  // Boundary condition. [*]
 height : 5.0          // Thickness of the subsurface domain
+dz_multiplier : 1.0
 ndepth  : 25          // Number of cells in z-direction.
-nSoilID : 1           // Number of soil types
+nSoilID : 2           // Number of soil types
 parNz   : 1           // Number of parallel tasks in z-direction.
 initialMode : 4        // saturated, file-h, file-theta
 dt_init : 0.001          // initial (also minimum) dt for subsurface
-dt_max  : 1.0          // maximum allowable dt
+dt_max  : 10.0          // maximum allowable dt
 gw_scheme : 1           // numerical schemes, 1:PCA, 2:Picard
+async     : 1          // Asynchrnous surface-subsurface coupling
+aev : 0.0
 
 // [*]: Recognized boundary conditions are TRANSMISSIVE, REFLECTIVE or PERIODIC

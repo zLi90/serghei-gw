@@ -3,7 +3,7 @@
 // Legal syntax is key : value
 // You can end input key:value lines with comments
 
-simLength  : 432000   // How long to simulate (s)
+simLength  : 432000  // How long to simulate (s) 432000
 cfl        : 0.2      // CFL value to use
 outFreq    : 36000      // Frequency for output in seconds
 obsFreq    : 60     // Frequency for time series output
