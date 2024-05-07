@@ -24,8 +24,8 @@ public:
 	void init(GwDomain &gdom)	{
 		int ii, jj, kk, ndom = gdom.nCell;
 		nx = gdom.nx;	ny = gdom.ny;	nz = gdom.nz;
-		nrow = ndom;
-		ncol = ndom;
+		nrow = ndom;//矩阵行数是nxhc*nyhc*nzhc
+		ncol = ndom;//矩阵列数是nxhc*nyhc*nzhc
 		// Number of non-zeros for 1D-z, 2D-xz, 3D-xyz simulations
 		if (nx == 1 & ny == 1 & nz > 1)	{
 			nnz = nrow + (nz-2)*2 + 2;

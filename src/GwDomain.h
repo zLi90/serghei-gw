@@ -8,7 +8,7 @@ class GwDomain : public Domain {
 
 public:
     // Time stepping options
-    real dt_init, dt_max, dtOld;
+    real dt_init, dt_max, dt, dtOld;
     // Subsurface domain dimensions
     real thickH, topZ, zll, dx, dy, dz_multiplier;
     int nz, nz_glob, nhalo, nxhc, nyhc, nzhc;

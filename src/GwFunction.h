@@ -126,6 +126,8 @@ public:
             gmpi.mpi_sendrecv(gw.wc, gdom, par);
 
             iter += 1;
+        // std::cout << "---------GWiter111:----------- " << iter << std::endl;   
+        // std::cout << "---------GWdt:----------- " << gdom.dt << std::endl;   
         }
         // printf("    > Picard loop converges in %d iterations with eps = %f, %f\n",iter,eps,eps_diff);
 
@@ -134,8 +136,9 @@ public:
         ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
         Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             gw.h(iGlob,0) = gw.h(iGlob,1);  gw.wc(iGlob,0) = gw.wc(iGlob,1);
+            // std::cout << "-------gw.wc(iGlob,0)----- " <<gw.wc(iGlob,0) << std::endl;
         });
-
+        
         gint.integrate(gw, gdom, gbc, gss);
     }
 
@@ -266,6 +269,7 @@ public:
                 + gw.k(iGlob,1) * gdom.siny(iGlob);
             gw.q(iGlob,2) = gw.k(iGlob,2) * (gw.h(iGlob+gdom.nxhc*gdom.nyhc,1) - gw.h(iGlob,1)) / gdom.dz(iGlob)
                 - gw.k(iGlob,2);
+
         });
         // MPI exchange of flux
         gmpi.mpi_sendrecv(gw.q, gdom, par);
@@ -307,12 +311,13 @@ public:
             gw.coef(idom,4) = - gdom.dt * gw.k(iGlob-gdom.nxhc,1) * gdom.cosy(iGlob-gdom.nxhc) / pow(gdom.dy, 2.0);
             gw.coef(idom,5) = - gdom.dt * gw.k(iGlob,2) / pow(gdom.dz(iGlob), 2.0);
             gw.coef(idom,6) = - gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / pow(gdom.dz(iGlob), 2.0);
-            gw.coef(idom,7) = (ch + ss*gw.wc(iGlob,1)/wcs)*gw.h(iGlob,1)
+            gw.coef(idom,7) = (ch + ss*gw.wc(iGlob,1)/wcs)*gw.h(iGlob,1)//右侧项已知数系数
                 - gdom.dt*(gw.k(iGlob,2) - gw.k(iGlob-gdom.nxhc*gdom.nyhc,2)) / gdom.dz(iGlob)
                 + gdom.dt*(gw.k(iGlob,0) * gdom.sinx(iGlob) - gw.k(iGlob-1,0) * gdom.sinx(iGlob-1))/gdom.dx
                 + gdom.dt*(gw.k(iGlob,1) * gdom.siny(iGlob) - gw.k(iGlob-gdom.nxhc,1) * gdom.siny(iGlob-gdom.nxhc))/gdom.dy;
-            if (gdom.gw_scheme != 1) {
-                gw.coef(idom,7) -= (gw.wc(iGlob,1) - gw.wc(iGlob,0));
+            if (gdom.gw_scheme != 1)//如果是picard迭代
+             {
+                gw.coef(idom,7) -= (gw.wc(iGlob,1) - gw.wc(iGlob,0));//为了消除迭代中的线性误差
             }
             // Apply internal boundary conditions (needed when MPI is used)
             if (ii == 0 && par.px > 0)    {gw.coef(idom,7) -= gw.coef(idom,2) * gw.h(iGlob-1,1);}
@@ -328,7 +333,7 @@ public:
 
         Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             gw.coef(idom,0) -= (gw.coef(idom,1)+gw.coef(idom,2)+gw.coef(idom,3)+gw.coef(idom,4)+gw.coef(idom,5)+gw.coef(idom,6));
-        });
+        });//矩阵A对角线项H(i,j,k)(n+1)的系数
 
         // Apply internal source/sink terms
 		for (int k = 0; k < gss.size(); k++) {
@@ -337,6 +342,7 @@ public:
 
         // Insert coefficients into Matrix A
         Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
+            // std::cout << "-------rt.dcal(iGlob,0)----- "<<idom<< std::endl;
             int ii, jj, kk, irow = A.ptr(idom);
 			gdom.unpackIndices(idom, kk, jj, ii);
         	if (kk > 0)	{A.ind(irow) = idom - gdom.nx*gdom.ny;	A.val(irow) = gw.coef(idom,6);  irow++;}

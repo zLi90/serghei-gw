@@ -186,6 +186,7 @@ public:
 		numOut=0;
 		outputInitNETCDFRT(rt, gdom, par, dir);
 		numOut++;
+    
 	}
 
     void outputTransport(const RTState &rt, GwDomain const &gdom, Parallel const &par, std::string dir){

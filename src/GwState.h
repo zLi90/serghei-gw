@@ -51,12 +51,14 @@ public:
     // std::string initialMode;
     int initialMode;
     real initialValue;
+
+    
 	
 	#if SERGHEI_SUBSURFACE_TRANSPORT
     // scalar concentration
     realArr2 c;
     // dispersion tensor
-    realArr2 d;
+    realArr2 dcal;
 	#endif
 
     // Allocate state variables for groundwater
@@ -75,14 +77,17 @@ public:
 		ssflow(0) = 0.0;
         qss = realArr("qss", gdom.nCellSw);
         hs = realArr("hs", gdom.nCellSwMem);
-		
+
+
+       
+
 		#if SERGHEI_SUBSURFACE_TRANSPORT
 		// concentration is (n by 2): c_now, c_old
         c = realArr2("c", gdom.nCellMem, 2);
 		// dispersion is (n by 3): d_xx, d_yy, d_zz
 		// Note that we ignore d_xy, d_xz, etc. for now,
 		// but they should be implemented later
-        d = realArr2("d", gdom.nCellMem, 3);
+        dcal = realArr2("dcal", gdom.nCellMem, 3);
 		#endif
     }
 
