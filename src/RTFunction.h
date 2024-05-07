@@ -149,35 +149,18 @@ public:
 			    // rt.c(iGlob, 1) 表示当前步长的浓度值
 				real phi = 0.45;//孔隙度
 				//平均孔隙流速计算,x,y,z和平均流速方向
-				gw.q(iGlob,0) = 0;//三维弥散解析解验证条件
-				gw.q(iGlob,1) = 0;//三维弥散解析解验证条件
-				gw.q(iGlob,2) = 2.3e-7;//三维弥散解析解验证条件
 				rt.aveV(iGlob, 0) = gw.q(iGlob,0)/phi;
 				rt.aveV(iGlob, 1) = gw.q(iGlob,1)/phi;
 				rt.aveV(iGlob, 2) = gw.q(iGlob,2)/phi;
 				rt.aveV(iGlob, 3) = sqrt(pow(rt.aveV(iGlob, 0), 2) + pow(rt.aveV(iGlob, 1), 2) + pow(rt.aveV(iGlob, 2), 2));
-
+			
 				// std::cout << "-------rt.aveV(iGlob, 3)----- " <<rt.aveV(iGlob, 3) << std::endl;
 				// 机械弥散系数计算
 				//Dxx=DT(qy+qz)+DL*qx
 				rt.dcal(iGlob,0) = (0.3*(pow(rt.aveV(iGlob, 1), 2)+pow(rt.aveV(iGlob, 2), 2))+6*pow(rt.aveV(iGlob, 0), 2))/rt.aveV(iGlob,3);
 				rt.dcal(iGlob,1) = (0.3*(pow(rt.aveV(iGlob, 0), 2)+pow(rt.aveV(iGlob, 2), 2))+6*pow(rt.aveV(iGlob, 1), 2))/rt.aveV(iGlob,3);
 				rt.dcal(iGlob,2) = (0.3*(pow(rt.aveV(iGlob, 0), 2)+pow(rt.aveV(iGlob, 1), 2))+6*pow(rt.aveV(iGlob, 2), 2))/rt.aveV(iGlob,3);
-				
-				//三维弥散解析解验证条件
-				rt.dcal(iGlob,0) = (0.1*(pow(rt.aveV(iGlob, 1), 2)+pow(rt.aveV(iGlob, 2), 2))+1*pow(rt.aveV(iGlob, 0), 2))/rt.aveV(iGlob,3);
-				rt.dcal(iGlob,1) = (0.1*(pow(rt.aveV(iGlob, 0), 2)+pow(rt.aveV(iGlob, 2), 2))+1*pow(rt.aveV(iGlob, 1), 2))/rt.aveV(iGlob,3);
-				rt.dcal(iGlob,2) = (0.1*(pow(rt.aveV(iGlob, 0), 2)+pow(rt.aveV(iGlob, 1), 2))+1*pow(rt.aveV(iGlob, 2), 2))/rt.aveV(iGlob,3);
-
-				
 				// std::cout << "-------rt.d(iGlob,0)----- " <<rt.d(iGlob,0) << std::endl;
-				rt.dcal(iGlob,0) = 5.32e-7;//三维弥散解析解验证条件
-				rt.dcal(iGlob,1) = 1.157e-7;//三维弥散解析解验证条件
-				rt.dcal(iGlob,2) = 1.157e-7;//三维弥散解析解验证条件
-
-				
-				
-				
 				//将rt.d中nan值替换
 				Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
 					for (int i = 0; i < 3; ++i) {
