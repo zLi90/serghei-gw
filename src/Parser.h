@@ -17,7 +17,7 @@
 #include "Domain.h"
 #include "FileIO.h"
 #include "Parallel.h"
-#include "SWSourceSink.h"
+#include "SourceSink.h"
 #include "rasterTools.h"
 
 class Parser {
@@ -125,43 +125,45 @@ public:
     	ierr[0] = readDEMFile(tempStr,dom,state,par);
 		#endif
 
-    tempStr = fNameIn + "sw.input";
-    ierr[1] = readSWFile(tempStr, dom, par, state, fNameIn, io);
+        #if SERGHEI_SWE_MODEL
+        tempStr = fNameIn + "sw.input";
+        ierr[1] = readSWFile(tempStr, dom, par, state, fNameIn, io);
 
-    tempStr = fNameIn + "rainfall.input";
-    ierr[2] = readRainfallFile(tempStr, dom, ss.rain, par);
+        tempStr = fNameIn + "rainfall.input";
+        ierr[2] = readRainfallFile(tempStr, dom, ss.rain, par);
 
-#ifdef _DEV_RAIN_
-    if (par.masterproc)
-      {
-	int dim = ss.rain.nx * ss.rain.ny;
-	std::cerr << BDASH "rainfall partititioned in x-direction: "  << ss.rain.nx << "\n";
-	std::cerr << BDASH "rainfall partititioned in y-direction: "  << ss.rain.ny << "\n";
+        #ifdef _DEV_RAIN_
+            if (par.masterproc)
+              {
+        	int dim = ss.rain.nx * ss.rain.ny;
+        	std::cerr << BDASH "rainfall partititioned in x-direction: "  << ss.rain.nx << "\n";
+        	std::cerr << BDASH "rainfall partititioned in y-direction: "  << ss.rain.ny << "\n";
 
-	int t = 0;
-	int count = 0;
-	for (int i = 0; i < dim * ss.rain.np; i ++)
-	  {
-	    std::cerr << BDASH "rainfall intensity (" << (t % dim) << ") nr. " << count << ": " << ss.rain.value(i) << "\n";
-	    t ++;
-	    if ((t % dim) == 0)
-	      count ++;
-	  }
-      }
-#endif
+        	int t = 0;
+        	int count = 0;
+        	for (int i = 0; i < dim * ss.rain.np; i ++)
+        	  {
+        	    std::cerr << BDASH "rainfall intensity (" << (t % dim) << ") nr. " << count << ": " << ss.rain.value(i) << "\n";
+        	    t ++;
+        	    if ((t % dim) == 0)
+        	      count ++;
+        	  }
+              }
+        #endif
 
-    tempStr = fNameIn + "extbc.input";
-    ierr[3] = readExtBCFile(tempStr, dom, ebc, par, state);
+        tempStr = fNameIn + "extbc.input";
+        ierr[3] = readExtBCFile(tempStr, dom, ebc, par, state);
 
-    tempStr = fNameIn + "infiltration.input";
-    ierr[4] = readInfiltrationFile(tempStr, dom, ss.inf, par);
+        tempStr = fNameIn + "infiltration.input";
+        ierr[4] = readInfiltrationFile(tempStr, dom, ss.inf, par);
 
-    tempStr = fNameIn + "infiltrationMap.input";
-    ierr[5] = readInfiltrationMap(tempStr, dom, ss.inf, par);
+        tempStr = fNameIn + "infiltrationMap.input";
+        ierr[5] = readInfiltrationMap(tempStr, dom, ss.inf, par);
 
-    for (int i = 0; i < Nfiles; i++){
-      if (!ierr[i])	return 0;
-    }
+        for (int i = 0; i < Nfiles; i++){
+          if (!ierr[i])	return 0;
+        }
+        #endif
 
     return 1;
 
