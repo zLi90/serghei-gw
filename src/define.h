@@ -7,10 +7,6 @@
 #include "mpi.h"
 #include <Kokkos_Core.hpp>
 
-#define BC_PERIODIC 1
-#define BC_REFLECTIVE 2
-#define BC_TRANSMISSIVE 3
-
 #define SERGHEI_FLOAT 1
 #define SERGHEI_DOUBLE 2
 
@@ -18,7 +14,7 @@
   #define SERGHEI_REAL SERGHEI_DOUBLE
 #endif
 
-#ifndef SERGHEI_MPI_REAL
+#ifndef SERGHEI_MPI_REAL 
   #if SERGHEI_REAL == SERGHEI_DOUBLE
     #define SERGHEI_MPI_REAL MPI_DOUBLE
   #elif SERGHEI_REAL == SERGHEI_FLOAT
@@ -54,20 +50,15 @@ typedef unsigned int  uint;
 
 #ifdef __NVCC__
   typedef Kokkos::View<real*     ,Kokkos::LayoutRight,Kokkos::Device<Kokkos::Cuda,Kokkos::CudaUVMSpace>> realArr;
-  typedef Kokkos::View<real**     ,Kokkos::LayoutRight,Kokkos::Device<Kokkos::Cuda,Kokkos::CudaUVMSpace>> realArr2;
   typedef Kokkos::View<int*     ,Kokkos::LayoutRight,Kokkos::Device<Kokkos::Cuda,Kokkos::CudaUVMSpace>> intArr;
-  typedef Kokkos::View<int**     ,Kokkos::LayoutRight,Kokkos::Device<Kokkos::Cuda,Kokkos::CudaUVMSpace>> intArr2;
   typedef Kokkos::View<bool*     ,Kokkos::LayoutRight,Kokkos::Device<Kokkos::Cuda,Kokkos::CudaUVMSpace>> boolArr;
   typedef Kokkos::View<double*     ,Kokkos::LayoutRight,Kokkos::Device<Kokkos::Cuda,Kokkos::CudaUVMSpace>> doubleArr;
 #else
   typedef Kokkos::View<real*     ,Kokkos::LayoutRight> realArr;
-  typedef Kokkos::View<real**     ,Kokkos::LayoutRight> realArr2;
   typedef Kokkos::View<int*     ,Kokkos::LayoutRight> intArr;
-  typedef Kokkos::View<int**     ,Kokkos::LayoutRight> intArr2;
   typedef Kokkos::View<bool*     ,Kokkos::LayoutRight> boolArr;
   typedef Kokkos::View<double*     ,Kokkos::LayoutRight> doubleArr;
 #endif
-
 
 #ifdef __NVCC__
 #define _HOSTDEV __host__ __device__
@@ -85,7 +76,6 @@ KOKKOS_INLINE_FUNCTION double mysqrt( double const x ) { return sqrt (x); }
 KOKKOS_INLINE_FUNCTION float  mysqrt( float  const x ) { return sqrtf(x); }
 KOKKOS_INLINE_FUNCTION double myfabs( double const x ) { return fabs (x); }
 KOKKOS_INLINE_FUNCTION float  myfabs( float  const x ) { return fabsf(x); }
-KOKKOS_INLINE_FUNCTION int  myfabs( int  const x ) { return abs(x); }
 
 /*
 template <class T> KOKKOS_INLINE_FUNCTION T min( T const v1 , T const v2 ) {
@@ -136,18 +126,6 @@ public:
   real integrate=0;
   real dt=0;
   real sweBC=0;
-  real solver=0;
-  // timers for the subsurface solver
-  real gw = 0;
-  real gwBC = 0;
-  real gwlinsys = 0;
-  real gwlinsol = 0;
-  real gwUpdateK = 0;
-  real gwUpdateQ = 0;
-  real gwUpdateWC = 0;
-  real gwMPI = 0;
-  real gwIntegrate = 0;
-
 };
 
 #endif

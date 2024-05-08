@@ -50,7 +50,6 @@ public:
   // other variables
   int BCtype;
   int isRain = 0;
-  int isEvap = 0;
 
   int nIter;
   int countIterDt;
@@ -68,10 +67,10 @@ public:
     return(dxConst);
   }
   #endif
-
+  
 
   KOKKOS_INLINE_FUNCTION void domainArea(){
-       area = cellArea()*nCellValid;
+       area = cellArea()*nCellValid;  
    };
 
   KOKKOS_INLINE_FUNCTION void unpackIndices(int const iGlob, int &j, int &i) const{
@@ -79,7 +78,7 @@ public:
   };
 
   // this is purposely programmed to fail at compilation time if !SERGHEI_MESH_UNIFORM because the alternative is not implemented
-  #if SERGHEI_MESH_UNIFORM
+  #if SERGHEI_MESH_UNIFORM  
   KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int i, int j) const{
     geometry::point p;
     p(_X) = i*dxConst + extent[0](_X);
@@ -87,7 +86,7 @@ public:
     return(p);
   #endif
   }
-
+  
   KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int iGlob) const{
     int i,j;
     unpackIndices(iGlob,j,i);
@@ -131,7 +130,7 @@ public:
   KOKKOS_INLINE_FUNCTION int getIndex(int iGlob) const{
     int i,j;
     unpackIndices(iGlob,j,i);
-    return ( getHaloExtension(i,j) );
+    return ( getHaloExtension(i,j) ); 
   };
 
   KOKKOS_INLINE_FUNCTION int getSubdomainExtension(const Parallel &par, const int i, const int j) const{
@@ -155,12 +154,12 @@ void initialise() {
 		countIterDt=0;
     etime = startTime;
     endTime = startTime + simLength;
-
+    
 
     // physical cells onlys
     #if SERGHEI_MESH_UNIFORM
-      nCell = nx*ny;
-      nCellMem = (ny+2*hc)*(nx+2*hc);
+      nCell = nx*ny; 
+      nCellMem = (ny+2*hc)*(nx+2*hc); 
       nCellGlobal = nx_glob * ny_glob;
     #endif
 

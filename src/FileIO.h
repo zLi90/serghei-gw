@@ -5,10 +5,9 @@
 #include <ctime>
 #include <unistd.h>
 #include <cpuid.h>
-#include "const.h"
 #include "define.h"
 #include "State.h"
-#include "SourceSink.h"
+#include "SWSourceSink.h"
 #include "BC.h"
 #include "pnetcdf.h"
 #include "mpi.h"
@@ -17,16 +16,12 @@
 #include "tools.h"
 #include "ParticleTracking.h"
 
-#include "GwState.h"
-#include "GwDomain.h"
-#include "GwIntegrator.h"
-
 #ifndef SERGHEI_NC_MODE
 #define SERGHEI_NC_MODE NC_CLOBBER
 #endif
 
 #ifndef SERGHEI_WRITE_HZ
-#define SERGHEI_WRITE_HZ 1
+#define SERGHEI_WRITE_HZ 0
 #endif
 #ifndef SERGHEI_WRITE_SUBDOMS
 #define SERGHEI_WRITE_SUBDOMS 0
@@ -103,11 +98,13 @@ public:
 protected:
 
   int ncid;
-  int tDim, xDim, yDim, zDim;
-  int tVar, xVar, yVar, hVar, hzVar, uVar, vVar, zVar, z3Var, hdVar, wcVar, qVar;
+  int tDim, xDim, yDim;
+  int tVar, xVar, yVar, hVar, uVar, vVar, zVar;
+	#if SERGHEI_WRITE_HZ
+	int hzVar;
+	#endif
   int infVar,infVolVar;
   std::ofstream domainOutputFile;
-  std::ofstream SubsurfaceOutputFile;
   std::ofstream logFile;
 	int nOut; // expected number of spatial outputs
 	#if SERGHEI_MAXFLOOD > 0
@@ -146,7 +143,7 @@ public:
 
   real obsFreq;
   int numObs = 0;
-  int nScreen = 100; //if this value is not specified, the information is displayed every 1000 iterations
+  int nScreen = 1000; //if this value is not specified, the information is displayed every 1000 iterations
 
 // Writes spatial fields for initial state
 	void outputIni(const State &state, Domain const &dom, SourceSinkData &ss, Parallel const &par, std::string dir){
@@ -164,22 +161,6 @@ public:
 		}
 		numOut++;
 	}
-
-    #if SERGHEI_SUBSURFACE_MODEL
-    void outputIniSub(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir){
-		numOut=0;
-		outputInitNETCDFSub(gw, gdom, par, dir);
-		numOut++;
-	}
-
-    void outputSubsurface(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir){
-        timer.reset();
-        numOut--;
-        outputNETCDFSubsurface(gw, gdom, par, dir);
-        numOut++;
-        gdom.timers.out += timer.seconds();
-	}
-    #endif
 
 	// Writes spatial fields
 	void output(const State &state, Domain const &dom, SourceSinkData &ss, Parallel const &par,std::string dir){
@@ -252,10 +233,6 @@ public:
       ncwrap( ncmpi_def_var( ncid , "infVol" , SERGHEI_NC_REAL , 3 , dimids , &infVolVar  ) , __LINE__,par.myrank );
     }
 
-    #if SERGHEI_SUBSURFACE_MODEL
-    ncwrap( ncmpi_def_var( ncid , "qss" , SERGHEI_NC_REAL , 3 , dimids , &qVar  ) , __LINE__ );
-    #endif
-
 		#if SERGHEI_MAXFLOOD > 0
 		int nc_ndims = 2+SERGHEI_MAXFLOOD-1;
 		if(nc_ndims==2){
@@ -294,8 +271,7 @@ public:
 		static char title[] = "SERGHEI simulation";
 		ncwrap( ncmpi_put_att(ncid, NC_GLOBAL, "title", NC_CHAR,strlen(title)+1,title), __LINE__,par.myrank);
 
-		std::string source = std::string("SERGHEI ");
-        // std::string source = std::string("SERGHEI ") + SERGHEI_GIT_VERSION;
+		std::string source = std::string("SERGHEI ") + SERGHEI_GIT_VERSION;
 		ncwrap( ncmpi_put_att(ncid, NC_GLOBAL, "source", NC_CHAR,source.length()+1,source.c_str()), __LINE__,par.myrank);
 
 		auto nowtime = std::chrono::system_clock::now();
@@ -437,7 +413,6 @@ public:
 
     ncwrap( ncmpi_close(ncid) , __LINE__,par.myrank );
 
-
   }
 
 /////////////////////////////////////////////////////////
@@ -446,8 +421,6 @@ public:
 
 		std::string filename;
 		filename=dir+"output.nc";
-
-
 
 
     // Create the file
@@ -462,9 +435,6 @@ public:
       ncwrap( ncmpi_inq_varid( ncid , "inf"      , &infVar  ) , __LINE__,par.myrank );
       ncwrap( ncmpi_inq_varid( ncid , "infVol"      , &infVolVar  ) , __LINE__,par.myrank );
     }
-    #if SERGHEI_SUBSURFACE_MODEL
-    ncwrap( ncmpi_inq_varid( ncid , "qss" , &qVar  ) , __LINE__ );
-    #endif
 
 		#if SERGHEI_MAXFLOOD > 0
     	ncwrap( ncmpi_inq_varid( ncid , "hMax" , &hMaxVar  ) , __LINE__ );
@@ -515,18 +485,6 @@ public:
     Kokkos::fence();
     ncwrap( ncmpi_put_vara_real_all( ncid , hzVar , st , ct , data.data() ) , __LINE__,par.myrank );
 #endif
-
-    #if SERGHEI_SUBSURFACE_MODEL
-    Kokkos::parallel_for("ncwrap_qss", dom.ny*dom.nx , KOKKOS_LAMBDA(int iGlob) {
-	 	 int i,j;
-		dom.unpackIndices(iGlob,j,i);
-		int ii=(haloc+j)*(dom.nx+2*haloc)+haloc+i;//index with the extended domain (including halo cells)
-      // data(iGlob) = state.qss(ii);
-      data(iGlob) = state.qss(iGlob);
-    });
-    Kokkos::fence();
-    ncwrap( ncmpi_put_vara_real_all( ncid , qVar , st , ct , data.data() ) , __LINE__ );
-    #endif
 
     // Write out x-velocity
 
@@ -936,7 +894,7 @@ public:
 #if SERGHEI_DEBUG_BOUNDARY
 	if (par.masterproc)
 	  {
-	    //std::cerr << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "boundary cells (reduced): " << _ncellsBC << "\n";
+	    std::cerr << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "boundary cells (reduced): " << _ncellsBC << "\n";
 	    std::cerr << GGD  << GRAY << __PRETTY_FUNCTION__ << RESET << "inflow discharge (integrated) " << bint.inflowDischargeG << "\n";
 	    std::cerr << GGD  << GRAY << __PRETTY_FUNCTION__ << RESET << "inflow accumulated (integrated) " << bint.inflowAccumulatedG << "\n";
 	    std::cerr << GGD  << GRAY << __PRETTY_FUNCTION__ << RESET << "outflow discharge (integrated) " << bint.outflowDischargeG << "\n";
@@ -1009,7 +967,6 @@ public:
     domainOutputFile << std::scientific << dom.etime << " ";
     domainOutputFile << std::scientific << sint.surfaceVolumeG << " ";
 
-
     if(bint.ncellsBC){
 	  	domainOutputFile << std::scientific << bint.inflowDischargeG << " ";
 	   	domainOutputFile << std::scientific << bint.inflowAccumulatedG << " ";
@@ -1040,442 +997,125 @@ public:
 	}
 
 
+	void writeTimerRank(const Parallel &par, const real &time, const std::string &name){
+			real *logdata;
+			logdata = (real*) malloc(par.nranks * sizeof(real));
 
-  void writeTimerRank(const Parallel &par, const real &time, const std::string &name){
-          real *logdata;
-          logdata = (real*) malloc(par.nranks * sizeof(real));
+			MPI_Gather(&time,1,MPI_DOUBLE,logdata,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+ 			if(par.masterproc) logFile << name <<"\t\t"  ; for(int ii=0; ii<par.nranks; ii++) logFile << " :\t"<< logdata[ii] ; logFile << std::endl;
+			real avg=0;
+			for(int ii=0; ii<par.nranks; ii++) avg += logdata[ii];
+			avg = avg/par.nranks;
+ 			if(par.masterproc) logFile << name << "_lb\t\t"  ; for(int ii=0; ii<par.nranks; ii++) logFile << " :\t"<< logdata[ii]/avg; logFile << std::endl;
 
-          MPI_Gather(&time,1,MPI_DOUBLE,logdata,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
-          if(par.masterproc) logFile << name <<"\t\t"  ; for(int ii=0; ii<par.nranks; ii++) logFile << " :\t"<< logdata[ii] ; logFile << std::endl;
-          real avg=0;
-          for(int ii=0; ii<par.nranks; ii++) avg += logdata[ii];
-          avg = avg/par.nranks;
-          if(par.masterproc) logFile << name << "_lb\t\t"  ; for(int ii=0; ii<par.nranks; ii++) logFile << " :\t"<< logdata[ii]/avg; logFile << std::endl;
+	}
 
-  }
+  void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
+		real sim, ratio;
 
+		if(par.masterproc){
+    	std::string filename = dir + "log.out";
+    	logFile.open(filename);
+    	if (domainOutputFile.is_open()){
+      	logFile << "DomainArea [m2]: " << dom.areaGlobal << std::endl;
+      	logFile << "nCellDomain : " << dom.nCellGlobal << std::endl;
+      	logFile << "nCellValid : " << dom.nCellValidGlobal << std::endl;
 
-void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
-      real sim, ratio;
+      	ratio = dom.timers.total/dom.timers.total;
+      	logFile << "runTime : " << dom.timers.total << " : " << ratio << std::endl;
+      	sim = dom.timers.total-dom.timers.init;
+      	ratio = sim/dom.timers.total;
+      	logFile << "simTime : " << sim << " : " << ratio << std::endl;
+      	ratio = dom.timers.init/dom.timers.total;
+      	logFile << "initTime : " << dom.timers.init << " : " <<ratio << std::endl;
+      	ratio = dom.timers.out/dom.timers.total;
+      	logFile << "outputTime : " << dom.timers.out << " : " << ratio <<std::endl;
+      	ratio = dom.timers.sweflux/dom.timers.total;
+      	logFile << "sweFluxTime : " << dom.timers.sweflux << " : " << ratio << std::endl;
+      	ratio = dom.timers.raininf/dom.timers.total;
+      	logFile << "rainInfTime : " << dom.timers.raininf << " : " << ratio << std::endl;
+      	ratio = dom.timers.swe/dom.timers.total;
+      	logFile << "sweNotFluxTime : " << dom.timers.swe << " : " << ratio << std::endl;
+      	ratio = dom.timers.exchange / dom.timers.total;
+      	logFile << "exchangeTime : " << dom.timers.exchange << " : " << ratio << std::endl;
+      	ratio = dom.timers.integrate / dom.timers.total;
+      	logFile << "integrateTime : " << dom.timers.integrate << " : " << ratio << std::endl;
+      	ratio = dom.timers.dt / dom.timers.total;
+      	logFile << "dtComputeTime : " << dom.timers.dt << " : " << ratio << std::endl;
+				logFile << "sweBCtime" << dom.timers.sweBC << " : " << dom.timers.sweBC/dom.timers.total << std::endl;
+			}
+		}
 
-      if(par.masterproc){
-      std::string filename = dir + "log.out";
-      logFile.open(filename);
-      if (domainOutputFile.is_open()){
-          logFile << "DomainArea [m2]: " << dom.areaGlobal << std::endl;
-          logFile << "nCell(SW) : " << dom.nCellGlobal << std::endl;
-          logFile << "nCellValid(SW) : " << dom.nCellValidGlobal << std::endl;
-          // logFile << "nCell(GW) : " << dom.nCellGlobalGW << std::endl;
-          // logFile << "nCellValid(GW) : " << dom.nCellValidGlobalGW << std::endl;
+			logFile << "TIMERS PER RANK" << std::endl;
+			// timers per rank
+			writeTimerRank(par,dom.timers.total,"runTime");
+      sim = dom.timers.total-dom.timers.init;
+			writeTimerRank(par,sim,"simTime");
+			writeTimerRank(par,dom.timers.init,"initTime");
+			writeTimerRank(par,dom.timers.out,"outputTime");
+			writeTimerRank(par,dom.timers.sweflux,"sweFluxTime");
+			writeTimerRank(par,dom.timers.raininf,"rainInfTime");
+			writeTimerRank(par,dom.timers.swe,"sweNotFluxTime");
+			writeTimerRank(par,dom.timers.exchange,"integrateTime");
+			writeTimerRank(par,dom.timers.integrate,"exchangeTime");
+			writeTimerRank(par,dom.timers.dt,"dtComputeTime");
+			writeTimerRank(par,dom.timers.dt,"sweBCtime");
 
-          ratio = dom.timers.total/dom.timers.total;
-          logFile << "runTime : " << dom.timers.total << " : " << ratio << std::endl;
-          sim = dom.timers.total-dom.timers.init;
-          ratio = sim/dom.timers.total;
-          logFile << "simTime : " << sim << " : " << ratio << std::endl;
-          ratio = dom.timers.init/dom.timers.total;
-          logFile << "initTime : " << dom.timers.init << " : " <<ratio << std::endl;
-          ratio = dom.timers.out/dom.timers.total;
-          logFile << "outputTime : " << dom.timers.out << " : " << ratio <<std::endl;
-          ratio = dom.timers.sweflux/dom.timers.total;
-          logFile << "sweFluxTime : " << dom.timers.sweflux << " : " << ratio << std::endl;
-          ratio = dom.timers.raininf/dom.timers.total;
-          logFile << "rainInfTime : " << dom.timers.raininf << " : " << ratio << std::endl;
-          ratio = dom.timers.swe/dom.timers.total;
-          logFile << "sweNotFluxTime : " << dom.timers.swe << " : " << ratio << std::endl;
-          ratio = dom.timers.exchange / dom.timers.total;
-          logFile << "exchangeTime : " << dom.timers.exchange << " : " << ratio << std::endl;
-          ratio = dom.timers.integrate / dom.timers.total;
-          logFile << "integrateTime : " << dom.timers.integrate << " : " << ratio << std::endl;
-          ratio = dom.timers.dt / dom.timers.total;
-          logFile << "dtComputeTime : " << dom.timers.dt << " : " << ratio << std::endl;
-          #if SERGHEI_SUBSURFACE_MODEL
-          logFile << " -------- GW Times --------" << std::endl;
-          ratio = dom.timers.gw/dom.timers.total;
-          logFile << "gwTime : " << dom.timers.gw << " : " << ratio << std::endl;
-          ratio = dom.timers.gwlinsys/dom.timers.total;
-          logFile << "gwLinSysTime : " << dom.timers.gwlinsys << " : " << ratio << std::endl;
-          ratio = dom.timers.gwlinsol/dom.timers.total;
-          logFile << "gwLinSolTime : " << dom.timers.gwlinsol << " : " << ratio << std::endl;
-          ratio = dom.timers.gwUpdateK/dom.timers.total;
-          logFile << "gwUpdateKTime : " << dom.timers.gwUpdateK << " : " << ratio << std::endl;
-          ratio = dom.timers.gwUpdateQ/dom.timers.total;
-          logFile << "gwUpdateQTime : " << dom.timers.gwUpdateQ << " : " << ratio << std::endl;
-          ratio = dom.timers.gwUpdateWC/dom.timers.total;
-          logFile << "gwUpdateWCTime : " << dom.timers.gwUpdateWC << " : " << ratio << std::endl;
-          ratio = dom.timers.gwBC/dom.timers.total;
-          logFile << "gwBCTime : " << dom.timers.gwBC << " : " << ratio << std::endl;
-          ratio = dom.timers.gwIntegrate/dom.timers.total;
-          logFile << "gwIntegrateTime : " << dom.timers.gwIntegrate << " : " << ratio << std::endl;
-          ratio = dom.timers.gwMPI/dom.timers.total;
-          logFile << "gwExchangeTime : " << dom.timers.gwMPI << " : " << ratio << std::endl;
-          #endif
-          }
-      }
+			if(par.masterproc){
+				auto nowtime = std::chrono::system_clock::now();
+				std::time_t now_time = std::chrono::system_clock::to_time_t(nowtime);
 
-          logFile << "TIMERS PER RANK" << std::endl;
-          // timers per rank
-          writeTimerRank(par,dom.timers.total,"runTime");
-    sim = dom.timers.total-dom.timers.init;
-          writeTimerRank(par,sim,"simTime");
-          writeTimerRank(par,dom.timers.init,"initTime");
-          writeTimerRank(par,dom.timers.out,"outputTime");
-          writeTimerRank(par,dom.timers.sweflux,"sweFluxTime");
-          writeTimerRank(par,dom.timers.raininf,"rainInfTime");
-          writeTimerRank(par,dom.timers.swe,"sweNotFluxTime");
-          writeTimerRank(par,dom.timers.exchange,"exchangeTime");
-          writeTimerRank(par,dom.timers.dt,"dtComputeTime");
-          #if SERGHEI_SUBSURFACE_MODEL
-          writeTimerRank(par,dom.timers.gw,"gwTime");
-          writeTimerRank(par,dom.timers.gwlinsys,"gwLinSysTime");
-          writeTimerRank(par,dom.timers.gwlinsol,"gwLinSolTime");
-           writeTimerRank(par,dom.timers.gwUpdateK,"gwUpdateKTime");
-           writeTimerRank(par,dom.timers.gwUpdateQ,"gwUpdateQTime");
-           writeTimerRank(par,dom.timers.gwUpdateWC,"gwUpdateWCTime");
-           writeTimerRank(par,dom.timers.gwBC,"gwBCTime");
-           writeTimerRank(par,dom.timers.gwIntegrate,"gwIntegrateTime");
-           writeTimerRank(par,dom.timers.gwMPI,"gwExchangeTime");
-          #endif
-          if(par.masterproc){
-              auto nowtime = std::chrono::system_clock::now();
-              std::time_t now_time = std::chrono::system_clock::to_time_t(nowtime);
+				logFile << std::endl << "DateTime : " << std::ctime(&now_time) << std::endl;
 
-              logFile << std::endl << "DateTime : " << std::ctime(&now_time) << std::endl;
+				char hostbuffer[256];
+				int hostname = gethostname(hostbuffer, sizeof(hostbuffer));
+				logFile << "Machine : " << hostbuffer << std::endl;
+				#ifdef __NVCC__
+				cudaDeviceProp deviceProp;
+				cudaError_t result = cudaGetDeviceProperties(&deviceProp, 0);
+				logFile << "GPU : " << deviceProp.name << std::endl;
+				#else
+				std::string CPUBrandString;
+				CPUBrandString.resize(49);
+				uint *CPUInfo = reinterpret_cast<uint*>(CPUBrandString.data());
+				for (uint i=0; i<3; i++) __cpuid(0x80000002+i, CPUInfo[i*4+0], CPUInfo[i*4+1], CPUInfo[i*4+2], CPUInfo[i*4+3]);
+				CPUBrandString.assign(CPUBrandString.data()); // correct null terminator
+				logFile << "CPU: " << CPUBrandString << std::endl;
+				#endif
+				logFile << "nTasks : " << par.nranks << std::endl;
 
-              char hostbuffer[256];
-              int hostname = gethostname(hostbuffer, sizeof(hostbuffer));
-              logFile << "Machine : " << hostbuffer << std::endl;
-              #ifdef __NVCC__
-              cudaDeviceProp deviceProp;
-              cudaError_t result = cudaGetDeviceProperties(&deviceProp, 0);
-              logFile << "GPU : " << deviceProp.name << std::endl;
-              #else
-              std::string CPUBrandString;
-              CPUBrandString.resize(49);
-              uint *CPUInfo = reinterpret_cast<uint*>(CPUBrandString.data());
-              for (uint i=0; i<3; i++) __cpuid(0x80000002+i, CPUInfo[i*4+0], CPUInfo[i*4+1], CPUInfo[i*4+2], CPUInfo[i*4+3]);
-              CPUBrandString.assign(CPUBrandString.data()); // correct null terminator
-              logFile << "CPU: " << CPUBrandString << std::endl;
-              #endif
-              logFile << "nTasks : " << par.nranks << std::endl;
+				// write compilation setup
+        logFile << "\nSERGHEI_GIT_VERSION " << SERGHEI_GIT_VERSION << std::endl;
+				logFile << "\n-------------------------\nMODEL COMPONENT SETUP" <<std::endl;
+				logFile << "SERGHEI_TOOLS " << SERGHEI_TOOLS << std::endl;
+				logFile << "SERGHEI_SUBSURFACE_MODEL " << SERGHEI_SUBSURFACE_MODEL << std::endl;
+				logFile << "SERGHEI_PARTICLE_TRACKING " << SERGHEI_PARTICLE_TRACKING << std::endl;
+				logFile << "SERGHEI_VEGETATION_MODEL " << SERGHEI_VEGETATION_MODEL << std::endl;
+				logFile << "SERGHEI_FRICTION_MODEL " << SERGHEI_FRICTION_MODEL << std::endl;
+				logFile << "SERGHEI_MAXFLOOD " << SERGHEI_MAXFLOOD << std::endl;
+        logFile << "SERGHEI_REAL " << SERGHEI_REAL << std::endl;
+        logFile << "SERGHEI_NC_MODE " << SERGHEI_NC_MODE << std::endl;
+        logFile << "SERGHEI_NC_REAL " ;
+	      if(SERGHEI_NC_REAL == NC_FLOAT) logFile << "NC_FLOAT";
+	      if(SERGHEI_NC_REAL == NC_DOUBLE) logFile << "NC_DOUBLE";
+ 	      logFile << std::endl;
+        logFile << "SERGHEI_WRITE_HZ " << SERGHEI_WRITE_HZ << std::endl;
+				logFile << "SERGHEI_WRITE_SUBDOMS " << SERGHEI_WRITE_SUBDOMS << std::endl;
 
-              // write compilation setup
-      // logFile << "\nSERGHEI_GIT_VERSION " << SERGHEI_GIT_VERSION << std::endl;
-              logFile << "\n-------------------------\nMODEL COMPONENT SETUP" <<std::endl;
-              logFile << "SERGHEI_TOOLS " << SERGHEI_TOOLS << std::endl;
-              logFile << "SERGHEI_SUBSURFACE_MODEL " << SERGHEI_SUBSURFACE_MODEL << std::endl;
-              logFile << "SERGHEI_PARTICLE_TRACKING " << SERGHEI_PARTICLE_TRACKING << std::endl;
-              logFile << "SERGHEI_VEGETATION_MODEL " << SERGHEI_VEGETATION_MODEL << std::endl;
-              logFile << "SERGHEI_FRICTION_MODEL " << SERGHEI_FRICTION_MODEL << std::endl;
-              logFile << "SERGHEI_MAXFLOOD " << SERGHEI_MAXFLOOD << std::endl;
-      logFile << "SERGHEI_REAL " << SERGHEI_REAL << std::endl;
-      logFile << "SERGHEI_NC_MODE " << SERGHEI_NC_MODE << std::endl;
-      logFile << "SERGHEI_NC_REAL " ;
-        if(SERGHEI_NC_REAL == NC_FLOAT) logFile << "NC_FLOAT";
-        if(SERGHEI_NC_REAL == NC_DOUBLE) logFile << "NC_DOUBLE";
-        logFile << std::endl;
-      logFile << "SERGHEI_WRITE_HZ " << SERGHEI_WRITE_HZ << std::endl;
-
-      logFile << "\n-------------------------\nDEBUG FLAGS" <<std::endl;
-      logFile << "SERGHEI_DEBUG_PARALLEL_DECOMPOSITION " << SERGHEI_DEBUG_PARALLEL_DECOMPOSITION << std::endl;
-      logFile << "SERGHEI_DEBUG_WORKFLOW " << SERGHEI_DEBUG_WORKFLOW << std::endl;
-      logFile << "SERGHEI_DEBUG_KOKKOS_SETUP " << SERGHEI_DEBUG_KOKKOS_SETUP << std::endl;
-      logFile << "SERGHEI_DEBUG_BOUNDARY " << SERGHEI_DEBUG_BOUNDARY << std::endl;
-      logFile << "SERGHEI_DEBUG_DT " << SERGHEI_DEBUG_DT << std::endl;
-      logFile << "SERGHEI_DEBUG_TOOLS " << SERGHEI_DEBUG_TOOLS << std::endl;
-      logFile << "SERGHEI_DEBUG_MASS_CONS " << SERGHEI_DEBUG_MASS_CONS << std::endl;
-      logFile << "SERGHEI_DEBUG_INFILTRATION " << SERGHEI_DEBUG_INFILTRATION << std::endl;
-      logFile << "SERGHEI_DEBUG_MPI " << SERGHEI_DEBUG_MPI << std::endl;
-          }
-
-  }
-
-
-  // Writes VTK file for subsurface
-    #if SERGHEI_SUBSURFACE_MODEL
-
-    void outputInitNETCDFSub(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir) {
-        int dimids[4], nxhalo, nyhalo;
-        MPI_Offset st[3], ct[3];
-        realArr xCoord = realArr("xCoord",gdom.nx);
-        realArr yCoord = realArr("yCoord",gdom.ny);
-        realArr zCoord = realArr("zCoord",gdom.nz);
-        realArr data   = realArr("data",gdom.nCell);
-        static char title[] = "seconds" ;
-        std::string filename;
-
-        filename=dir+"output_subsurface.nc";
-
-        // Create the file
-        ncwrap( ncmpi_create( MPI_COMM_WORLD , filename.c_str() , NC_CLOBBER , MPI_INFO_NULL , &ncid ) , __LINE__ );
-
-        // Create the dimensions
-        ncwrap( ncmpi_def_dim( ncid , "t" , (MPI_Offset) NC_UNLIMITED , &tDim ) , __LINE__ );
-        ncwrap( ncmpi_def_dim( ncid , "x" , (MPI_Offset) gdom.nx_glob  , &xDim ) , __LINE__ );
-        ncwrap( ncmpi_def_dim( ncid , "y" , (MPI_Offset) gdom.ny_glob  , &yDim ) , __LINE__ );
-        ncwrap( ncmpi_def_dim( ncid , "z" , (MPI_Offset) gdom.nz_glob  , &zDim ) , __LINE__ );
-        // Create the variables
-        dimids[0] = tDim;
-        ncwrap( ncmpi_def_var( ncid , "t"      , NC_DOUBLE , 1 , dimids , &tVar ) , __LINE__ );
-        ncwrap( ncmpi_put_att_text (ncid, tVar, "units",strlen(title), title), __LINE__ );
-        dimids[0] = xDim;
-        ncwrap( ncmpi_def_var( ncid , "x"      , NC_DOUBLE , 1 , dimids , &xVar ) , __LINE__ );
-        dimids[0] = yDim;
-        ncwrap( ncmpi_def_var( ncid , "y"      , NC_DOUBLE , 1 , dimids , &yVar ) , __LINE__ );
-        dimids[0] = zDim;
-        ncwrap( ncmpi_def_var( ncid , "z"      , NC_DOUBLE , 1 , dimids , &zVar ) , __LINE__ );
-
-        dimids[0] = zDim; dimids[1] = yDim; dimids[2] = xDim;
-        ncwrap( ncmpi_def_var( ncid , "z3d" , NC_DOUBLE , 3 , dimids , &z3Var  ) , __LINE__ );
-        dimids[0] = tDim; dimids[1] = zDim; dimids[2] = yDim; dimids[3] = xDim;
-        ncwrap( ncmpi_def_var( ncid , "hd" , NC_DOUBLE , 4 , dimids , &hdVar  ) , __LINE__ );
-        ncwrap( ncmpi_def_var( ncid , "wc" , NC_DOUBLE , 4 , dimids , &wcVar  ) , __LINE__ );
-
-        // End "define" mode
-        ncwrap( ncmpi_enddef( ncid ) , __LINE__ );
-
-        // Compute x, y, z coordinates
-        Kokkos::parallel_for( gdom.nx , KOKKOS_LAMBDA(int i) {
-            xCoord(i) = gdom.xll + ( par.i_beg + i + 0.5) * gdom.dx;
-        });
-        Kokkos::parallel_for( gdom.ny , KOKKOS_LAMBDA(int j) {
-            yCoord(j) = gdom.yll + gdom.ny_glob*gdom.dx - ( par.j_beg + j + 0.5) * gdom.dx;
-        });
-        Kokkos::parallel_for( gdom.nz , KOKKOS_LAMBDA(int k) {
-            zCoord(k) = -(k+0.5)*gdom.dz(k);
-        });
-        Kokkos::fence();
-
-        // Write out x, y coordinates
-        st[0] = par.i_beg;
-        ct[0] = gdom.nx;
-        ncwrap( ncmpi_put_vara_double_all( ncid , xVar , st , ct , xCoord.data() ) , __LINE__ );
-        st[0] = par.j_beg;
-        ct[0] = gdom.ny;
-        ncwrap( ncmpi_put_vara_double_all( ncid , yVar , st , ct , yCoord.data() ) , __LINE__ );
-        st[0] = 0;
-        ct[0] = gdom.nz;
-        ncwrap( ncmpi_put_vara_double_all( ncid , zVar , st , ct , zCoord.data() ) , __LINE__ );
-
-        // Write z for the 3D domain
-        nxhalo = gdom.nx + 2*haloc;
-        nyhalo = gdom.ny + 2*haloc;
-        st[0] = 0;          st[1] = par.j_beg;  st[2] = par.i_beg;
-        ct[0] = gdom.nz;    ct[1] = gdom.ny;    ct[2] = gdom.nx;
-        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
-            int ii, jj, kk, iGlob;
-            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
-            iGlob = (haloc+kk)*nxhalo*nyhalo + (haloc+jj)*nxhalo + ii + haloc;
-            data(idom) = gdom.z(iGlob);
-        });
-        Kokkos::fence();
-        ncwrap( ncmpi_put_vara_double_all( ncid , z3Var  , st , ct , data.data() ) , __LINE__ );
-
-        writeGwNETCDF(gw, gdom, par);
-        ncwrap( ncmpi_close(ncid) , __LINE__ );
-    }
-
-    void outputNETCDFSubsurface(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir) {
-        std::string filename;
-        filename=dir+"output_subsurface.nc";
-        // Create the file
-        ncwrap( ncmpi_open( MPI_COMM_WORLD , filename.c_str() , NC_WRITE , MPI_INFO_NULL , &ncid ) , __LINE__ );
-        ncwrap( ncmpi_inq_varid( ncid , "hd" , &hdVar  ) , __LINE__ );
-        ncwrap( ncmpi_inq_varid( ncid , "wc" , &wcVar  ) , __LINE__ );
-
-        writeGwNETCDF(gw, gdom, par);
-
-        ncwrap( ncmpi_close(ncid) , __LINE__ );
-    }
-
-    void writeGwNETCDF(const GwState &gw, GwDomain const &gdom, Parallel const &par) {
-        realArr data = realArr("data",gdom.nCell);
-        MPI_Offset st[4], ct[4];
-        double timeIter[numOut+1];
-        int nxhalo = gdom.nx + 2*hc, nyhalo = gdom.ny + 2*hc;
-        //write t. As the first one is written in the first iteration we should add +1
-        for (int i=0; i<numOut+1; i++) { timeIter[i] = i*1.0;}
-        st[0] = 0;
-     	ct[0] = numOut+1;
-        ncwrap( ncmpi_put_vara_double_all( ncid , tVar ,  st , ct , timeIter ) , __LINE__ );
-
-        // st[0] = numOut; st[1] = par.i_beg; st[2] = par.j_beg;   st[3] = 0;
-        // ct[0] = 1     ; ct[1] = gdom.nx  ; ct[2] = gdom.ny  ;   ct[3] = gdom.nz;
-
-        st[0] = numOut; st[1] = 0;       st[2] = par.j_beg;  st[3] = par.i_beg;
-        ct[0] = 1     ; ct[1] = gdom.nz; ct[2] = gdom.ny  ;  ct[3] = gdom.nx  ;
-
-        // Kokkos::parallel_for(gdom.nCell, kernel_output<dspace>(gw.h, data, gdom));
-        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
-            int ii, jj, kk, iGlob;
-            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
-            iGlob = (hc+kk)*nxhalo*nyhalo + (hc+jj)*nxhalo + ii + hc;
-            data(idom) = gw.h(iGlob,1);
-        });
-        Kokkos::fence();
-        ncwrap( ncmpi_put_vara_double_all( ncid , hdVar , st , ct , data.data() ) , __LINE__ );
-
-        // Kokkos::parallel_for(gdom.nCell, kernel_output<dspace>(gw.wc, data, gdom));
-        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
-            int ii, jj, kk, iGlob;
-            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
-            iGlob = (hc+kk)*nxhalo*nyhalo + (hc+jj)*nxhalo + ii + hc;
-            data(idom) = gw.wc(iGlob,1);
-        });
-        Kokkos::fence();
-        ncwrap( ncmpi_put_vara_double_all( ncid , wcVar , st , ct , data.data() ) , __LINE__ );
-
+        logFile << "\n-------------------------\nDEBUG FLAGS" <<std::endl;
+        logFile << "SERGHEI_DEBUG_PARALLEL_DECOMPOSITION " << SERGHEI_DEBUG_PARALLEL_DECOMPOSITION << std::endl;
+        logFile << "SERGHEI_DEBUG_WORKFLOW " << SERGHEI_DEBUG_WORKFLOW << std::endl;
+        logFile << "SERGHEI_DEBUG_KOKKOS_SETUP " << SERGHEI_DEBUG_KOKKOS_SETUP << std::endl;
+        logFile << "SERGHEI_DEBUG_BOUNDARY " << SERGHEI_DEBUG_BOUNDARY << std::endl;
+        logFile << "SERGHEI_DEBUG_DT " << SERGHEI_DEBUG_DT << std::endl;
+        logFile << "SERGHEI_DEBUG_TOOLS " << SERGHEI_DEBUG_TOOLS << std::endl;
+        logFile << "SERGHEI_DEBUG_MASS_CONS " << SERGHEI_DEBUG_MASS_CONS << std::endl;
+        logFile << "SERGHEI_DEBUG_INFILTRATION " << SERGHEI_DEBUG_INFILTRATION << std::endl;
+        logFile << "SERGHEI_DEBUG_MPI " << SERGHEI_DEBUG_MPI << std::endl;
+				logFile << "SERGHEI_DEBUG_OUTPUT" << SERGHEI_DEBUG_OUTPUT << std::endl;
+			}
 
     }
-
-
-  // VTK writer for the subsurface
-  void outputVTKsubsurface(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir){
-
-      std::string filename;
-      filename = dir+"result_subsurface"+std::to_string(numOut)+".vtk";
-      real *xCoord;
-      real *yCoord;
-      real *zCoord;
-      real *data_cpu;
-
-      int ncells=gdom.ny*gdom.nx*gdom.nz;
-
-      int nVars=2; //2 variables to write: h, wc
-
-      realArr data  = realArr("data",nVars*ncells);
-      #ifdef __NVCC__
-          cudaMallocHost( &data_cpu , nVars*ncells*sizeof(real) );
-      #else
-          data_cpu = data.data();
-      #endif
-
-      xCoord=(real*) malloc((gdom.nx+1)*sizeof(real));
-      yCoord=(real*) malloc((gdom.ny+1)*sizeof(real));
-      zCoord=(real*) malloc((gdom.nz+1)*sizeof(real));
-
-      // Compute x, y coordinates
-      for (int i=0; i<gdom.nx+1; i++) {
-      xCoord[i] = gdom.xll + ( par.i_beg + i) * gdom.dx;
-      };
-
-      for (int j=0; j<gdom.ny+1; j++) {
-      yCoord[j] = gdom.yll + gdom.ny_glob*gdom.dx - ( par.j_beg + j) * gdom.dy;
-      };
-
-      int nnodes=(gdom.nx+1)*(gdom.ny+1)*(gdom.nz+1);
-
-      // dualDbl::t_host h_h = gstate.h.h_view;
-      // dualDbl::t_host h_wc = gstate.wc.h_view;
-      Kokkos::parallel_for( ncells , KOKKOS_LAMBDA(int idom) {
-          int i,j,k;
-          int nxhalo = gdom.nx+2*haloc;
-          int nyhalo = gdom.ny+2*haloc;
-          gdom.unpackIndicesGw(idom,gdom.nz,gdom.ny,gdom.nx,k,j,i);
-          int iGlob = (haloc+k)*nxhalo*nyhalo + (haloc+j)*nxhalo + i + haloc;
-          data(idom) = gw.h(iGlob,1);
-          data(idom+ncells) = gw.wc(iGlob,1);
-          // get z coordinate
-          if (i == 0 & j == 0) {zCoord[k] = gdom.z(iGlob);}
-      });
-      Kokkos::fence();
-
-      #ifdef __NVCC__
-          cudaMemcpyAsync( data_cpu , data.data() , nVars*ncells*sizeof(real) , cudaMemcpyDeviceToHost );
-          cudaDeviceSynchronize();
-      #endif
-
-      int i,j,k,iGlob;
-
-      std::ofstream fOutStream(filename);
-      if (fOutStream.is_open()){
-          //fOutStream << "# vtk DataFile Version 3.0.\nOutput file " << filename <<"\nASCII\nDATASET UNSTRUCTURED_GRID\n";
-          fOutStream << "# vtk DataFile Version 3.0.\nOutputfile\nASCII\nDATASET UNSTRUCTURED_GRID\n";
-
-          fOutStream << "POINTS " << nnodes  << " double\n";
-          for (k=0; k<=gdom.nz; k++){
-              for(j=0;j<=gdom.ny;j++){
-                  for(i=0;i<=gdom.nx;i++){
-                      fOutStream << std::setprecision(9) << xCoord[i] << " " << yCoord[j] <<" "<< zCoord[k]<< " 0.0\n";
-                  }
-              }
-          }
-          fOutStream << "CELLS " << ncells << " " << 2*ncells <<"\n";
-          for(iGlob=0;iGlob<ncells;iGlob++){
-             int ii,jj,kk;
-              gdom.unpackIndicesGw(iGlob,gdom.nz,gdom.ny,gdom.nx,kk,jj,ii);
-              fOutStream << "4 " << jj*(gdom.nx+1)+ii << " " << (jj+1)*(gdom.nx+1)+ii << " " << (jj+1)*(gdom.nx+1)+ii+1 << " " << jj*(gdom.nx+1)+ii+1 << "\n";
-          }
-
-          fOutStream << "CELL_TYPES " << ncells << "\n";
-          for(i=0;i<ncells;i++){
-              fOutStream << "9\n";
-          }
-
-          fOutStream << "CELL_DATA " << ncells << "\n";
-          fOutStream << "SCALARS h double\n";
-          fOutStream << "LOOKUP_TABLE default\n";
-          for(iGlob=0;iGlob<ncells;iGlob++){
-              fOutStream << std::setprecision(9) << data_cpu[iGlob] << "\n";
-          }
-
-          fOutStream << "SCALARS wc double\n";
-          fOutStream << "LOOKUP_TABLE default\n";
-          for(iGlob=0;iGlob<ncells;iGlob++){
-              fOutStream << std::setprecision(9) << data_cpu[iGlob+ncells]  << "\n";
-          }
-
-    fOutStream.close();
-      }
-
-
-  }
-
-
-
-  // Write header and initial state for time series files
-  int writeSubTimeSeriesIni (GwDomain const &gdom, GwIntegrator const &gint, Parallel const &par, std::string dir){
-
-        numObs = 0;
-        std::string filename = dir + "SubsurfaceTimeSeries.out";
-        SubsurfaceOutputFile.open (filename);
-
-        if (SubsurfaceOutputFile.is_open ()){
-            // Write the header
-            SubsurfaceOutputFile << "Time ";
-            SubsurfaceOutputFile << "SubSurfaceVolume [m3] ";
-            SubsurfaceOutputFile << "ExchangeRate [m3/s] ";
-            SubsurfaceOutputFile << "BoundaryInflow ";
-            SubsurfaceOutputFile << "BoundaryOutflow ";
-            SubsurfaceOutputFile << "Source/SinkInflow [m3/s] ";
-            SubsurfaceOutputFile << "Source/SinkOutflow [m3/s] ";
-            SubsurfaceOutputFile << std::endl;
-        }
-        else
-        {std::cerr << RERROR "Could not create domainTimeSeries.out file" << std::endl; return 0;}
-
-        if(par.masterproc)  {writeSubsurfaceTimeSeries(gdom, gint);}
-        numObs++;
-        return 1;
-  }
-
-
-
-  void writeSubsurfaceTimeSeries (GwDomain const &gdom, GwIntegrator const &gint){
-    // Write the data
-    std::cout.precision(OUTPUT_PRECISION);
-    SubsurfaceOutputFile << std::scientific << gdom.etime << " ";
-    SubsurfaceOutputFile << std::scientific << gint.Vtot_glob << " ";
-    SubsurfaceOutputFile << std::scientific << gint.Vexch_glob << " ";
-    SubsurfaceOutputFile << std::scientific << gint.QinBC_glob << " ";
-    SubsurfaceOutputFile << std::scientific << gint.QoutBC_glob << " ";
-    SubsurfaceOutputFile << std::scientific << gint.QinSS_glob << " ";
-    SubsurfaceOutputFile << std::scientific << gint.QoutSS_glob << " ";
-    SubsurfaceOutputFile << std::endl;
-
-  }
-
-  #endif
 
 // parallel netcdf input functionality
 
