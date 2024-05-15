@@ -7,9 +7,9 @@
 #include "Indexing.h"
 
 // DCV 05.05.2021, left these here defined for generic use in exchange.h, not for hydraulics.
-#define BC_PERIODIC 1
-#define BC_REFLECTIVE 2
-#define BC_TRANSMISSIVE 3
+// #define BC_PERIODIC 1
+// #define BC_REFLECTIVE 2
+// #define BC_TRANSMISSIVE 3
 
 // these definitions are meant for hydraulics
 #define SWE_BC_PERIODIC 1
@@ -35,7 +35,7 @@ public:
 	int ncellsBC = 0; //number of bcells
 	intArr bcells; //array of indexes of boundary cells
 	real normalx, normaly; //direction set by user for inflow/outflow
-	int location; //1->west, 2->north, 3->east, 4-> south 
+	int location; //1->west, 2->north, 3->east, 4-> south
 	int bctype;
 	int isInDomain;
   realArr bcvals;
@@ -55,7 +55,7 @@ public:
 	MPI_Comm comm;	// communicator for ranks associated to the BC
 
 
-	
+
 	inline int find_bcells(State &state, std::string &id, Domain &dom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly){
 		int foundInSubdom; // to keep track of which subdomains are associated to this boundary
 		std::vector<int> tmpbcells; //array of indexes of boundary cells
@@ -117,7 +117,7 @@ public:
 		for(int i=0; i<par.nranks; i++){
 			if(subdoms[i] >= 0){
 				subdomains.push_back(subdoms[i]);
-			} 
+			}
 		}
 		#if SERGHEI_DEBUG_BOUNDARY
 			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "Consolidated BC subdomains = ";
@@ -126,7 +126,7 @@ public:
 				std::cout << subdomains[i] << "\t";
 			}
  			std::cout << std::endl;
-		#endif	
+		#endif
 		MPI_Group group, subgroup;
 		MPI_Comm_group(MPI_COMM_WORLD,&group);
 		MPI_Group_incl(group,subdomains.size(),subdomains.data(),&subgroup);
@@ -161,7 +161,7 @@ public:
     real zMin_all;
     MPI_Allreduce(&zMin, &zMin_all, 1, SERGHEI_MPI_REAL, MPI_MIN, comm);
 		zMin = zMin_all;
-		
+
 		Kokkos::parallel_reduce("swe_bc_z_max", ncellsBC, KOKKOS_CLASS_LAMBDA(int iGlob, real &zMax){
 		  int ii = bcells[iGlob];
 			real z = state.z(ii);
@@ -191,8 +191,8 @@ public:
 		#endif
     hzMin=zMin=1E6;
 		real extraVol=0;
-		real extraArea=0; 
-		
+		real extraArea=0;
+
 		// find the lowest water surface in the cross section
 		Kokkos::parallel_reduce("swe_bc_flatten_hz", ncellsBC, KOKKOS_CLASS_LAMBDA(int iGlob, real &hzMin){
 		  int ii = bcells[iGlob];
@@ -217,10 +217,10 @@ public:
 				}else{
 					volume += area * h;
 				}
-			} 
+			}
 		}, Kokkos::Sum<real>(extraVol) );
 		real extraVol_all;
-    
+
     MPI_Allreduce(&extraVol, &extraVol_all, 1, SERGHEI_MPI_REAL, MPI_SUM, comm);
 		extraVol = extraVol_all;
 
@@ -232,7 +232,7 @@ public:
 				real z = state.z(ii);
 				if(h > state.hmin && z < hzMin && hzMin-z >0){
 					sumarea += area;
-				}	
+				}
 			}, Kokkos::Sum<real>(extraArea) );
 			real extraArea_all;
     			MPI_Allreduce(&extraArea, &extraArea_all, 1, SERGHEI_MPI_REAL, MPI_SUM, comm);
@@ -250,7 +250,7 @@ public:
 				}
 			});
 		}
-	}	
+	}
 
 
 	void inline distributeDischarge(State &state, Domain const &dom, real Q){
@@ -273,7 +273,7 @@ public:
       dryxs=1;
 			dz = zMax-zMin;
 			hz = zMin + 0.10*dz;	// initialise with 10% of the elevation difference in the cross section
-			#if SERGHEI_DEBUG_BOUNDARY 
+			#if SERGHEI_DEBUG_BOUNDARY
 				std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "zMin = " << zMin << "\tzMax = " << zMax << "\tdz = " << dz << "\thz = " << hz << std::endl;
 			#endif
     }
@@ -283,7 +283,7 @@ public:
       real z = state.z(ii);
       real weight = 0;
 			if(!dryxs){ // wet cross section
-        weight = h/hsum; 
+        weight = h/hsum;
       }else{
 				h = max(hz,z) - z;
 				state.h(ii) = h;

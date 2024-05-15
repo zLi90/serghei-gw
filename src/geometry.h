@@ -75,6 +75,41 @@ namespace geometry{
 		}
 	}
 
+    int isInsidePoly3D(int np, realArr &xPoly, realArr &yPoly, realArr &zPoly, real &xCoord, real &yCoord, real &zCoord) {
+		int count;
+		int i;
+		double xInter;
+		real x1,x2,y1,y2,z1,z2;
+
+		count=0;
+		for (i=0;i<np;i++){
+			x1= xPoly(i);
+			y1= yPoly(i);
+            z1 = zPoly(i);
+			x2= xPoly((i+1)%np);
+			y2= yPoly((i+1)%np);
+            z2 = zPoly((i+1)%np);
+			if ((yCoord > fmin(y1,y2)) && (yCoord <= fmax(y1,y2)) && (xCoord <= fmax(x1,x2))) {
+			  if (y1 != y2) {
+				 xInter = x1 + (yCoord-y1)*(x2-x1)/(y2-y1);
+				 if (x1 == x2 || xCoord <= xInter){
+						count++;
+				 }
+			  }
+			}
+		}
+		if    (count % 2 == 0)    {return 0;}
+        else    {
+            // check if inside zPoly
+            if (zCoord > fmin(z1,z2) && zCoord <= fmax(z1,z2) && z1 != z2)  {
+                return 1;
+            }
+            else    {
+                return 0;
+            }
+		}
+	}
+
 
 };
 #endif

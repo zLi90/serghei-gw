@@ -45,6 +45,16 @@
 
 #define ZERO TOL12
 
+#define NVG 7
+
+#ifndef SERGHEI_SUBSURFACE_MODEL
+#define SERGHEI_SUBSURFACE_MODEL 1
+#endif
+
+#ifndef SERGHEI_SWE_MODEL
+#define SERGHEI_SWE_MODEL 1
+#endif
+
 //friction model (0-->upwind or 1-->pointwise-centered)
 #define POINTWISE_FRICTION 1
 

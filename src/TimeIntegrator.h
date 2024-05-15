@@ -13,7 +13,7 @@
 #include "Edges.h"
 #include "Indexing.h"
 #include "FileIO.h"
-#include "SWSourceSink.h"
+#include "SourceSink.h"
 
 class TimeIntegrator {
 
@@ -47,6 +47,14 @@ public :
 		}
 
 	}
+
+    inline void computeGwExchange(State &state , const Domain &dom) {
+        Kokkos::parallel_for( dom.nCell , KOKKOS_LAMBDA (int idom) {
+            int ii = dom.getIndex(idom);
+            state.h(ii) += state.qss(idom) * dom.dt;
+            if(state.h(ii)<TOL12) {state.h(ii)=0.0;}
+        });
+    }
 
 inline void computeNewState(State &state , const Domain &dom, const SourceSinkData &ss) {
     #if SERGHEI_DEBUG_WORKFLOW
@@ -180,7 +188,7 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
     }
     // correction to match output times
 		//std::cout << GGD << dom.etime << "\t" << dom.etime+dom.dt << "\t" << io.numOut << "\t" << io.outFreq*io.numOut << "\t" << io.numOut*io.outFreq + dom.startTime << std::endl;
-    if (dom.etime + dom.dt > dom.startTime +  io.numOut*io.outFreq) dom.dt = io.numOut*io.outFreq + dom.startTime - dom.etime; 
+    if (dom.etime + dom.dt > dom.startTime +  io.numOut*io.outFreq) dom.dt = io.numOut*io.outFreq + dom.startTime - dom.etime;
     if (dom.etime + dom.dt > dom.endTime) { dom.dt = dom.endTime - dom.etime; }
 
 
