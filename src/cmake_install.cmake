@@ -1,4 +1,4 @@
-# Install script for directory: /home/zhangzhibo/serghei/serghei-gw-transport-implicit/src
+# Install script for directory: /home/zhangzhibo/serghei/serghei-gw-transport/src
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)

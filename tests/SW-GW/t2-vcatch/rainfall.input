@@ -1,9 +1,0 @@
-timeUnits h
-rainUnits mm/h
-TimeSeriesNp 4
-nx 1
-ny 1
-0.0 100.0
-20.0 100.0
-20.0 0
-120.0 0

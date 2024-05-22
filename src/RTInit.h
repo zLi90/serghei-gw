@@ -11,6 +11,7 @@
 #include "Parallel.h"
 #include "Parser.h"
 #include "SourceSink.h"
+#include "RTBC.h"
 
 class RTInit : public Initializer
 {
@@ -60,7 +61,7 @@ class RTInit : public Initializer
     };
 
 public:
-    int initialize_rt(RTState &rt, GwState &gw, GwDomain &gdom, GwMPI &gmpi, Parallel &par, FileIO &io, SourceSink &ss, std::string inFolder, std::string outFolder){
+    int initialize_rt(RTState &rt, GwState &gw, GwDomain &gdom, RTSubsurfaceBoundaries &rtgbc, GwMPI &gmpi, Parallel &par, FileIO &io, SourceSink &ss, std::string inFolder, std::string outFolder){
         int flag = -1;
         int ii, jj, kk, idx, iGlob, iGlobSW;
         // Read subsurface input file
@@ -72,23 +73,21 @@ public:
         }
         // allocate subsurface state variable
         rt.allocate(gdom);
-
-        /*+++---------------------------------------
-                       修改部分zzb
-        ------------------------------------------*/
+        // gmpi.allocate(gdom);//20240510添加
         // READ BOUNDARY CONDITIONS FOR REACTIVE TRANSPORT
        
-        // fNameIn = inFolder + "rtbc.input";
-        // if (!readRTBCFile(fNameIn))
-        // {
-        //     if (par.masterproc)
-        //     {
-        //         std::cerr << RERROR "Unable to read transport BC" << std::endl;
-        //         return 0;
-        //     }
-        // }
+        fNameIn = inFolder + "rtgwbc.input";
+        if (!readRTBCFile(fNameIn, gdom, rtgbc, par, rt, gw))
+ 
+        {
+            if (par.masterproc)
+            {
+                std::cerr << RERROR "Unable to read transport BC" << std::endl;
+                return 0;
+            }
+        }
 
-        // // READ SOURCE/SINK TERMS FOR REACTIVE TRANSPORT
+        // READ SOURCE/SINK TERMS FOR REACTIVE TRANSPORT
         // fNameIn = inFolder + "rtss.input";
         // if (!readRTSSFile(fNameIn))
         // {
@@ -109,18 +108,21 @@ public:
                 return 0;
             }
         }
-        /*---------------------------------------
-                       修改部分zzb
-        ------------------------------------------+++*/
 
         Kokkos::parallel_for(
             gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) { rt.c(iGlob, 0) = rt.c(iGlob, 1); });
         gmpi.mpi_sendrecv(rt.c, gdom, par);
+
+		//施加边界条件
+        for (int k = 0; k < rtgbc.rtgwbc.size(); k++) {
+		  rtgbc.rtgwbc[k].applyConcentrationBC(rt, gw, gdom, par); 
+		  
+        }        
         /*
         // WRITE OUTPUT FOR REACTIVE TRANSPORT
         io.outputIniRT(outFolder);
         */
-        io.outputIniRT(rt, gdom, par, outFolder); //修改部分zzb
+        io.outputIniRT(rt, gdom, par, outFolder); 
 
         flag = 1;
         return flag;
@@ -162,6 +164,23 @@ public:
                         pline.value >> rt.RTinitialMode;
                         
                     }
+                    else if (!strcmp("alpha_T", pline.key.c_str()))
+                    {
+                        pline.value >> rt.alpha_T;
+                    }
+                    else if (!strcmp("alpha_L", pline.key.c_str()))
+                    {
+                        pline.value >> rt.alpha_L;
+                    }
+                    else if (!strcmp("d_base", pline.key.c_str()))
+                    {
+                        pline.value >> rt.d_base;
+                    }
+                    else if (!strcmp("rt_scheme", pline.key.c_str()))
+                    {
+                        pline.value >> rt.rt_scheme;
+                    }
+
                 }
             }
         }
@@ -198,6 +217,38 @@ public:
                           << " not set.";
             exit(-1);
         }
+        if (rt.alpha_T == -999)
+        {
+            if (par.masterproc)
+                std::cerr << RERROR "key "
+                          << "alpha_T"
+                          << " not set.";
+            exit(-1);
+        }
+        if (rt.alpha_L == -999)
+        {
+            if (par.masterproc)
+                std::cerr << RERROR "key "
+                          << "alpha_L"
+                          << " not set.";
+            exit(-1);
+        }
+        if (rt.d_base == -999)
+        {
+            if (par.masterproc)
+                std::cerr << RERROR "key "
+                          << "d_base"
+                          << " not set.";
+            exit(-1);
+        }
+        if (rt.rt_scheme == -999)
+        {
+            if (par.masterproc)
+                std::cerr << RERROR "key "
+                          << "rt_scheme"
+                          << " not set.";
+            exit(-1);
+        }
         if (par.masterproc)
         {
             std::cerr << GOK "Transport parameters read\n";
@@ -208,8 +259,7 @@ public:
 
 /* ----------------20240506修改------------------------*/
     // READ BOUNDARY CONDITIONS file
-    /*
-    int readRTBCFile(std::string fNameIn, GwDomain &gdom, RTSubsurfaceBoundaries &rtgbc, Parallel &par, RTState &rt) {
+    int readRTBCFile(std::string fNameIn, GwDomain &gdom, RTSubsurfaceBoundaries &rtgbc, Parallel &par, RTState &rt, GwState &gw) {
         std::ifstream fInStream(fNameIn);
         std::string dir;
         std::vector<std::string> polygonFile;
@@ -218,8 +268,8 @@ public:
         std::string line;
         PsLn pline;
         int nPoly, nPoly3D;
-        dir = fNameIn.substr(0, fNameIn.length() - 10); // 10 chars equivalent to "rtgwbc.input" to get the dir
-        int rtbccount = 0, bccountFound = 0, ibc = -2, ndata = 0, hasbcfile;
+        dir = fNameIn.substr(0, fNameIn.length() - 12); // 12 chars equivalent to "rtgwbc.input" to get the dir
+        int bccount = 0, bccountFound = 0, ibc = -2, ndata = 0, hasbcfile;
         real val;
         // Read the gwbc.input file
         if (fInStream.is_open()) {
@@ -228,28 +278,29 @@ public:
                 pline.parse();
                 if(!pline.key.empty()){
                     // we should read the number of boundaries here
-    	  			if (!strcmp("rtbccount", pline.key.c_str()))    {
-                        pline.value >> rtbccount;
+    	  			if (!strcmp("bccount", pline.key.c_str()))    {
+                        //strcmp函数用于比较两个字符串是否相等,相等则返回0
+                        pline.value >> bccount;
                         bccountFound = 1;
-                        if (rtbccount < 1) {
-                            std::cout << YEXC << "RTsubbc.input indicates zero external boundaries." << std::endl;
+                        if (bccount < 1) {
+                            std::cout << YEXC << "RT subbc.input indicates zero external boundaries." << std::endl;
                             return 1;
                         }
-                        rtgbc.rtgwbc.resize(rtbccount);
-                        rtgbc.rtid.resize(rtbccount);
-                        polygonFile.resize(rtbccount);
-    	    			fullPathPoly.resize(rtbccount);
-    	    			tsFile.resize(rtbccount);
-                        bcFile.resize(rtbccount);
+                        rtgbc.rtgwbc.resize(bccount);
+                        rtgbc.id.resize(bccount);
+                        polygonFile.resize(bccount);
+    	    			fullPathPoly.resize(bccount);
+    	    			tsFile.resize(bccount);
+                        bcFile.resize(bccount);
     	    			ibc++;	// ibc should be set to -1
     	  			}
                     else if (!strcmp("id", pline.key.c_str())){
-                        ibc++;
+                        ibc++;//变为0,利用ibc作为边界添加不同id的索引，第一个id关键词为索引0，下一个id关键词为索引1
                         hasbcfile = 0;
-                        if (bccount > 0 && ibc >= 0) {pline.value >> gbc.id[ibc];}
+                        if (bccount > 0 && ibc >= 0) {pline.value >> rtgbc.id[ibc];}
                     }
-                    else if(!strcmp("bctype", pline.key.c_str()) && ibc >=0 ) {
-                        if(bccount > 0) pline.value >> gbc.gwbc[ibc].bctype;
+                    else if(!strcmp("rtbctype", pline.key.c_str()) && ibc >=0 ) {
+                        if(bccount > 0) pline.value >> rtgbc.rtgwbc[ibc].rtbctype;
                     }
                     else if(!strcmp("polygon", pline.key.c_str()) && ibc >=0 ) {
                         if(bccount > 0) pline.value >> polygonFile[ibc];
@@ -257,30 +308,30 @@ public:
                     else if (!strcmp("direction", pline.key.c_str()) && ibc >=0 ) {
                         if (bccount > 0) {
                             // pline.value >> gbc.gwbc[ibc].normalx >> gbc.gwbc[ibc].normaly >> gbc.gwbc[ibc].normalz;
-                            pline.value >> gbc.gwbc[ibc].direction;
-                            if (gbc.gwbc[ibc].direction == 1 || gbc.gwbc[ibc].direction == 2)   {
+                            pline.value >> rtgbc.rtgwbc[ibc].direction;
+                            if (rtgbc.rtgwbc[ibc].direction == 1 || rtgbc.rtgwbc[ibc].direction == 2)   {
                                 ndata = gdom.ny_glob * gdom.nz;
                             }
-                            else if (gbc.gwbc[ibc].direction == 3 || gbc.gwbc[ibc].direction == 4)  {
+                            else if (rtgbc.rtgwbc[ibc].direction == 3 || rtgbc.rtgwbc[ibc].direction == 4)  {
                                 ndata = gdom.nx_glob * gdom.nz;
                             }
-                            else if (gbc.gwbc[ibc].direction == 5 || gbc.gwbc[ibc].direction == 6)  {
+                            else if (rtgbc.rtgwbc[ibc].direction == 5 || rtgbc.rtgwbc[ibc].direction == 6)  {
                                 ndata = gdom.nx_glob * gdom.ny_glob;
                             }
                             else {
-                                std::cerr << RERROR << "In gwbc.input: direction must be 1, 2, 3, 4, 5 or 6 " << std::endl;
+                                std::cerr << RERROR << "In rtgwbc.input: direction must be 1, 2, 3, 4, 5 or 6 " << std::endl;
                             }
                         }
                     }
                     else if(!strcmp("bcvals", pline.key.c_str()) && ibc >=0 ){
                         if (bccount > 0){
                             if (ndata <= 0) {
-                                std::cerr << RERROR << "In gwbc.input: direction should on top of bcvals " << std::endl;
+                                std::cerr << RERROR << "In rtgwbc.input: direction should on top of bcvals " << std::endl;
                             }
-                            gbc.gwbc[ibc].bcvals = realArr("bcvals", ndata);
+                            rtgbc.rtgwbc[ibc].bcvals = realArr("bcvals", ndata);
                             pline.value >> val;
                             for (int idx = 0; idx < ndata; idx++)  {
-                                gbc.gwbc[ibc].bcvals(idx) = val;
+                                rtgbc.rtgwbc[ibc].bcvals(idx) = val;
                             }
                         }
                     }
@@ -292,20 +343,20 @@ public:
                         hasbcfile = 1;
                         if(bccount > 0 ){
                             if (ndata <= 0) {
-                                std::cerr << RERROR << "In gwbc.input: direction should on top of bcfile " << std::endl;
+                                std::cerr << RERROR << "In rtgwbc.input: direction should on top of bcfile " << std::endl;
                             }
-                            gbc.gwbc[ibc].bcvals = realArr("bcvals", ndata);
+                            rtgbc.rtgwbc[ibc].bcvals = realArr("bcvals", ndata);
                         }
                     }
                     else if (ibc >= 0){
                         if (par.masterproc){
-                            std::cerr << RERROR << "In gwbc.input: Key " << pline.key << " not understood." << std::endl;
+                            std::cerr << RERROR << "In rtgwbc.input: Key " << pline.key << " not understood." << std::endl;
                             return 0;
                         }
                     }
                     if(ibc < -1){
                         if(par.masterproc){
-                            std::cerr << RERROR << "No boundaries defined in subbc.input, number of boundaries not defined, or 'id' key not found." << std::endl;
+                            std::cerr << RERROR << "No boundaries defined in rtsubbc.input, number of boundaries not defined, or 'id' key not found." << std::endl;
                             return 0;
                         }
                     }
@@ -313,20 +364,22 @@ public:
             } //end while
             fInStream.close();
             if(!bccountFound){
-                std::cerr << RERROR << "Number of boundaries not defined in gwbc.input. Please define 'bccount'" << std::endl;
+                std::cerr << RERROR << "Number of boundaries not defined in rtgwbc.input. Please define 'bccount'" << std::endl;
                 return 0;
             }
             else {
-                if (par.masterproc) {std::cerr<< GOK "Subsurface BC set\n";}
+                if (par.masterproc) {std::cerr<< GOK "rt Subsurface BC set\n";}
             }
         }
         else {
-    	 	if (par.masterproc)   {std::cerr << YEXC << "gwbc.input not found. Default boundaries used." << std::endl;}
+    	 	if (par.masterproc)   {std::cerr << YEXC << "rtgwbc.input not found. Default boundaries used." << std::endl;}
         }
         // Read polygon file
         for (int k = 0; k < polygonFile.size(); k ++) {
             fullPathPoly[k] = dir + polygonFile[k];
+            
             std::ifstream fPoly(fullPathPoly[k]);
+            // std::cout <<fullPathPoly[k]<< std::endl;
             // read in kth polygon
             if (fPoly.is_open()) {
                 fPoly.ignore(256,' ');
@@ -337,25 +390,28 @@ public:
                     if (!fPoly.fail() && !fPoly.eof()) {
                         fPoly >> xPoly(i) >> yPoly(i);
                         #if SERGHEI_DEBUG_BOUNDARY
-                          std::cout << GGD << "subbc polygon " << k << ". Point " << i << "/" << nPoly << "\t" << xPoly(i) << "\t" << yPoly(i) << std::endl;
+                          std::cout << GGD << "rt subbc polygon " << k << ". Point " << i << "/" << nPoly << "\t" << xPoly(i) << "\t" << yPoly(i) << std::endl;
                         #endif
                     }
                     else {
                         if(par.masterproc){
-                            std::cerr<< RERROR "Error reading subsurface boundary polygon file " << k << ": " << fullPathPoly[k] << std::endl;
+                            std::cerr<< RERROR "Error reading rt subsurface boundary polygon file " << k << ": " << fullPathPoly[k] << std::endl;
                             return 0;
                         }
                     }
                 }
-                if(!gbc.gwbc[k].find_bcells(gw, gbc.id[k], gdom, par, nPoly, xPoly, yPoly)) return 0;
+                if(!rtgbc.rtgwbc[k].find_bcells(gw, rtgbc.id[k], gdom, par, nPoly, xPoly, yPoly)) return 0;
+            
+            
             }
             else{
                 if (par.masterproc) {
-                    std::cerr<< RERROR "Polygon file " << k << ": " << fullPathPoly[k] << " not found." << std::endl;
+                    std::cerr<< RERROR "rt Polygon file " << k << ": " << fullPathPoly[k] << " not found." << std::endl;
             	    return 0;
     		    }
             }
             fPoly.close();
+            
         } // end for read in of the kth polygon
 
         // Read time series boundary conditions
@@ -364,10 +420,10 @@ public:
             std::ifstream fts(fname);
             int ndatat=0, readts=0;
             // Read ts file if a ts boundary exists
-  			switch (gbc.gwbc[k].bctype) {
-                case SUB_BC_Q_T:
-                case SUB_BC_H_T:
-                case SUB_BC_WT_T:
+  			switch (rtgbc.rtgwbc[k].rtbctype) {
+                case SUB_RT_BC_Dirichlet_T:
+                case SUB_RT_BC_Neumann_T:
+                case SUB_RT_BC_Cauchy_T:
                     readts = 1;
   					break;
 			}
@@ -375,14 +431,14 @@ public:
 				if(fts.is_open()) {
                     fts.ignore(256,' ');
                     fts >> ndatat;
-                    if (ndatat > 0) {gbc.gwbc[k].ts.initialise(ndatat);}
+                    if (ndatat > 0) {rtgbc.rtgwbc[k].ts.initialise(ndatat);}
                     for (int i = 0; i < ndatat; i++) {
                         if (!fts.fail() && !fts.eof()) {
-                            fts >> gbc.gwbc[k].ts.time(i) >> gbc.gwbc[k].ts.value(i);
+                            fts >> rtgbc.rtgwbc[k].ts.time(i) >> rtgbc.rtgwbc[k].ts.value(i);
                         }
                         else {
                             if(par.masterproc){
-                                std::cerr<< RERROR "Error reading timeseries file for boundary " << k << ": " << tsFile[k] << std::endl;
+                                std::cerr<< RERROR "Error reading timeseries file for rt boundary " << k << ": " << tsFile[k] << std::endl;
                                 return 0;
                             }
                         }
@@ -391,7 +447,7 @@ public:
   				}
                 else {
 					if (par.masterproc) {
-						std::cerr << RERROR "Error opening timeseries file " << fname << std::endl;   return 0;
+						std::cerr << RERROR "Error opening rt timeseries file " << fname << std::endl;   return 0;
 					}
   				}
   			}
@@ -403,12 +459,12 @@ public:
             int nx, ny, nz, readbc=0;
             // Read bc file if a bc boundary exists
             if (bcFile[k].length() > 0) {
-                switch (gbc.gwbc[k].bctype) {
-                    case SUB_BC_Q_CONST:
+                switch (rtgbc.rtgwbc[k].rtbctype) {
+                    case SUB_RT_BC_Neumann_CONST:
                         if (gdom.isRain)    {break;}
                         else {readbc = 1;}
-                    case SUB_BC_H_CONST:
-                    case SUB_BC_WT_CONST:
+                    case SUB_RT_BC_Dirichlet_CONST:
+                    case SUB_RT_BC_Cauchy_CONST:
                         readbc = 1;
       					break;
     			}
@@ -417,12 +473,12 @@ public:
             if (hasbcfile && readbc && fbc.good()) {
                 // get total data size should be read
 				if(fbc.is_open()) {
-                    std::cout << GOK << "Reading subsurface boundary file : " << fname << std::endl;
+                    std::cout << GOK << "Reading rt subsurface boundary file : " << fname << std::endl;
                     fbc.ignore(256,' ');
                     fbc >> nx >> ny >> nz;
                     if (nx * ny * nz != ndata)  {
                         std::cerr << RERROR << nx << ny << nz << ndata << std::endl;
-                        std::cerr << RERROR "Error reading bc data file " << bcFile[k] << " nx*ny*nz != ndata! " << std::endl;   return 0;
+                        std::cerr << RERROR "Error reading rt bc data file " << bcFile[k] << " nx*ny*nz != ndata! " << std::endl;   return 0;
                     }
                     if (ndata > 0)  {
                         int idx = 0;
@@ -430,12 +486,12 @@ public:
                             for (int jj = 0; jj < ny; jj++) {
                                 for (int ii = 0; ii < nx; ii++) {
                                     if (!fbc.fail() && !fbc.eof()) {
-                                        fbc >> gbc.gwbc[k].bcvals(idx);
+                                        fbc >> rtgbc.rtgwbc[k].bcvals(idx);
                                         idx += 1;
                                     }
                                     else    {
                                         if(par.masterproc)  {
-                                            std::cerr<< RERROR "Error reading bc file for boundary " << k << ": " << bcFile[k] << std::endl;
+                                            std::cerr<< RERROR "Error reading rt bc file for boundary " << k << ": " << bcFile[k] << std::endl;
                                             return 0;
                                         }
                                     }
@@ -447,12 +503,12 @@ public:
   				}
                 else {
 					if (par.masterproc) {
-						std::cerr << RERROR "Error opening bc file " << fname << std::endl;   return 0;
+						std::cerr << RERROR "Error opening rt bc file " << fname << std::endl;   return 0;
 					}
   				}
   			}
         }
-        if (par.masterproc) std::cout << GOK << "Subsurface boundary file parsed and boundaries set" << std::endl;
+        if (par.masterproc) std::cout << GOK << "rt Subsurface boundary file parsed and boundaries set" << std::endl;
         return 1;
     }
 /* ----------------20240506修改------------------------*/
@@ -470,7 +526,8 @@ public:
         // SubsurfaceModel sub;
         std::string tempStr;
         // gw.initialMode="saturated";
-        // rt.RTinitialMode = IC_SAT;//define IC_SAT=1
+        rt.RTinitialMode = IC_H;
+        //IC_H =2,如果transport.input文件中没有RTinitialMode这个参数，那么默认为IC_H，即初始化浓度（类似head.input文件格式）
         // read initial mode and value
         if (fInStream.is_open())
         {
@@ -610,13 +667,13 @@ public:
         {
             if (par.masterproc)
             {
-                std::cerr << RERROR "Error reading rt head/theta IC file. File name might be wrong.\n";
+                std::cerr << RERROR "Error reading rt concentration IC file. File name might be wrong.\n";
                 return 0;
             }
         }
         if (par.masterproc)
         {
-            std::cerr << GOK "rt Subsurface head/water content set\n";
+            std::cerr << GOK "rt Subsurface concentration content set\n";
         }
         return 1;
     }

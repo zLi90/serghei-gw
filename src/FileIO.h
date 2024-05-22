@@ -106,7 +106,7 @@ protected:
 
   int ncid;
   int tDim, xDim, yDim, zDim;
-  int tVar, xVar, yVar, hVar, hzVar, uVar, vVar, zVar, z3Var, hdVar, wcVar, qVar, cVar;
+  int tVar, xVar, yVar, hVar, hzVar, uVar, vVar, zVar, z3Var, hdVar, wcVar, qVar, cVar, qxVar, qyVar, qzVar;
   int infVar,infVolVar;
   std::ofstream domainOutputFile;
   std::ofstream SubsurfaceOutputFile;
@@ -1214,7 +1214,11 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
         dimids[0] = tDim; dimids[1] = zDim; dimids[2] = yDim; dimids[3] = xDim;
         ncwrap( ncmpi_def_var( ncid , "hd" , NC_DOUBLE , 4 , dimids , &hdVar  ) , __LINE__ );
         ncwrap( ncmpi_def_var( ncid , "wc" , NC_DOUBLE , 4 , dimids , &wcVar  ) , __LINE__ );
-
+//20240517
+        ncwrap( ncmpi_def_var( ncid  ,"qx" , NC_DOUBLE , 4 , dimids , &qxVar  ) , __LINE__ );
+        ncwrap( ncmpi_def_var( ncid  ,"qy" , NC_DOUBLE , 4 , dimids , &qyVar  ) , __LINE__ );
+        ncwrap( ncmpi_def_var( ncid  ,"qz" , NC_DOUBLE , 4 , dimids , &qzVar  ) , __LINE__ );
+//20240517
         // End "define" mode
         ncwrap( ncmpi_enddef( ncid ) , __LINE__ );
 
@@ -1266,6 +1270,10 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
         ncwrap( ncmpi_open( MPI_COMM_WORLD , filename.c_str() , NC_WRITE , MPI_INFO_NULL , &ncid ) , __LINE__ );
         ncwrap( ncmpi_inq_varid( ncid , "hd" , &hdVar  ) , __LINE__ );
         ncwrap( ncmpi_inq_varid( ncid , "wc" , &wcVar  ) , __LINE__ );
+        //20240517
+        ncwrap( ncmpi_inq_varid( ncid , "qx" , &qxVar  ) , __LINE__ );
+        ncwrap( ncmpi_inq_varid( ncid , "qy" , &qyVar  ) , __LINE__ );
+        ncwrap( ncmpi_inq_varid( ncid , "qz" , &qzVar  ) , __LINE__ );
 
         writeGwNETCDF(gw, gdom, par);
 
@@ -1308,7 +1316,37 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
         });
         Kokkos::fence();
         ncwrap( ncmpi_put_vara_double_all( ncid , wcVar , st , ct , data.data() ) , __LINE__ );
+        
 
+        //20240517
+        // Kokkos::parallel_for(gdom.nCell, kernel_output<dspace>(gw.q, data, gdom));
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
+            int ii, jj, kk, iGlob;
+            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            iGlob = (hc+kk)*nxhalo*nyhalo + (hc+jj)*nxhalo + ii + hc;
+            data(idom) = gw.q(iGlob,0);
+        });
+        Kokkos::fence();
+        ncwrap( ncmpi_put_vara_double_all( ncid , qxVar , st , ct , data.data() ) , __LINE__ );
+
+
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
+            int ii, jj, kk, iGlob;
+            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            iGlob = (hc+kk)*nxhalo*nyhalo + (hc+jj)*nxhalo + ii + hc;
+            data(idom) = gw.q(iGlob,1);
+        });
+        Kokkos::fence();
+        ncwrap( ncmpi_put_vara_double_all( ncid , qyVar , st , ct , data.data() ) , __LINE__ );
+
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
+            int ii, jj, kk, iGlob;
+            gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+            iGlob = (hc+kk)*nxhalo*nyhalo + (hc+jj)*nxhalo + ii + hc;
+            data(idom) = gw.q(iGlob,2);
+        });
+        Kokkos::fence();
+        ncwrap( ncmpi_put_vara_double_all( ncid , qzVar , st , ct , data.data() ) , __LINE__ );
 
     }
 

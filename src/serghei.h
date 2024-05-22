@@ -66,6 +66,7 @@ public:
 	RTState rt;
 	RTInit rtinit;
 	RTFunction rtf;
+	RTSubsurfaceBoundaries rtgbc;
 	RTMatrix rtA;
 #ifdef __NVCC__
 	RTSolver<Kokkos::Cuda> rtsolver;
@@ -160,7 +161,7 @@ public:
 
 // Initialize transport module if activated
 #if SERGHEI_SUBSURFACE_TRANSPORT
-		if (!rtinit.initialize_rt(rt, gw, gdom, gmpi, par, io, ss, inFolder, outFolder))
+		if (!rtinit.initialize_rt(rt, gw, gdom, rtgbc, gmpi, par, io, ss, inFolder, outFolder))
 		{
 			std::cerr << RERROR "Unable to initialize the transport module"
 					<< "\n";
@@ -338,14 +339,14 @@ public:
 			// rtf.rt_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, gmpi, par, rtsolver);
 		if (gdom.async){
 			if (gdom.etime + gdom.dt < dom.etime){
-					if (gdom.gw_scheme == 1)
+					if (rt.rt_scheme == 1)
 					{
-						rtf.rt_pca_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, gmpi, par, rtsolver);
+						rtf.rt_pca_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc,  gmpi, par, rtsolver);
 					}
 					else
 					{
 						
-						rtf.rt_picard_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtsolver, gmpi, gint, par);
+						rtf.rt_picard_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
 					}
 					 
 					 
@@ -354,15 +355,15 @@ public:
 			else
 			{
 				gdom.etime = dom.etime;
-					if (gdom.gw_scheme == 1)
+					if (rt.rt_scheme == 1)
 					{
-						rtf.rt_pca_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, gmpi, par, rtsolver);
+						rtf.rt_pca_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);
 					}
 					else
 					{
-						rtf.rt_picard_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtsolver, gmpi, gint, par);
+						rtf.rt_picard_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
 					}
-			std::cout << "dom.etime: " << dom.etime << std::endl;
+			// std::cout << "dom.etime: "<< dom.etime << std::endl;
 			}
 #endif
 

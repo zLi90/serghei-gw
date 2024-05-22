@@ -643,7 +643,7 @@ public:
             if (bcFile[k].length() > 0) {
                 switch (gbc.gwbc[k].bctype) {
                     case SUB_BC_Q_CONST:
-                        if (gdom.isRain)    {break;}
+                        if (gdom.isRain)    {break;}//问题：为什么降雨就不需要读取bcfile
                         else {readbc = 1;}
                     case SUB_BC_H_CONST:
                     case SUB_BC_WT_CONST:

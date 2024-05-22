@@ -37,17 +37,8 @@ public:
 	// realArr2 d;
 	realArr2 dcal;
 	//地下水浓度初始值模式
-	int RTinitialMode;
-	//tortuosity factor in the liquid phase
-	
+	int RTinitialMode, rt_scheme;
 
-
-	// realArr advection; 
-	
-	// realArr2 dispersion;
-
-	// realArr abcd;
-	// realArr residual;
 	real total_mass;
 	realArr2 aveV;
 	realArr2 RTcoef;

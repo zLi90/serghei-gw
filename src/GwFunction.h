@@ -110,6 +110,7 @@ public:
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 gw.h(iGlob,0) = gw.h(iGlob,1);
                 gw.h(iGlob,1) = A.x(idom);
+          
             });
             gmpi.mpi_sendrecv(gw.h, gdom, par);
 

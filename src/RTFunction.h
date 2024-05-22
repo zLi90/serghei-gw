@@ -12,6 +12,7 @@
 #include "RTSolver.h"
 #include "State.h"
 #include <set>
+#include <limits> 
 
 class RTFunction
 {
@@ -24,15 +25,19 @@ public:
 		Top-level PCA solver
 	-------------------------------------------------- */
 	template <typename execution_space, typename type_solver>
-	inline void rt_pca_solve(RTState &rt, RTMatrix &rtA, GwState &gw, GwDomain &gdom, GwMPI &gmpi, Parallel &par, type_solver &rtsolver)
+	inline void rt_pca_solve(RTState &rt, RTMatrix &rtA, GwState &gw, GwDomain &gdom, std::vector<RTBC> &rtgbc, GwMPI &gmpi, Parallel &par, type_solver &rtsolver)
 	{
 		int iter, ierr=1; 
 		real dt_tmp;
 
+		//施加边界条件
+        for (int k = 0; k < rtgbc.size(); k++) {
+		  rtgbc[k].applyConcentrationBC(rt, gw, gdom, par); 		  
+        }
 		//扩散系数计算
 		dispersion_tensor(rt, gw, gdom);
 
-		RTlinear_system(gw, gdom,  rtA, par, rt);
+		RTlinear_system(gw, gdom,  rtA, par, rt, rtgbc);
 
         	timer.reset();
 		#if SERGHEI_KOKKOSKERNELS_SOLVER
@@ -50,7 +55,17 @@ public:
             rt.c(iGlob,1) = rtA.rt_x(idom);
         });
         gmpi.mpi_sendrecv(rt.c, gdom, par);
+		//施加边界条件
+        for (int k = 0; k < rtgbc.size(); k++) {
+		  rtgbc[k].applyConcentrationBC(rt, gw, gdom, par); 		  
+        }
+        gmpi.mpi_sendrecv(rt.c, gdom, par);
+		//施加边界条件
+        for (int k = 0; k < rtgbc.size(); k++) {
+		  rtgbc[k].applyConcentrationBC(rt, gw, gdom, par); 		  
+        }
 
+        dt_con(rt, gw, gdom);//计算浓度残差值，并更新
 	   // Update time step
         dt_tmp = gdom.dt;
 
@@ -59,7 +74,27 @@ public:
         Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
             rt.c(iGlob,0) = rt.c(iGlob,1);
         });
-	    gmpi.mpi_sendrecv(rt.c, gdom, par);
+	//     gmpi.mpi_sendrecv(rt.c, gdom, par);
+
+// 调用函数找到最大值及其索引
+	std::pair<real, int> max_value_pair = find_max_value(rt);
+	real max_value = max_value_pair.first;
+	int max_index = max_value_pair.second;
+	std::cout << "最大浓度值: " << max_value << std::endl;
+	std::cout << "对应的索引: " << max_index << std::endl;
+//调用函数找到最大Peclet
+	std::pair<real, int> peclet_pair = find_peclet(rt,gdom);
+	real peclet_value = peclet_pair.first;
+	int peclet_index = peclet_pair.second;
+	std::cout << "最大Peclet: " << peclet_value << std::endl;
+	std::cout << "对应的索引: " << peclet_index << std::endl;  
+
+//调用函数找到最大孔隙均速
+	std::pair<real, int> aveV_pair = find_aveV(rt);
+	real aveV_value = aveV_pair.first;
+	int aveV_index = aveV_pair.second;
+	std::cout << "最大孔隙均速: " << aveV_value << std::endl;
+	std::cout << "对应的索引: " << aveV_index << std::endl;  
 
 	}
 
@@ -67,36 +102,30 @@ public:
         Top-level Picard solver
     -------------------------------------------------- */
 	template <typename execution_space, typename type_solver>
-    inline void rt_picard_solve(RTState &rt, RTMatrix &rtA,  GwState &gw, GwDomain &gdom, 
-             type_solver &rtsolver,  GwMPI &gmpi, GwIntegrator &gint, Parallel &par)  {
-        int iter, iter_cg, iter_max = 50, ierr=1;
-        real eps_diff = 1.0, eps_tmp, eps_old = 1.0, eps = 1.0, eps_min = 5e-6, dt_tmp;
-	//施加边界条件
-     //    for (int k = 0; k < gbc.size(); k++) {
-     //        gbc[k].applyHBC(gw, gdom, par);
-     //    }
-		// for (int i = 225; i <= 250; ++i) {
-    			// rt.c(i, 1) = 15;
-		// 	}
-		// rt.c(130, 1) = 15;
+    inline void rt_picard_solve(RTState &rt, RTMatrix &rtA,  GwState &gw, GwDomain &gdom, std::vector<RTBC> &rtgbc,
+             type_solver &rtsolver, GwMPI &gmpi, GwIntegrator &gint, Parallel &par)  {
+
+
+        int iter, iter_cg, iter_max = 100, ierr=1;
+        real eps_diff = 1.0, eps_tmp, eps_old = 1.0, eps = 1.0,  dt_tmp;
+	real eps_min = 5e-5;//eps_min = 5e-6,20240510修改了收敛残差标准
+		//施加边界条件
+        for (int k = 0; k < rtgbc.size(); k++) {
+		  rtgbc[k].applyConcentrationBC(rt, gw, gdom, par); 		  
+        }
             Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob;
                 gdom.unpackIndices(idom, kk, jj, ii);
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-		// 	std::cout << "-------gdom.nxhc----- " <<gdom.nxhc << std::endl;
-		// 	std::cout << "-------gdom.nyhc----- " <<gdom.nyhc << std::endl;
-		// std::cout << "-------hc----- " <<hc << std::endl;
-			
-            });
-		
-		// rt.c(55, 1) = 10;
-		dispersion_tensor(rt, gw, gdom);
+		  });			
         iter = 0;
+     //计算扩散系数
+	dispersion_tensor(rt, gw, gdom); 	
+
         while (iter < iter_max && eps_diff/eps_old > eps_min && eps > eps_min) {
-		
+
+            RTlinear_system(gw, gdom,  rtA, par, rt, rtgbc);
 		  
-            RTlinear_system(gw, gdom,  rtA, par, rt);
-		//   std::cout << "---------RTdt:----------- " << std::endl;
             timer.reset();
             #if SERGHEI_KOKKOSKERNELS_SOLVER
             rtsolver.kkpcg(rtA);
@@ -113,20 +142,13 @@ public:
             });
             gmpi.mpi_sendrecv(rt.c, gdom, par);
 
-
+		dispersion_tensor(rt, gw, gdom); 
 
             eps_old = eps;
             eps = get_eps(rt, gdom);
             eps_tmp = fabs(eps_old - eps);
             ierr = MPI_Allreduce(&eps_tmp, &eps_diff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-
-
-            gmpi.mpi_sendrecv(rt.c, gdom, par);
-
             iter += 1;
-		          // std::cout << "---------RTdt:----------- " <<rt.dt << std::endl;  
-				// std::cout << "---------GWdt:----------- " << gdom.dt << std::endl;    
-		//   std::cout << "---------RTiter2222:----------- " << iter << std::endl;
         }
         // printf("    > Picard loop converges in %d iterations with eps = %f, %f\n",iter,eps,eps_diff);
 
@@ -134,11 +156,75 @@ public:
         dt_tmp = rt.dt;
         ierr = MPI_Allreduce(&dt_tmp, &rt.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
         Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
-            rt.c(iGlob,0) = rt.c(iGlob,1);  
+            rt.c(iGlob,0) = rt.c(iGlob,1); 
         });
-	// std::cout << "---------rt.dt:----------- " << rt.dt << std::endl;
      //    gint.integrate(gw, gdom, gbc, gss);
-    }
+
+
+// 调用函数找到最大值及其索引
+	std::pair<real, int> max_value_pair = find_max_value(rt);
+	real max_value = max_value_pair.first;
+	int max_index = max_value_pair.second;
+	std::cout << "最大浓度值: " << max_value << std::endl;
+	std::cout << "对应的索引: " << max_index << std::endl;
+//调用函数找到最大Peclet
+	std::pair<real, int> peclet_pair = find_peclet(rt,gdom);
+	real peclet_value = peclet_pair.first;
+	int peclet_index = peclet_pair.second;
+	std::cout << "最大Peclet: " << peclet_value << std::endl;
+	std::cout << "对应的索引: " << peclet_index << std::endl;  
+
+//调用函数找到最大孔隙均速
+	std::pair<real, int> aveV_pair = find_aveV(rt);
+	real aveV_value = aveV_pair.first;
+	int aveV_index = aveV_pair.second;
+	std::cout << "最大孔隙均速: " << aveV_value << std::endl;
+	std::cout << "对应的索引: " << aveV_index << std::endl;  
+}
+
+
+// 寻找 rt.c(iGlob, 1) 中的最大值及其索引
+	std::pair<real, int> find_max_value(const RTState &rt) {
+	real max_value = 0;
+	int max_index = 0;
+	for (int i = 1; i < rt.c.extent(0); ++i) {
+		real current_value = rt.c(i, 1);
+		if (current_value > max_value) {
+			max_value = current_value;
+			max_index = i;
+		}
+	}
+	return std::make_pair(max_value, max_index);
+	}
+
+	//计算Peclet
+	std::pair<real, int> find_peclet(const RTState &rt, GwDomain &gdom) {
+	real max_value = 0;
+	int max_index = 0;
+	for (int i = 1; i < rt.c.extent(0); ++i) {
+		real current_value = fabs(gdom.dx*rt.aveV(i, 3)/rt.dcal(i,0));
+		if (current_value > max_value) {
+			max_value = current_value;
+			max_index = i;
+		}
+	}
+	return std::make_pair(max_value, max_index);
+	}
+
+	//计算最大孔隙均速
+	std::pair<real, int> find_aveV(const RTState &rt) {
+	real max_value = 0;
+	int max_index = 0;
+	for (int i = 1; i < rt.c.extent(0); ++i) {
+		real current_value = fabs(rt.aveV(i, 3));
+		if (current_value > max_value) {
+			max_value = current_value;
+			max_index = i;
+		}
+	}
+	return std::make_pair(max_value, max_index);
+	}
+
 	
 	// Calculation of the hydrodynamic dispersion coefficient tensor
 	inline void dispersion_tensor(RTState &rt, GwState &gw, GwDomain &gdom)
@@ -149,54 +235,48 @@ public:
 			    // rt.c(iGlob, 1) 表示当前步长的浓度值
 				real phi = 0.45;//孔隙度
 				//平均孔隙流速计算,x,y,z和平均流速方向
-				rt.aveV(iGlob, 0) = gw.q(iGlob,0)/phi;
+				rt.aveV(iGlob, 0) = -1*(gw.q(iGlob,0)/phi);
 				rt.aveV(iGlob, 1) = gw.q(iGlob,1)/phi;
-				rt.aveV(iGlob, 2) = gw.q(iGlob,2)/phi;
+				rt.aveV(iGlob, 2) = -1*(gw.q(iGlob,2)/phi);
+			// rt.aveV(iGlob, 0)=-0.0001;
+			// rt.aveV(iGlob, 1)=0;
+			// rt.aveV(iGlob, 2)=0;
 				rt.aveV(iGlob, 3) = sqrt(pow(rt.aveV(iGlob, 0), 2) + pow(rt.aveV(iGlob, 1), 2) + pow(rt.aveV(iGlob, 2), 2));
-			
-				// std::cout << "-------rt.aveV(iGlob, 3)----- " <<rt.aveV(iGlob, 3) << std::endl;
+
+				// std::cout << "-------rt.aveV(iGlob, 0)----- " <<rt.aveV(iGlob, 0) << std::endl;
 				// 机械弥散系数计算
 				//Dxx=DT(qy+qz)+DL*qx
-				rt.dcal(iGlob,0) = (0.3*(pow(rt.aveV(iGlob, 1), 2)+pow(rt.aveV(iGlob, 2), 2))+6*pow(rt.aveV(iGlob, 0), 2))/rt.aveV(iGlob,3);
-				rt.dcal(iGlob,1) = (0.3*(pow(rt.aveV(iGlob, 0), 2)+pow(rt.aveV(iGlob, 2), 2))+6*pow(rt.aveV(iGlob, 1), 2))/rt.aveV(iGlob,3);
-				rt.dcal(iGlob,2) = (0.3*(pow(rt.aveV(iGlob, 0), 2)+pow(rt.aveV(iGlob, 1), 2))+6*pow(rt.aveV(iGlob, 2), 2))/rt.aveV(iGlob,3);
-				// std::cout << "-------rt.d(iGlob,0)----- " <<rt.d(iGlob,0) << std::endl;
+				rt.dcal(iGlob,0) = (rt.alpha_T*(pow(rt.aveV(iGlob, 1), 2)+pow(rt.aveV(iGlob, 2), 2))+rt.alpha_L*pow(rt.aveV(iGlob, 0), 2))/rt.aveV(iGlob,3);
+				rt.dcal(iGlob,1) = (rt.alpha_T*(pow(rt.aveV(iGlob, 0), 2)+pow(rt.aveV(iGlob, 2), 2))+rt.alpha_L*pow(rt.aveV(iGlob, 1), 2))/rt.aveV(iGlob,3);
+				rt.dcal(iGlob,2) = (rt.alpha_T*(pow(rt.aveV(iGlob, 0), 2)+pow(rt.aveV(iGlob, 1), 2))+rt.alpha_L*pow(rt.aveV(iGlob, 2), 2))/rt.aveV(iGlob,3);
+				// std::cout << "-------rt.d(iGlob,0)----- " <<rt.dcal(iGlob,0) << std::endl;
 				//将rt.d中nan值替换
 				Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
 					for (int i = 0; i < 3; ++i) {
 						if (std::isnan(rt.dcal(iGlob,i))) {
-							rt.dcal(iGlob,i) = 0;
-							
-						}
-					}
-					
-					});
-				//对gw.wc进行处理,将0值替换为ThetaR  : 0.029 
-				// Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
-				// 	// for (int i = 0; i < 3; ++i) {
-				// 		if (std::isnan(gw.wc(iGlob,0)) || gw.wc(iGlob,0) == 0) {
-				// 			gw.wc(iGlob,0) = 0.029;
-							
-				// 		}
-				// 	// }
-				// 	});
-					// std::cout << "-------gw.wc(iGlob,0)----- " <<gw.wc(iGlob,0) << std::endl;
+							rt.dcal(iGlob,i) = 0;		
+							}}});					
+																	
 				//弥散系数=机械弥散+分子弥散
-				//1e-5为分子弥散系数
-				// rt.dcal(iGlob,0) += 1e-3*(pow(gw.wc(iGlob,0), 7.0/3.0) / pow(phi, 2.0));
-				// rt.dcal(iGlob,1) += 1e-3*(pow(gw.wc(iGlob,0), 7.0/3.0) / pow(phi, 2.0));
-				// rt.dcal(iGlob,2) += 1e-3*(pow(gw.wc(iGlob,0), 7.0/3.0) / pow(phi, 2.0));
-				
-				rt.dcal(iGlob,0) += 1e-7;
-				rt.dcal(iGlob,1) += 1e-7;
-				rt.dcal(iGlob,2) += 1e-7;
-				// std::cout << "-------rt.dcal(iGlob,0)----- " <<rt.dcal(iGlob,2) << std::endl;	
+				//20240511修改+theita*分子扩散系数
+				//分子扩散系数以Mg离子为例，D=1e-9
+				rt.dcal(iGlob,0) += gw.wc(iGlob,0)*rt.d_base;
+				rt.dcal(iGlob,1) += gw.wc(iGlob,0)*rt.d_base;
+				rt.dcal(iGlob,2) += gw.wc(iGlob,0)*rt.d_base;
+				// rt.dcal(iGlob,0) = rt.dcal(iGlob,0)*1e-7;
+				// rt.dcal(iGlob,1) = rt.dcal(iGlob,1)*1e-7;
+				// rt.dcal(iGlob,2) = rt.dcal(iGlob,2)*1e-7;			
+
+				// std::cout << "-------rt.dcal(iGlob,0)----- " <<rt.dcal(iGlob,0) << std::endl;
+				// std::cout << "-------rt.dcal(iGlob,1)----- " <<rt.dcal(iGlob,1) << std::endl;
+				// std::cout << "-------rt.dcal(iGlob,2)----- " <<rt.dcal(iGlob,2) << std::endl;
+
 			});
 	}
 	    /* --------------------------------------------------
         Get RT matrix coefficients
     -------------------------------------------------- */
-    inline void RTlinear_system(GwState &gw, GwDomain &gdom, RTMatrix &rtA, Parallel &par, RTState &rt)	{
+    inline void RTlinear_system(GwState &gw, GwDomain &gdom, RTMatrix &rtA, Parallel &par, RTState &rt ,std::vector<RTBC> &rtgbc)	{
         // Calculate matrix coefficients
         Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             int ii, jj, kk, ivg, iGlob, iGlobSW;
@@ -205,41 +285,64 @@ public:
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
             iGlobSW = (hc+jj)*gdom.nxhc + ii + hc;
 
-		rt.RTcoef(idom, 0) = -(1 + 2 * (rt.dcal(iGlob,0) * rt.dt / (gdom.dx * gdom.dx) + rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy) + rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob))));
-		rt.RTcoef(idom, 1) = rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx ) - rt.aveV(iGlob, 0) * rt.dt / (2 * gdom.dx );
-          rt.RTcoef(idom, 2) = rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx ) + rt.aveV(iGlob, 0) * rt.dt / (2 * gdom.dx );
-          rt.RTcoef(idom, 3) = rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy) - rt.aveV(iGlob, 1) * rt.dt / (2 * gdom.dy);
-          rt.RTcoef(idom, 4) = rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy) + rt.aveV(iGlob, 1) * rt.dt / (2 * gdom.dy);
-          rt.RTcoef(idom, 5) = rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob)) - rt.aveV(iGlob, 2) * rt.dt / (2 * gdom.dz(iGlob));
-          rt.RTcoef(idom, 6) = rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob)) + rt.aveV(iGlob, 2) * rt.dt / (2 * gdom.dz(iGlob));
-		rt.RTcoef(idom, 7) = -rt.c(iGlob, 1);//pca迭代方法中的右端项为已知浓度值Cn
-		
+		// rt.RTcoef(idom, 0) = -(1 + 2 * (rt.dcal(iGlob,0) * rt.dt / (gdom.dx * gdom.dx) 
+		// + rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy) 
+		// + rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob))));
+		// rt.RTcoef(idom, 1) = rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx ) - rt.aveV(iGlob, 0) * rt.dt / (2 * gdom.dx );
+          // rt.RTcoef(idom, 2) = rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx ) + rt.aveV(iGlob, 0) * rt.dt / (2 * gdom.dx );
+          // rt.RTcoef(idom, 3) = rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy) - rt.aveV(iGlob, 1) * rt.dt / (2 * gdom.dy);
+          // rt.RTcoef(idom, 4) = rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy) + rt.aveV(iGlob, 1) * rt.dt / (2 * gdom.dy);
+          // rt.RTcoef(idom, 5) = rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob)) - rt.aveV(iGlob, 2) * rt.dt / (2 * gdom.dz(iGlob));
+          // rt.RTcoef(idom, 6) = rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob)) + rt.aveV(iGlob, 2) * rt.dt / (2 * gdom.dz(iGlob));
+		// rt.RTcoef(idom, 7) = -rt.c(iGlob, 1);//pca迭代方法中的右端项为已知浓度值Cn
+	//对流项中心差分格式	
 		// rt.RTcoef(idom, 0) = -gw.wc(iGlob,0)*((1 + 2 * (rt.dcal(iGlob,0) * rt.dt / (gdom.dx * gdom.dx) + rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy) + rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob)))));
-		// rt.RTcoef(idom, 1) = gw.wc(iGlob,0)*(rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx ) - rt.aveV(iGlob, 0) * rt.dt / (2 * gdom.dx ));
-          // rt.RTcoef(idom, 2) = gw.wc(iGlob,0)*(rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx ) + rt.aveV(iGlob, 0) * rt.dt / (2 * gdom.dx ));
-          // rt.RTcoef(idom, 3) = gw.wc(iGlob,0)*(rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy) - rt.aveV(iGlob, 1) * rt.dt / (2 * gdom.dy));
-          // rt.RTcoef(idom, 4) = gw.wc(iGlob,0)*(rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy) + rt.aveV(iGlob, 1) * rt.dt / (2 * gdom.dy));
-          // rt.RTcoef(idom, 5) = gw.wc(iGlob,0)*(rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob)) - rt.aveV(iGlob, 2) * rt.dt / (2 * gdom.dz(iGlob)));
-          // rt.RTcoef(idom, 6) = gw.wc(iGlob,0)*(rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob)) + rt.aveV(iGlob, 2) * rt.dt / (2 * gdom.dz(iGlob)));
+		// rt.RTcoef(idom, 1) = gw.wc(iGlob,0)*(rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx )) - rt.aveV(iGlob, 0) * rt.dt / (2 * gdom.dx );
+          // rt.RTcoef(idom, 2) = gw.wc(iGlob,0)*(rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx )) + rt.aveV(iGlob, 0) * rt.dt / (2 * gdom.dx );
+          // rt.RTcoef(idom, 3) = gw.wc(iGlob,0)*(rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy)) - rt.aveV(iGlob, 1) * rt.dt / (2 * gdom.dy);
+          // rt.RTcoef(idom, 4) = gw.wc(iGlob,0)*(rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy)) + rt.aveV(iGlob, 1) * rt.dt / (2 * gdom.dy);
+          // rt.RTcoef(idom, 5) = gw.wc(iGlob,0)*(rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob))) - rt.aveV(iGlob, 2) * rt.dt / (2 * gdom.dz(iGlob));
+          // rt.RTcoef(idom, 6) = gw.wc(iGlob,0)*(rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob))) + rt.aveV(iGlob, 2) * rt.dt / (2 * gdom.dz(iGlob));
 		// rt.RTcoef(idom, 7) = -gw.wc(iGlob,0)*rt.c(iGlob, 1);//pca迭代方法中的右端项为已知浓度值Cn
+	//对流项向后差分格式
+		rt.RTcoef(idom, 0) = 
+			gw.wc(iGlob,0) *1 + 2 * gw.wc(iGlob,0) * (rt.dcal(iGlob,0) * rt.dt / (gdom.dx * gdom.dx) + rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy) + rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob)))
+		+rt.aveV(iGlob, 0) * rt.dt / gdom.dx + rt.aveV(iGlob, 1) * rt.dt / gdom.dy + rt.aveV(iGlob, 2) * rt.dt / gdom.dz(iGlob);
+		rt.RTcoef(idom, 1) = -(gw.wc(iGlob,0)*(rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx )));
+          rt.RTcoef(idom, 2) = -(gw.wc(iGlob,0)*(rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx )) + rt.aveV(iGlob, 0) * rt.dt / gdom.dx) ;
+          rt.RTcoef(idom, 3) = -(gw.wc(iGlob,0)*(rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy))) ;
+          rt.RTcoef(idom, 4) = -(gw.wc(iGlob,0)*(rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy)) + rt.aveV(iGlob, 1) * rt.dt / gdom.dy);
+          rt.RTcoef(idom, 5) = -(gw.wc(iGlob,0)*(rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob))) );
+          rt.RTcoef(idom, 6) = -(gw.wc(iGlob,0)*(rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob))) + rt.aveV(iGlob, 2) * rt.dt /  gdom.dz(iGlob));
+		rt.RTcoef(idom, 7) = gw.wc(iGlob,0)*rt.c(iGlob, 1);		
+//对流项向后差分格式-不考虑含水率
+		// rt.RTcoef(idom, 0) = 
+		// 	1 + 2 * (rt.dcal(iGlob,0) * rt.dt / (gdom.dx * gdom.dx) + rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy) + rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob)))
+		// +rt.aveV(iGlob, 0) * rt.dt / gdom.dx + rt.aveV(iGlob, 1) * rt.dt / gdom.dy + rt.aveV(iGlob, 2) * rt.dt / gdom.dz(iGlob);
+		// rt.RTcoef(idom, 1) = -((rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx )));
+          // rt.RTcoef(idom, 2) = -((rt.dcal(iGlob,0) * rt.dt / (gdom.dx  * gdom.dx )) + rt.aveV(iGlob, 0) * rt.dt / gdom.dx) ;
+          // rt.RTcoef(idom, 3) = -((rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy))) ;
+          // rt.RTcoef(idom, 4) = -((rt.dcal(iGlob,1) * rt.dt / (gdom.dy * gdom.dy)) + rt.aveV(iGlob, 1) * rt.dt / gdom.dy);
+          // rt.RTcoef(idom, 5) = -((rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob))) );
+          // rt.RTcoef(idom, 6) = -((rt.dcal(iGlob,2) * rt.dt / (gdom.dz(iGlob) * gdom.dz(iGlob))) + rt.aveV(iGlob, 2) * rt.dt /  gdom.dz(iGlob));
+		// rt.RTcoef(idom, 7) = rt.c(iGlob, 1);
 
-
-		if (gdom.gw_scheme != 1)	//picard迭代
+		if (rt.rt_scheme != 1)	//picard迭代
 		{
-			// rt.RTcoef(idom, 7) 需要修改
-			// rt.RTcoef(idom, 7) = -gw.wc(iGlob,0)*rt.c(iGlob, 1);
-			rt.RTcoef(idom, 7) = -rt.c(iGlob, 1);	
+		
+			rt.RTcoef(idom,7) = rt.RTcoef(idom,7);
+			
 		}
 		
 	}   );
-		 /*--------------后续完善部分
+		 /*--------------后续完善部分*/
 		  // Apply internal boundary conditions (needed when MPI is used)
 
 		// Apply outer boundary conditions
-			for (int k = 0; k < gbc.size(); k++) {
-				gbc[k].applyMatBC(gw, gdom, par);
+			for (int k = 0; k < rtgbc.size(); k++) {
+				rtgbc[k].applyRTMatBC(rt, gw, gdom, par);
 			}
-			-------------后续完善部分*/
+			
     
 		// Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
           //   rt.RTcoef(idom,0) = rt.RTcoef(idom,0);
@@ -276,24 +379,25 @@ public:
 			rtA.rt_rhs(idom) = rt.RTcoef(idom,7);
 
 		   });
+
 	}
 
 /*----------------20240426修改-----------*///非迭代方法时间步长控制
-    inline void dt_waco(RTState &rt, GwState &gw, GwDomain &gdom)	{
-    	real dwc_max, dt_old;
+    inline void dt_con(RTState &rt, GwState &gw, GwDomain &gdom)	{
+    	real dc_max, dt_old;
     	dt_old = rt.dt;//在serghei.h中初始化rt.dt=gdom.dt_init;
         Kokkos::parallel_reduce(gdom.nCell, KOKKOS_LAMBDA (int idx, real &tmp) {
             int ii, jj, kk, iGlob;
             gdom.unpackIndices(idx, kk, jj, ii);
             // gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-            real dwc = fabs(gw.wc(iGlob,1) - gw.wc(iGlob,0));
-			tmp = (dwc > tmp) ? dwc : tmp;
-		} , Kokkos::Max<real>(dwc_max) );
-    	if (dwc_max > 0.02)	{gdom.dt = gdom.dt * 0.9;}
-    	else if (dwc_max >= 0.0 & dwc_max < 0.01)	{gdom.dt = gdom.dt * 1.1;}
-    	if (gdom.dt > gdom.dt_max)	{gdom.dt = gdom.dt_max;}
-    	else if (gdom.dt < gdom.dt_init)	{gdom.dt = gdom.dt_init;}
+            real dc = fabs(rt.c(iGlob,1) - rt.c(iGlob,0));
+			tmp = (dc > tmp) ? dc : tmp;
+		} , Kokkos::Max<real>(dc_max) );
+    	if (dc_max > 0.02)	{rt.dt = rt.dt * 0.9;}
+    	else if (dc_max >= 0.0 & dc_max < 0.01)	{rt.dt = rt.dt * 1.1;}
+    	if (rt.dt > gdom.dt_max)	{rt.dt = gdom.dt_max;}
+    	else if (rt.dt < gdom.dt_init)	{rt.dt = gdom.dt_init;}
     }
 /*----------------20240426修改-----------*///非迭代方法时间步长控制
 
