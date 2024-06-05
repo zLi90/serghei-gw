@@ -36,6 +36,7 @@
 #include "RTFunction.h"
 #include "RTMatrix.h"
 #include "RTSolver.h"
+#include "GwMPI.h"
 #endif
 
 class SERGHEI
@@ -68,6 +69,7 @@ public:
 	RTFunction rtf;
 	RTSubsurfaceBoundaries rtgbc;
 	RTMatrix rtA;
+
 #ifdef __NVCC__
 	RTSolver<Kokkos::Cuda> rtsolver;
 #else
@@ -337,8 +339,21 @@ public:
 #if SERGHEI_SUBSURFACE_TRANSPORT
 //后期需要完善关于不同求解方法以及采用OpenMP还是CUDA的选择
 			// rtf.rt_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, gmpi, par, rtsolver);
-		if (gdom.async){
-			if (gdom.etime + gdom.dt < dom.etime){
+		if (gdom.async)
+		{
+			if (gdom.etime + gdom.dt < dom.etime)
+			{
+				gdom.etime += gdom.dt;
+#ifdef __NVCC__
+					if (rt.rt_scheme == 1)
+					{
+						rtf.rt_pca_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc,  gmpi, par, rtsolver);
+					}
+					else
+					{
+						rtf.rt_picard_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
+					}
+#else
 					if (rt.rt_scheme == 1)
 					{
 						rtf.rt_pca_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc,  gmpi, par, rtsolver);
@@ -348,21 +363,35 @@ public:
 						
 						rtf.rt_picard_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
 					}
-					 
-					 
+#endif
+					 		 
 			}
 		}
 			else
 			{
 				gdom.etime = dom.etime;
+#ifdef __NVCC__
 					if (rt.rt_scheme == 1)
 					{
+						
+						rtf.rt_pca_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc,  gmpi, par, rtsolver);
+					}
+					else
+					{
+						rtf.rt_picard_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
+					}
+#else
+					if (rt.rt_scheme == 1)
+					{
+						// std::cout << "rt_scheme1: " << rt.rt_scheme << std::endl;
 						rtf.rt_pca_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);
 					}
 					else
 					{
+						// std::cout << "rt_scheme2: " << rt.rt_scheme << std::endl;
 						rtf.rt_picard_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
 					}
+#endif
 			// std::cout << "dom.etime: "<< dom.etime << std::endl;
 			}
 #endif

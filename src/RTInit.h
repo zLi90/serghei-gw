@@ -180,7 +180,15 @@ public:
                     {
                         pline.value >> rt.rt_scheme;
                     }
-
+                    else if (!strcmp("Up_Weighting_vplus", pline.key.c_str()))
+                    {
+                        pline.value >> rt.Up_Weighting_vplus;
+                    }
+                    else if (!strcmp("Up_Weighting_vminus", pline.key.c_str()))
+                    {
+                        pline.value >> rt.Up_Weighting_vminus;
+                    }
+ 
                 }
             }
         }
@@ -249,6 +257,23 @@ public:
                           << " not set.";
             exit(-1);
         }
+        if (rt.Up_Weighting_vplus == -999)
+        {
+            if (par.masterproc)
+                std::cerr << RERROR "key "
+                          << "Up_Weighting_vplus"
+                          << " not set.";
+            exit(-1);
+        }
+        if (rt.Up_Weighting_vminus == -999)
+        {
+            if (par.masterproc)
+                std::cerr << RERROR "key "
+                          << "Up_Weighting_vminus"
+                          << " not set.";
+            exit(-1);
+        }
+             
         if (par.masterproc)
         {
             std::cerr << GOK "Transport parameters read\n";

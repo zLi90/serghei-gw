@@ -15,6 +15,8 @@
 #include "GwDomain.h"
 #include "GwMatrix.h"
 #include "RTMatrix.h"
+
+
 template <typename execution_space>
 class RTSolver {
 
@@ -52,6 +54,8 @@ public:
 		Kokkos::deep_copy (rt_ptr, rtA.rt_ptr);
 		#endif
 	}
+
+
 
 	/*
 		----------------------------------------------------------

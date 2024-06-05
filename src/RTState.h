@@ -23,6 +23,8 @@ class RTState
 public:
 	// transport time step size
 	real dt_init, dt_max, dt, dtOld;
+	//上游加权系数
+	real Up_Weighting_vplus, Up_Weighting_vminus;
 	// number of substances
 	int n_mass;
 	// molecular diffusivity
@@ -41,10 +43,21 @@ public:
 
 	real total_mass;
 	realArr2 aveV;
+	realArr2 aveVB;
 	realArr2 RTcoef;
 	// real phizzb;
 	realArr tau; 
 
+	//python测试参数
+	realArr c_advxx;
+	realArr c_advyy ;
+	realArr c_advzz ;
+	realArr c_difxx ;
+	realArr c_difyy;
+	realArr c_difzz;
+	realArr c_difxy;
+	realArr c_difxz;
+	realArr c_difyz; 
 
 
 	    // Allocate state variables for groundwater
@@ -57,7 +70,7 @@ public:
 		// Note that we ignore d_xy, d_xz, etc. for now,
 		// but they should be implemented later
 		// d = realArr2("d", gdom.nCellMem, 3);
-		dcal = realArr2("dcal", gdom.nCellMem, 3);
+		dcal = realArr2("dcal", gdom.nCellMem, 6);
 
 		
 
@@ -65,14 +78,24 @@ public:
 		// advection = realArr("advection", gdom.nCellMem);
 
 		aveV = realArr2("aveV", gdom.nCellMem,4);
+		//边界流速
+		aveVB = realArr2("aveVB", gdom.nCellMem,4);
 		// dispersion = realArr2("dispersion", gdom.nCellMem,4);
 		// residual = realArr("residual", gdom.nCellMem);
 		tau =realArr("tau", gdom.nCellMem);
 
-		RTcoef = realArr2("RTcoef", gdom.nCell, 8);
+		RTcoef = realArr2("RTcoef", gdom.nCell, 20);
 
-
-	
+		//python测试参数
+		c_advxx = realArr("c_advxx", gdom.nCellMem);	
+		c_advyy = realArr("c_advyy", gdom.nCellMem);
+		c_advzz = realArr("c_advzz", gdom.nCellMem);
+		c_difxx = realArr("c_difxx", gdom.nCellMem);
+		c_difyy = realArr("c_difyy", gdom.nCellMem);
+		c_difzz = realArr("c_difzz", gdom.nCellMem);
+		c_difxy = realArr("c_difxy", gdom.nCellMem);
+		c_difxz = realArr("c_difxz", gdom.nCellMem);
+		c_difyz = realArr("c_difyz", gdom.nCellMem);	
 
 	}
 };

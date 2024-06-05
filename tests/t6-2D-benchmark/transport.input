@@ -1,0 +1,8 @@
+RTinitialMode : 2 //initial concentration
+n_mass : 1
+d_base : 7e-8  //molecular diffusivity
+alpha_L : 0.4
+alpha_T :0.2
+rt_scheme : 1          // numerical schemes, 1:PCA, 2:Picard
+Up_Weighting_vplus : 0.7     //Upstream weighting coefficients,[0.5,1]
+Up_Weighting_vminus : 0.3   //Upstream weighting coefficients,[0,0.5]
