@@ -1,74 +1,50 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from scipy.io import netcdf
 import matplotlib.font_manager as fm
+from scipy.io import netcdf
 
-font_prop = fm.FontProperties(fname='/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman.ttf',size=10)  
+# Define file directories and labels
+fdir = ['output2/']
+lgd = ['ParFlow', 'CATHY', 'HGS', 'Cast3M', 'SERGHEI', 'SERGHEI-asy']
 
-fdir = ['output/','output-asy1/']
-lgd = ['ParFlow','CATHY','HGS','Cast3M','SERGHEI', 'SERGHEI-asy']
-wcs = 0.1
+# Define file names and read data
 dataname = 'data/'
+datasets = {
+    'Ponding': ['PF-slab-ponding.csv', 'CATHY-slab-ponding.csv', 'HGS-slab-ponding.csv', 'cast3m-slab-ponding.csv'],
+    'Outflow': ['PF-slab-outflow.csv', 'CATHY-slab-outflow.csv', 'HGS-slab-outflow.csv', 'cast3m-slab-outflow.csv']
+}
 
-pfp = pd.read_csv(dataname+'PF-slab-ponding.csv', header=None)
-cathyp = pd.read_csv(dataname+'CATHY-slab-ponding.csv', header=None)
-hgsp = pd.read_csv(dataname+'HGS-slab-ponding.csv', header=None)
-cast3mp = pd.read_csv(dataname+'cast3m-slab-ponding.csv', header=None)
+data = {key: [pd.read_csv(dataname + fname, header=None) for fname in fnames] for key, fnames in datasets.items()}
 
-pff = pd.read_csv(dataname+'PF-slab-outflow.csv', header=None)
-cathyf = pd.read_csv(dataname+'CATHY-slab-outflow.csv', header=None)
-hgsf = pd.read_csv(dataname+'HGS-slab-outflow.csv', header=None)
-cast3mf = pd.read_csv(dataname+'cast3m-slab-outflow.csv', header=None)
+# Define colors and markers
+colors = [(19/255, 103/255, 158/255), (171/255, 58/255, 41/255), (208/255, 127/255, 44/255), (111/255, 109/255, 161/255)]
+markers = ['o', '^', 's', '*']
 
-color1 = (19/255, 103/255, 158/255)
-color2 = (171/255,58/255,41/255)
-color3 = (208/255, 127/255, 44/255)
-color4 = (111/255, 109/255, 161/255)
+# Read domain time series data
+t, p, q = [], [], []
+for ff in fdir:
+    out = np.genfromtxt(ff + 'domainTimeSeries.out', skip_header=1)
+    t.append(out[:, 0])
+    p.append(out[:, 1])
+    q.append(out[:, 4])
 
-t = []
-p= []
-q= []
-for ff in range(len(fdir)):
-
-    out = np.genfromtxt(fdir[ff] + 'domainTimeSeries.out', skip_header=1)
-    t.append(out[:,0])
-    p.append(out[:,1])
-    q.append(out[:,4])
-
-
+# Plotting
 plt.figure(1, figsize=[9, 4])
 plt.rc('font', size=10)
-ss=14
-plt.subplot(1,2,1)
-plt.scatter(pfp.iloc[:,0],pfp.iloc[:,1], s=ss, marker='o', facecolor='None', edgecolor=color1)
-plt.scatter(cathyp.iloc[:,0],cathyp.iloc[:,1], s=ss, marker='^', facecolor='None', edgecolor=color2)
-plt.scatter(hgsp.iloc[:,0],hgsp.iloc[:,1],s=ss, marker='s', facecolor='None', edgecolor=color3)
-plt.scatter(cast3mp.iloc[:,0],cast3mp.iloc[:,1], s=ss, marker='*', facecolor='None', edgecolor=color4)
-plt.plot(t[0]/3600, p[0], 'k-')
-plt.plot(t[0]/3600, p[1], 'r--')
-plt.xlabel('Time [h]',fontproperties=font_prop)
-plt.ylabel('Ponding storage [$m^{3}$]',fontproperties=font_prop)
-plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-plt.xticks(fontproperties=font_prop)
-plt.yticks(fontproperties=font_prop)
-plt.legend(lgd,prop=font_prop,loc="upper right")
+ss = 14
 
-
-plt.subplot(1,2,2)
-plt.scatter(pff.iloc[:,0],pff.iloc[:,1], s=ss, marker='o', facecolor='None', edgecolor=color1)
-plt.scatter(cathyf.iloc[:,0],cathyf.iloc[:,1], s=ss, marker='^', facecolor='None', edgecolor=color2)
-plt.scatter(hgsf.iloc[:,0],hgsf.iloc[:,1],s=ss, marker='s', facecolor='None', edgecolor=color3)
-plt.scatter(cast3mf.iloc[:,0],cast3mf.iloc[:,1], s=ss, marker='*', facecolor='None', edgecolor=color4)
-plt.plot(t[0]/3600, q[0]*3600, 'k-')
-plt.plot(t[0]/3600, q[1]*3600, 'r--')
-plt.xlabel('Time [h]',fontproperties=font_prop)
-plt.ylabel('Flow Rate[$m^{3}$/h]',fontproperties=font_prop)
-plt.xticks(fontproperties=font_prop)
-plt.yticks(fontproperties=font_prop)
-
-
-
-plt.savefig('ponding-flow.png',format='png',bbox_inches='tight',dpi=600)
-
+for idx, (key, ylabel, ydata) in enumerate(zip(['Ponding', 'Outflow'], 
+                                               ['Ponding storage [$m^{3}$]', 'Flow Rate [$m^{3}$/h]'], 
+                                               [p, q])):
+    plt.subplot(1, 2, idx + 1)
+    for i, (dataset, color, marker) in enumerate(zip(data[key], colors, markers)):
+        plt.scatter(dataset.iloc[:, 0], dataset.iloc[:, 1], s=ss, marker=marker, facecolor='None', edgecolor=color)
+    plt.plot(t[0] / 3600, ydata[0] if idx == 0 else ydata[0] * 3600, 'k-')
+    plt.xlabel('Time [h]')
+    plt.ylabel(ylabel)
+    plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+    if idx == 0:
+        plt.legend(lgd)
+plt.savefig('ponding-flow.png', format='png', bbox_inches='tight', dpi=600)
 plt.show()
