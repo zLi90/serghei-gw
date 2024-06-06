@@ -9,16 +9,17 @@ font_prop = fm.FontProperties(fname='/usr/share/fonts/truetype/msttcorefonts/Tim
 fdir = ['output/','output-asy1/']
 lgd = ['ParFlow','CATHY','HGS','Cast3M','SERGHEI', 'SERGHEI-asy']
 wcs = 0.1
+dataname = 'data/'
 
-pfp = pd.read_csv('datazn/PF-slab-ponding.csv', header=None)
-cathyp = pd.read_csv('datazn/CATHY-slab-ponding.csv', header=None)
-hgsp = pd.read_csv('datazn/HGS-slab-ponding.csv', header=None)
-cast3mp = pd.read_csv('datazn/cast3m-slab-ponding.csv', header=None)
+pfp = pd.read_csv(dataname+'PF-slab-ponding.csv', header=None)
+cathyp = pd.read_csv(dataname+'CATHY-slab-ponding.csv', header=None)
+hgsp = pd.read_csv(dataname+'HGS-slab-ponding.csv', header=None)
+cast3mp = pd.read_csv(dataname+'cast3m-slab-ponding.csv', header=None)
 
-pff = pd.read_csv('datazn/PF-slab-outflow.csv', header=None)
-cathyf = pd.read_csv('datazn/CATHY-slab-outflow.csv', header=None)
-hgsf = pd.read_csv('datazn/HGS-slab-outflow.csv', header=None)
-cast3mf = pd.read_csv('datazn/cast3m-slab-outflow.csv', header=None)
+pff = pd.read_csv(dataname+'PF-slab-outflow.csv', header=None)
+cathyf = pd.read_csv(dataname+'CATHY-slab-outflow.csv', header=None)
+hgsf = pd.read_csv(dataname+'HGS-slab-outflow.csv', header=None)
+cast3mf = pd.read_csv(dataname+'cast3m-slab-outflow.csv', header=None)
 
 color1 = (19/255, 103/255, 158/255)
 color2 = (171/255,58/255,41/255)

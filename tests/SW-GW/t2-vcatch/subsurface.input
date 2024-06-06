@@ -5,6 +5,7 @@
 BCtype  : REFLECTIVE  // Boundary condition. [*]
 height : 5.0          // Thickness of the subsurface domain
 dz_multiplier : 1.0
+dz_base : 0.2
 ndepth  : 25          // Number of cells in z-direction.
 nSoilID : 2           // Number of soil types
 parNz   : 1           // Number of parallel tasks in z-direction.

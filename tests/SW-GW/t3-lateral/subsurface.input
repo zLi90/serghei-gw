@@ -4,6 +4,7 @@
 
 height : 15.0          // Thickness of the subsurface domain
 dz_multiplier : 1.0
+dz_base : 0.25
 ndepth  : 60          // Number of cells in z-direction.
 nSoilID : 1           // Number of soil types
 parNz   : 1           // Number of parallel tasks in z-direction.

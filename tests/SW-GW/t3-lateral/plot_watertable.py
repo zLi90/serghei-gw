@@ -1,3 +1,4 @@
+
 """
     Validate Serghei against Hydrus results reported in Beegum VZJ(2018)
 """
@@ -7,9 +8,15 @@ from scipy.io import netcdf
 import matplotlib.font_manager as fm
 
 font_prop = fm.FontProperties(fname='/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman.ttf', size=18)  
-fdir = ['output/']
+fdir = ['output-t3/']
 lgd = ['SERGHEI','Hydrus']
-tt = 60
+#simulation Length
+T = 157680000
+#outfrequence
+F = 259200
+#number of time steps
+tt = int(T/F)
+
 L = 4000
 H = 15
 dz = 0.25
@@ -40,8 +47,6 @@ for ff in range(len(fdir)):
 
 wt_out = []
 x = np.linspace(0, L, dim[0])
-ioutput = 0
-
 serghei = (h_out[-1,:,0,:])
 wt = np.zeros((dim[0]))
 for ii in range(dim[0]):
@@ -57,7 +62,7 @@ wt_out.append(wt)
 
 hcentre=[]
 x_time=[]
-for i in range(tt+1):
+for i in range(tt):
     aa=h_out[i,:,0,19]
     for kk in range(dim[2]-1):
         h1 = aa[kk]
@@ -69,39 +74,30 @@ for i in range(tt+1):
             hcentre.append(bb) 
             break
 for i in range(tt):
-    a=i*2592000/(3600*24)
+    a=i*259200/(3600*24)
     x_time.append(a)
-x_time.append(1825)
-
-
 """
     --------------------------------------------------------------------
                                 Make plot
     --------------------------------------------------------------------
 """
 color1=[0/255,150/255,136/255]
-
 plt.figure(figsize=(16, 5)) 
-plt.subplot(1, 2, 2)
-plt.plot(x, wt_out[0], '-', color='k')    
-plt.scatter(hydrus1[:,0], hydrus1[:,1],  marker='^', facecolor='None', edgecolor=color1)
-plt.xlim([0,L])
-plt.xlabel('X [m]',fontproperties=font_prop)
-plt.ylabel('Water Table [m]',fontproperties=font_prop)
-plt.xticks(fontproperties=font_prop)
-plt.yticks(fontproperties=font_prop)
+for i in range(2):
+    plt.subplot(1, 2, i+1)
+    if i == 0:
+        plt.plot(x, wt_out[0], '-', color='k')    
+        plt.scatter(hydrus1[:,0], hydrus1[:,1],  marker='^', facecolor='None', edgecolor=color1)
+        plt.legend(lgd)   
+    else:
+        xticks = range(0, 5 * 365+1, 365)
+        xtick_labels = [str(i) for i in range(0, 5 * 365+1, 365)]
+        plt.plot(x_time, hcentre, '-', color='k')  
+        plt.scatter(hydrus2[:,0], hydrus2[:,1],  marker='^', facecolor='None', edgecolor=color1)  
+    plt.xlabel('X [m]')
+    plt.ylabel('Water Table [m]')
 
-plt.subplot(1, 2, 1)
-xticks = range(0, 5 * 365+1, 365)
-xtick_labels = [str(i) for i in range(0, 5 * 365+1, 365)]
-plt.plot(x_time, hcentre, '-', color='k')  
-plt.scatter(hydrus2[:,0], hydrus2[:,1],  marker='^', facecolor='None', edgecolor=color1)  
-plt.legend(lgd, prop=font_prop,loc="lower right")
-plt.xticks(xticks, xtick_labels,fontproperties=font_prop)
-plt.yticks(fontproperties=font_prop)
-plt.xlim([0,1825])
-plt.xlabel('Time [d]', fontproperties=font_prop)
-plt.ylabel('Water table [m]', fontproperties=font_prop)
+
 
 plt.savefig('both.png',format='png',bbox_inches='tight',dpi=600)
 plt.show()
