@@ -2,6 +2,6 @@ initialMode :  dry       // dry, h, h+z, file
 initialValue : 0.0      // depth or water surface elevation constant value
 
 friction : manning       // none, manning
-roughness : 0.0036         // roughness coefficient value, or set to 'file' to read from file
+roughness : file         // roughness coefficient value, or set to 'file' to read from file
 
 dryDepth : 0.00001
