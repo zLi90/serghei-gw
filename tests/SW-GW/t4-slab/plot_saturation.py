@@ -41,12 +41,12 @@ for ff in fdir:
         wc = fid.variables['wc'][:]
     print(np.shape(wc))
 
-    wc3x0.append(wc[6, :, 0, 0] / wcs)
-    wc3x8.append(wc[6, :, 0, 31] / wcs)
-    wc3x40.append(wc[6, :, 0, 159] / wcs)
-    wc6x0.append(wc[12, :, 0, 0] / wcs)
-    wc6x8.append(wc[12, :, 0, 31] / wcs)
-    wc6x40.append(wc[12, :, 0, 159] / wcs)
+    wc3x0.append(wc[6, :, 0, 1] / wcs)
+    wc3x8.append(wc[6, :, 0, 32] / wcs)
+    wc3x40.append(wc[6, :, 0, 160] / wcs)
+    wc6x0.append(wc[12, :, 0, 1] / wcs)
+    wc6x8.append(wc[12, :, 0, 32] / wcs)
+    wc6x40.append(wc[12, :, 0, 160] / wcs)
 
 z = np.linspace(-4.95, -0.05, 50)
 
