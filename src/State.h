@@ -77,6 +77,16 @@ public:
         time_hMax(ii)=0;
       });
     #endif
+
+    Kokkos::deep_copy(h, 0);
+    Kokkos::deep_copy(hu, 0);
+    Kokkos::deep_copy(hv, 0);
+    Kokkos::deep_copy(z, 0);
+    Kokkos::deep_copy(roughness, 0);
+    Kokkos::deep_copy(isBound, 0);
+    Kokkos::deep_copy(isnodata, false);
+    Kokkos::deep_copy(dsw0, 0);
+    Kokkos::deep_copy(dsw1, 0);
   }
 
   inline void filterDomain(const Domain &dom){

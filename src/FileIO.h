@@ -139,10 +139,10 @@ private:
 */
 
 public:
-
+	bool allowIni=1;
   real outFreq;
   int outFormat;
-  int numOut; // spatial output counter
+  int numOut=0; // spatial output counter
 
   real obsFreq;
   int numObs = 0;
@@ -165,21 +165,22 @@ public:
 		numOut++;
 	}
 
-    #if SERGHEI_SUBSURFACE_MODEL
-    void outputIniSub(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir){
-		numOut=0;
+  #if SERGHEI_SUBSURFACE_MODEL
+  void outputIniSub(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir){
+		nOut = floor(gdom.simLength / outFreq);
 		outputInitNETCDFSub(gw, gdom, par, dir);
-		numOut++;
 	}
 
-    void outputSubsurface(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir){
-        timer.reset();
-        numOut--;
-        outputNETCDFSubsurface(gw, gdom, par, dir);
-        numOut++;
-        gdom.timers.out += timer.seconds();
-	}
+  void outputSubsurface(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir){
+    timer.reset();
+    #if SERGHEI_SWE_MODEL
+    numOut--;
     #endif
+    outputNETCDFSubsurface(gw, gdom, par, dir);
+    numOut++;
+    gdom.timers.out += timer.seconds();
+	}
+  #endif
 
 	// Writes spatial fields
 	void output(const State &state, Domain const &dom, SourceSinkData &ss, Parallel const &par,std::string dir){
@@ -1129,6 +1130,7 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
           writeTimerRank(par,dom.timers.gw,"gwTime");
           writeTimerRank(par,dom.timers.gwlinsys,"gwLinSysTime");
           writeTimerRank(par,dom.timers.gwlinsol,"gwLinSolTime");
+		  writeTimerRank(par,dom.cg_iter,"gwLinSolIter");
            writeTimerRank(par,dom.timers.gwUpdateK,"gwUpdateKTime");
            writeTimerRank(par,dom.timers.gwUpdateQ,"gwUpdateQTime");
            writeTimerRank(par,dom.timers.gwUpdateWC,"gwUpdateWCTime");

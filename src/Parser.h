@@ -793,7 +793,6 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 }
 
 
-
   int readExtBCFile(std::string fNameIn, Domain &dom, ExternalBoundaries &ebc, Parallel &par, State &state) {
 		#if SERGHEI_DEBUG_WORKFLOW
   	  std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;

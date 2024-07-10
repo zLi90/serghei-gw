@@ -27,11 +27,11 @@ public:
   SArray<int,3,3> neigh;
 };
 
-inline void printKokkosInitArguments(Kokkos::InitializationSettings const &args, Parallel const &par){
-  std::cout << "MPI Rank " << par.myrank << "\tnum_threads " << args.get_num_threads() << std::endl;
-  std::cout << "MPI Rank " << par.myrank << "\tdevice_id " << args.get_device_id() << std::endl;
-  std::cout << "MPI Rank " << par.myrank << "\tndevices " << args.get_num_devices() << std::endl;
-  std::cout << "MPI Rank " << par.myrank << "\tskip_device " << args.get_skip_device() << std::endl;
+inline void printKokkosInitArguments(Parallel const &par){
+  std::cout << "MPI Rank " << par.myrank << "\tnum_threads " << Kokkos::num_threads() << std::endl;
+  std::cout << "MPI Rank " << par.myrank << "\tdevice_id " << Kokkos::device_id() << std::endl;
+  std::cout << "MPI Rank " << par.myrank << "\tndevices " << Kokkos::num_devices() << std::endl;
+  //std::cout << "MPI Rank " << par.myrank << "\tskip_device " << Kokkos::skip_device() << std::endl;
 }
 
 #ifdef __NVCC__

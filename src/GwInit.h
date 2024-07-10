@@ -49,6 +49,7 @@ class PsLn{
     };
 
 public:
+    bool read = 1;
 
     int initialize_gw(GwState &gw, GwDomain &gdom, State &state, Domain &dom, SubsurfaceBoundaries &gbc, GwMPI &gmpi, GwIntegrator &gint,
         Parallel &par, FileIO &io, SourceSink &ss, std::string inFolder, std::string outFolder) {
@@ -57,7 +58,7 @@ public:
         real hdiff, dist, dz_base;
         // Read subsurface input file
         std::string fNameIn = inFolder + "subsurface.input";
-        if (!readGwFile(fNameIn, gdom, par))    {
+        if(read) if (!readGwFile(fNameIn, gdom, par))    {
             std::cerr << GOK << " Reading in subsurface dimensions failed." << std::endl;   return 0;
         }
         // Assumes no decomposition in the vertical direction
@@ -98,22 +99,38 @@ public:
         for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++) {
             gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
             iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj, ii);
-            //dz_base = gdom.thickH / gdom.nz_glob;
-            // Note that when dz_multiplier > 1, the actual domain height will be > gdom.thickH
-            gdom.dz(iGlob) = gdom.dz_base * mypow(gdom.dz_multiplier, kk);
+            if (gdom.dz_multiplier == 1.0)  {
+                gdom.dz(iGlob) = gdom.thickH / gdom.nz_glob;
+                if (read)   {
+                    gdom.z(iGlob) = state.z(iGlobSW) - (kk-hc+0.5)*gdom.dz(iGlob);
+                }
+                else {
+                    state.z(iGlobSW) = 0.0;
+                    gdom.z(iGlob) = - (kk-hc+0.5)*gdom.dz(iGlob);
+                }
+            }
+            else {
+                // Note that when dz_multiplier > 1, the actual domain height will be > gdom.thickH
+                if (kk == 0)    {gdom.dz(iGlob) = gdom.dz_base;}
+                else {
+                    gdom.dz(iGlob) = gdom.dz_base * mypow(gdom.dz_multiplier, kk-1);
+                }
+            }
             //gdom.z(iGlob) = state.z(iGlobSW) - (kk-hc+0.5)*gdom.dz(iGlob);
             // no data cells
             if (state.isnodata(iGlobSW) == 1)   {gdom.isnodata(iGlob) == 1;}
         }
-        for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++) {
-            gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-            iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj, ii);
-            gdom.z(iGlob) = state.z(iGlobSW);
-            for (int krow = 0; krow < kk; krow++)   {
-                int idx = (hc+krow)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-                gdom.z(iGlob) -= gdom.dz(idx);
+        if (gdom.dz_multiplier != 1.0)  {
+            for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++) {
+                gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj, ii);
+                gdom.z(iGlob) = state.z(iGlobSW);
+                for (int krow = 0; krow < kk-1; krow++)   {
+                    int idx = (hc+krow)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+                    gdom.z(iGlob) -= gdom.dz(idx);
+                }
+                gdom.z(iGlob) -= 0.5*gdom.dz(iGlob);
             }
-            gdom.z(iGlob) -= 0.5*gdom.dz(iGlob);
         }
         gmpi.mpi_sendrecv1(gdom.z, gdom, par);
         gmpi.mpi_sendrecv1(gdom.dz, gdom, par);
@@ -156,19 +173,19 @@ public:
             Kokkos::deep_copy(gdom.evapRate, ss.swss.evapRate);
         }
         #endif
-        // read VG parameters
-        fNameIn = inFolder + "vg.input";
-        if (!readVGParameters(fNameIn, gw, gdom, par))   {
-            if (par.masterproc) {
-                std::cerr << RERROR << " Unable to read van Genuchten parameters." << std::endl;
-                return 0;
-            }
-        }
         // read soil ID
         fNameIn = inFolder + "soilID.input";
         if (!readSoilID(fNameIn, gw, gdom, par)) {
             if (par.masterproc) {
                 std::cerr << RERROR "Unable to read soilID from soilID.input" << std::endl;
+                return 0;
+            }
+        }
+        // read VG parameters
+        fNameIn = inFolder + "vg.input";
+        if (!readVGParameters(fNameIn, gw, gdom, par))   {
+            if (par.masterproc) {
+                std::cerr << RERROR << " Unable to read van Genuchten parameters." << std::endl;
                 return 0;
             }
         }
@@ -251,6 +268,8 @@ public:
                     else if ( !strcmp( "dt_max"    , pline.key.c_str() ) ) { pline.value >> gdom.dt_max; }
                     else if ( !strcmp( "nSoilID", pline.key.c_str()))   {pline.value >> gdom.nSoilID;}
                     else if ( !strcmp( "gw_scheme"    , pline.key.c_str() ) ) { pline.value >> gdom.gw_scheme; }
+                    else if ( !strcmp( "cg_iter"    , pline.key.c_str() ) ) { pline.value >> gdom.cg_iter; }
+                    else if ( !strcmp( "cg_tol"    , pline.key.c_str() ) ) { pline.value >> gdom.cg_tol; }
                     else if ( !strcmp( "aev"    , pline.key.c_str() ) ) { pline.value >> gdom.aev; }
                     else if ( !strcmp( "async"    , pline.key.c_str() ) ) { pline.value >> gdom.async; }
                 }
@@ -277,6 +296,7 @@ public:
             std::cerr << BDASH "Number of grids (nz)  : "  << gdom.nz_glob    << "\n";
             std::cerr << BDASH "Domain thickness : "  << gdom.thickH    << "\n";
             std::cerr << BDASH "Maximum dt   : "  << gdom.dt_max    << "\n";
+			std::cerr << BDASH "CG tolerance   : "  << gdom.cg_tol    << "\n";
             std::cerr << BDASH "Asynchronous SW-GW coupling   : "  << gdom.async    << "\n";
         }
         if (par.masterproc)   {std::cerr<< GOK "Subsurface parameters read\n";}
@@ -319,9 +339,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 6)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 6)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 6)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 6)) = std::stof(tail);
                     }
                     // VG n
                     else if(!strcmp("n", pline.key.c_str()))    {
@@ -332,9 +352,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 4)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 4)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 4)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 4)) = std::stof(tail);
                     }
                     // VG Ks
                     else if(!strcmp("Ks", pline.key.c_str()))   {
@@ -345,9 +365,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 0)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 0)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 0)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 0)) = std::stof(tail);
                     }
                     // VG porosity
                     else if(!strcmp("Phi", pline.key.c_str()))  {
@@ -358,9 +378,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 1)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 1)) = std::stof(head);
                         }
-                        gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 1)) = std::stof(tail);
+                        gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 1)) = std::stof(tail);
                     }
                     // VG wcs
                     else if(!strcmp("ThetaR", pline.key.c_str()))   {
@@ -371,9 +391,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 3)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 3)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 3)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 3)) = std::stof(tail);
                     }
                     // VG wcr
             		else if(!strcmp("ThetaS", pline.key.c_str())) {
@@ -384,9 +404,9 @@ public:
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
                             head = tail.substr(0, splitloc);
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
-                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, i, 2)) = std::stof(head);
+                            gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 2)) = std::stof(head);
                         }
-                        gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, gw.nVGparam, gdom.nSoilID - 1, 2)) = std::stof(tail);
+                        gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 2)) = std::stof(tail);
                     }
             		else  {
                         if (par.masterproc) {
@@ -395,6 +415,20 @@ public:
                         flag = -1;
                     }
                 }
+            }
+        }
+        else {
+            if (gdom.nSoilID == 1)  {
+                gw.vgTable(0) = gdom.Ks;
+                gw.vgTable(1) = gdom.wcs;
+                gw.vgTable(2) = gdom.wcs;
+                gw.vgTable(3) = gdom.wcr;
+                gw.vgTable(4) = gdom.n;
+                gw.vgTable(5) = 1.0 - 1.0/gdom.n;
+                gw.vgTable(6) = gdom.alpha;
+            }
+            else {
+                if(par.masterproc){std::cerr<< RERROR "Unable to open VG parameters file!\n";  return 0;}
             }
         }
         if (par.masterproc) {std::cerr<< GOK "van Genuchten parameters read\n";}
@@ -418,7 +452,7 @@ public:
             //compare the values t* with the DEM file just to check if we are using the same values, otherwise error
             if (n_soil != gdom.nSoilID)    {
                 if (par.masterproc)  {std::cerr<< RERROR "Number of soilID != that specified in the VG Table. Unable to continue\n";}
-                if (par.masterproc)  {std::cerr << BDASH "n_soil: " 	<< n_soil 	<< ", in the Table : " << gw.nVGparam <<"\n";}
+                if (par.masterproc)  {std::cerr << BDASH "n_soil: " 	<< n_soil 	<< ", in the Table : " << NVG <<"\n";}
             	return 0;
             }
             if (n_soil == 1)    {for (int ii=0; ii<ndata; ii++) {tmpVar(ii) = 0;}}
@@ -614,7 +648,7 @@ public:
         for (int k = 0; k < tsFile.size(); k++) {
             std::string fname = dir + tsFile[k];
             std::ifstream fts(fname);
-            int ndatat=0, readts=0;
+            int ndatat=0, readts=0, ndatacell=0;
             // Read ts file if a ts boundary exists
   			switch (gbc.gwbc[k].bctype) {
                 case SUB_BC_Q_T:
@@ -626,11 +660,27 @@ public:
 			if (readts) {
 				if(fts.is_open()) {
                     fts.ignore(256,' ');
-                    fts >> ndatat;
-                    if (ndatat > 0) {gbc.gwbc[k].ts.initialise(ndatat);}
+                    fts >> ndatat >> ndatacell;
+                    if (ndatat > 0) {
+                        gbc.gwbc[k].ts.initialise(ndatat);
+                        // if multiple cells, initialize values
+                        if (ndatacell > 1)  {
+                            gbc.gwbc[k].ts.nc = ndatacell;
+                            gbc.gwbc[k].ts.values = realArr2("values",ndatat,ndatacell);
+                        }
+                        else {
+                            gbc.gwbc[k].ts.nc = 1;
+                        }
+                    }
                     for (int i = 0; i < ndatat; i++) {
                         if (!fts.fail() && !fts.eof()) {
-                            fts >> gbc.gwbc[k].ts.time(i) >> gbc.gwbc[k].ts.value(i);
+                            fts >> gbc.gwbc[k].ts.time(i);
+                            if (gbc.gwbc[k].ts.nc <= 1) {fts >> gbc.gwbc[k].ts.value(i);}
+                            else {
+                                for (int j = 0; j < gbc.gwbc[k].ts.nc; j++) {
+                                    fts >> gbc.gwbc[k].ts.values(i,j);
+                                }
+                            }
                         }
                         else {
                             if(par.masterproc){
@@ -983,27 +1033,31 @@ public:
         std::ifstream fInStream(inFolder + "subsurface.input");
         std::string line;
         PsLn pline;
-        //SubsurfaceModel sub;
         std::string tempStr;
-        // gw.initialMode="saturated";
-        gw.initialMode = IC_SAT;
         // read initial mode and value
-        if (fInStream.is_open()){
-            while (std::getline(fInStream, line)) {
-                pline.line = line;
-                pline.lowercase();
-                pline.parse();
-                // If the line was valid and a key is stored
-                if(!pline.key.empty()){
-                    // Match the key, and store the value
-                    if(!strcmp("initialmode",pline.key.c_str())){ pline.value >> gw.initialMode;}
+        if (read)   {
+            if (fInStream.is_open()){
+                while (std::getline(fInStream, line)) {
+                    pline.line = line;
+                    pline.lowercase();
+                    pline.parse();
+                    // If the line was valid and a key is stored
+                    if(!pline.key.empty()){
+                        // Match the key, and store the value
+                        if(!strcmp("initialmode",pline.key.c_str())){ pline.value >> gw.initialMode;}
+                    }
+                }
+            }
+            else {
+                if (read == 1)  {
+                    if (par.masterproc){
+                        std::cerr << RERROR "File " << inFolder + "subsurface.input" << " not found" << std::endl; return 0;
+                    }
                 }
             }
         }
         else {
-            if (par.masterproc){
-                std::cerr << RERROR "File " << inFolder + "subsurface.input" << " not found" << std::endl; return 0;
-            }
+            gw.initialMode = IC_WC;
         }
         // initialize the primary variables
         for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++)   {
@@ -1017,7 +1071,24 @@ public:
         }
         else if (gw.initialMode == IC_WC){
             tempStr = "theta.input";
-            readGwICFile(tempStr, inFolder, gw, gdom, par);
+            if (read)   {
+                readGwICFile(tempStr, inFolder, gw, gdom, par);
+            }
+            else {
+                for (idx = 0; idx < gdom.nCell; idx++)    {
+                    gdom.unpackIndices(idx, kk, jj, ii);
+                    // get global index
+                    iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+                    // get soil parameters
+                    ivg = gw.soilID(iGlob) * NVG;
+                    wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
+                    n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
+                    gw.wc(iGlob,1) = gdom.wc_ic;
+                    gw.h(iGlob,1) = wc2h(gw.wc(iGlob,1), alpha, n, wcs, wcr);
+                    gw.h(iGlob,0) = gw.h(iGlob,1);
+                    gw.wc(iGlob,0) = gw.wc(iGlob,1);
+                }
+            }
         }
         else if (gw.initialMode == IC_WT){
             tempStr = "wt.input";
@@ -1027,7 +1098,7 @@ public:
             for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++)   {
                 gdom.unpackIndicesGw(iGlob, gdom.nzhc, gdom.nyhc, gdom.nxhc, kk, jj, ii);
                 iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj, ii);
-                idx = gw.soilID(iGlob) * gw.nVGparam;
+                idx = gw.soilID(iGlob) * NVG;
                 wcs = gw.vgTable(idx + 2);
                 gw.wc(iGlob,0) = wcs;   gw.wc(iGlob,1) = wcs;
                 gw.h(iGlob,1) = state.h(iGlobSW) + (kk-0.5)*gdom.dz(iGlob);
@@ -1097,7 +1168,7 @@ public:
                 // get global index
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 // get soil parameters
-                ivg = gw.soilID(iGlob) * gw.nVGparam;
+                ivg = gw.soilID(iGlob) * NVG;
                 wcs = gw.vgTable(ivg+2);
                 wcr = gw.vgTable(ivg+3);
                 n = gw.vgTable(ivg+4);
@@ -1116,7 +1187,7 @@ public:
                 // get global index
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 // get soil parameters
-                ivg = gw.soilID(iGlob) * gw.nVGparam;
+                ivg = gw.soilID(iGlob) * NVG;
                 wcs = gw.vgTable(ivg+2);
                 wcr = gw.vgTable(ivg+3);
                 n = gw.vgTable(ivg+4);
@@ -1135,7 +1206,7 @@ public:
                 // get global index
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                 // get soil parameters
-                ivg = gw.soilID(iGlob) * gw.nVGparam;
+                ivg = gw.soilID(iGlob) * NVG;
                 wcs = gw.vgTable(ivg+2);
                 wcr = gw.vgTable(ivg+3);
                 n = gw.vgTable(ivg+4);

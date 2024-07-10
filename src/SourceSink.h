@@ -25,11 +25,13 @@ class TimeSeries{
 public:
 
   int np;     // number of points in time
+  int nc;       // number of grid cells with different time series values
   int nx = 1; // number of partitions in x direction
   int ny = 1; // number of partitions in y direction
 
   realArr time;
   realArr value;
+  realArr2 values;
   int timeIndex = 0;
 
 /*
@@ -75,6 +77,16 @@ KOKKOS_INLINE_FUNCTION real interpolateLinear(TimeSeries &ts, real const &t){
   jj=ii+1;
   if(ii == ts.np - 1) jj = ii;
   real v = ts.value(ii) + (ts.value(jj) - ts.value(ii))/(ts.time(jj)-ts.time(ii))*(t-ts.time(ii));
+  return(v);
+};
+
+KOKKOS_INLINE_FUNCTION real interpolateValues(TimeSeries &ts, real const &t, int icol){
+  int ii,jj;
+  findTimeBlock(ts,t);
+  ii = ts.timeIndex;
+  jj=ii+1;
+  if(ii == ts.np - 1) jj = ii;
+  real v = ts.values(ii,icol) + (ts.values(jj,icol) - ts.values(ii,icol))/(ts.time(jj)-ts.time(ii))*(t-ts.time(ii));
   return(v);
 };
 

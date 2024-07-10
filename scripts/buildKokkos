@@ -1,0 +1,45 @@
+#!/bin/bash
+if [ -z $1 ]; then
+        echo "No architecture specified, building for OpenMP"
+else
+    gpuArch=$1
+fi
+
+kokkos_src_dir=$(pwd)/kokkos
+kokkos_build_dir=$(pwd)/kokkos/build
+kokkos_install_dir=$(pwd)/kokkos/install
+
+GPU=OFF
+if [ ! -z $gpuArch ]; then
+    CXX=${kokkos_src_dir}/bin/nvcc_wrapper
+    GPU=ON
+else
+	#	Specify C++ compiler if not the default one
+	CXX=g++
+fi
+
+if [ ! -d ${kokkos_install_dir} ]; then
+    rm -rf ${kokkos_build_dir}
+    cmake -S ${kokkos_src_dir} -B ${kokkos_build_dir} \
+    -DCMAKE_INSTALL_PREFIX=${kokkos_install_dir} \
+    -DKokkos_ENABLE_OPENMP=ON \
+    -DKokkos_ENABLE_CUDA=$GPU \
+    -DKokkos_ENABLE_CUDA_CONSTEXPR=$GPU \
+    -DKokkos_ENABLE_CUDA_LAMBDA=$GPU \
+    -DKokkos_ENABLE_CUDA_LDG_INTRINSIC=$GPU \
+    -DKokkos_ENABLE_CUDA_RELOCATABLE_DEVICE_CODE=$GPU \
+    -DKokkos_ENABLE_CUDA_UVM=$GPU \
+    -DCMAKE_CXX_STANDARD=17 \
+    -DCMAKE_CXX_COMPILER=$CXX \
+    -DCMAKE_C_COMPILER=gcc \
+    -DKokkos_ENABLE_SERIAL=ON \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DKokkos_ENABLE_EXAMPLES=OFF \
+    -DKokkos_ENABLE_TESTS=OFF \
+    -DKokkos_ARCH_$gpuArch=ON \
+#    -DCMAKE_CXX_FLAGS=-fPIC \
+    
+    cd ${kokkos_build_dir}
+    make -j4
+    make install
+fi

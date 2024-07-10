@@ -377,6 +377,7 @@ public:
             else if (ii == gdom.nx-1 && par.px < par.nproc_x-1)   {gw.coef(idom,7) -= gw.coef(idom,1) * gw.h(iGlob+1,1);}
             if (jj == 0 && par.py > 0)    {gw.coef(idom,7) -= gw.coef(idom,4) * gw.h(iGlob-gdom.nxhc,1);}
             else if (jj == gdom.ny-1 && par.py < par.nproc_y-1)   {gw.coef(idom,7) -= gw.coef(idom,3) * gw.h(iGlob+gdom.nxhc,1);}
+
         });
         // Apply outer boundary conditions
         for (int k = 0; k < gbc.size(); k++) {
@@ -386,6 +387,9 @@ public:
 
         Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             gw.coef(idom,0) -= (gw.coef(idom,1)+gw.coef(idom,2)+gw.coef(idom,3)+gw.coef(idom,4)+gw.coef(idom,5)+gw.coef(idom,6));
+
+			// printf(" -%d- : %f %f %f %f %f - %f\n",idom,1e3*gw.coef(idom,1),1e3*gw.coef(idom,5),1e3*gw.coef(idom,0),
+			// 	1e3*gw.coef(idom,6),1e3*gw.coef(idom,2),1e3*gw.coef(idom,7));
         });
 
         // Apply internal source/sink terms

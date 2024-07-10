@@ -13,7 +13,7 @@
 class GwMatrix {
 
 public:
-	int nrow, ncol, nnz, nx, ny, nz;
+	int nrow, ncol, nnz, nx, ny, nz, cg_iter;
 	intArr ptr, ind, ptrT, indT;
 	realArr val, diag, rhs, x, valT, lt, ut;
 	// views for cg solver

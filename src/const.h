@@ -47,16 +47,26 @@
 
 #define NVG 7
 
+// model component defaults
+
+#ifndef SERGHEI_SWE_GW
+#define SERGHEI_SWE_GW 0
+#endif
+
 #ifndef SERGHEI_SUBSURFACE_MODEL
-#define SERGHEI_SUBSURFACE_MODEL 1
+#define SERGHEI_SUBSURFACE_MODEL 0
 #endif
 
 #ifndef SERGHEI_SWE_MODEL
 #define SERGHEI_SWE_MODEL 1
 #endif
 
+#ifndef SERGHEI_KOKKOSKERNELS_SOLVER
+#define SERGHEI_KOKKOSKERNELS_SOLVER 1
+#endif
+
 //friction model (0-->upwind or 1-->pointwise-centered)
-#define POINTWISE_FRICTION 1
+#define POINTWISE_FRICTION 0
 
 #define SERGHEI_FRICTION_MANNING 1
 #define SERGHEI_FRICTION_DARCYWEISBACH 2

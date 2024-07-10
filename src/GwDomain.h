@@ -16,8 +16,12 @@ public:
     // Domain properties
     int nSoilID, aev, hmin;
     int hasRoot, hasET;
+    // Baseline VG parameters;
+    real wcs, wcr, Ks, alpha, n;
+    real wc_ic;
     // Numerical scheme
-    int gw_scheme;
+    int gw_scheme, cg_iter = 1000000;
+	real cg_tol = 1e-8;
     bool async;
     // Kokkos views
     realArr z, dz, sinx, cosx, siny, cosy, rainRate, evapRate, etpmRate;

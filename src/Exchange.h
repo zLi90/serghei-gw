@@ -43,6 +43,17 @@ public:
     haloRecvBufN = realArr("haloRecvBufN",maxPack*hc*dom.nx);
     haloRecvBufW = realArr("haloRecvBufW",maxPack*dom.ny*hc);
     haloRecvBufE = realArr("haloRecvBufE",maxPack*dom.ny*hc);
+    // initialisation is not necessary
+    /*
+    Kokkos::deep_copy(haloSendBufS,0.);
+    Kokkos::deep_copy(haloSendBufN,0.);
+    Kokkos::deep_copy(haloSendBufW,0.);
+    Kokkos::deep_copy(haloSendBufE,0.);
+    Kokkos::deep_copy(haloRecvBufS,0.);
+    Kokkos::deep_copy(haloRecvBufN,0.);
+    Kokkos::deep_copy(haloRecvBufW,0.);
+    Kokkos::deep_copy(haloRecvBufE,0.);
+    */
   }
 
 

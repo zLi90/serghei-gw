@@ -54,12 +54,14 @@ public:
 	#endif
 	#endif
 
- private:
 	SourceSink      ss;
-	// SourceSinkData      ss;
+	//SourceSinkData      ss;
+
+  Exchange            exch;
 	ExternalBoundaries  ebc;
+
+ private:
 	Parser              parser;
-	Exchange            exch;
 	TimeIntegrator      tint;
 	surfaceIntegrator   sint;
 	boundaryIntegrator  bint;
@@ -86,21 +88,22 @@ public:
 	int start(int argc, char **argv){
 		#if SERGHEI_DEBUG_WORKFLOW
 			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
-		#endif
+	  #endif
 
-	    init.initializeMPI( &argc , &argv , par );
-
-		#ifdef __NVCC__
-			kokkosSettings.set_device_id(par.myrank%par.nthreads);
-		#else
-			if(par.nthreads!=0) kokkosSettings.set_num_threads(par.nthreads);
-		#endif
-		#if SERGHEI_DEBUG_KOKKOS_SETUP
-			printKokkosInitArguments(args,par);
-			#if __NVCC__
-				printKokkosCuda(args,par);
-			#endif
-		#endif
+    
+    init.initializeMPI( &argc , &argv , par );
+    
+    #ifdef __NVCC__
+		  kokkosSettings.set_device_id(par.myrank%par.nthreads);
+	  #else
+		  if(par.nthreads!=0) kokkosSettings.set_num_threads(par.nthreads);
+	  #endif
+	  #if SERGHEI_DEBUG_KOKKOS_SETUP
+		  printKokkosInitArguments(par);
+		  #if __NVCC__
+			  printKokkosCuda(args,par);
+		  #endif
+	  #endif
 
 		#if SERGHEI_DEBUG_WORKFLOW
 			std::cerr << GGD "Initialising Kokkos - rank " << par.myrank << std::endl;
@@ -165,9 +168,10 @@ public:
 		#endif
 		// capture initialisation time
 		dom.timers.init = timer.seconds();
-		if (par.masterproc) {std::cout << GOK << "Initialisation complete. Initialisation time: " << dom.timers.init << " [s]" << std::endl;}
-		return 1;
-	}
+
+		if(par.masterproc) std::cout << GOK << "Initialisation complete. Initialisation time: " << dom.timers.init << " [s]" << std::endl;
+    return 1;
+  }
 
 	int compute(){
 		#if SERGHEI_DEBUG_WORKFLOW
@@ -182,6 +186,7 @@ public:
 		gdom.dt = gdom.dt_init;
 		gdom.dtOld = gdom.dt_init;
 		dom.dt = gdom.dt;
+		gdom.cg_iter = 0;
 		#else
 		tint.computeDt(state,dom,io);
 		#endif
@@ -247,6 +252,7 @@ public:
 				}
 				#endif
 			}
+			gdom.cg_iter += A.cg_iter;
 			// gdom.timers.gw += timer.seconds();
 				// surface-subsurface exchange
 				#if SERGHEI_SWE_MODEL
@@ -272,7 +278,7 @@ public:
 			dom.countIterDt++;
 			accumDt+=dom.dt;
 
-			if (dom.nIter%io.nScreen==0 || fabs(dom.etime - dom.startTime - io.numOut*io.outFreq) <= dom.dt) {
+			if (dom.nIter%io.nScreen==0 || fabs(dom.etime - dom.startTime - io.numOut*io.outFreq) <= TOL12) {
 				if (par.masterproc) {
 					std::cerr << std::fixed;
 					std::cerr << GSTAR "TIME: " << dom.etime << " average dt: " << accumDt/dom.countIterDt <<"\n";
@@ -281,9 +287,9 @@ public:
 					std::cerr << std::fixed;
 					std::cerr.precision(12);
 					#if SERGHEI_SWE_MODEL
-					std::cerr << "     Ponding Volume:\t" << newVolume <<"\n";
-					std::cerr << "     Inflow Discharge: " << bint.inflowDischargeG <<"\n";
-					std::cerr << "     Outflow Volume: " << bint.outflowDischargeG*dom.dt <<"\n";
+					std::cerr << "     Surface Volume:\t" << newVolume <<"\n";
+					std::cerr << "     Surface inflow: " << bint.inflowDischargeG <<"\n";
+					std::cerr << "     Surface outflow Volume: " << bint.outflowDischargeG*dom.dt <<"\n";
 					#if SERGHEI_SUBSURFACE_MODEL
 					std::cerr << "     Exchange Volume: " << gint.Vexch_glob <<"\n";
 					#endif
@@ -303,8 +309,10 @@ public:
                         #endif
 					}
 				}
-				if(fabs(dom.etime - dom.startTime - io.numOut*io.outFreq) <= dom.dt){
+				if(fabs(dom.etime - dom.startTime - io.numOut*io.outFreq) <= TOL12){
+					#if SERGHEI_SWE_MODEL
 					io.output(state, dom, ss.swss, par,outFolder);
+					#endif
 					#if SERGHEI_SUBSURFACE_MODEL
 					io.outputSubsurface(gw, gdom, par,outFolder);
 					#endif
@@ -334,8 +342,8 @@ public:
 				}
 			}
 
-			// Unify dt
-			#if SERGHEI_SWE_MODEL
+			// Unify dt for coupled simulations
+			#if SERGHEI_SWE_GW
 				tint.computeDt(state,dom,io);
 				#if SERGHEI_SUBSURFACE_MODEL
 				if (!gdom.async)	{
@@ -344,8 +352,13 @@ public:
 				}
 				else if (dom.dt > gdom.dt)	{dom.dt = gdom.dt;}
 				#endif
-			#else
+			#elif SERGHEI_SUBSURFACE_MODEL
 				dom.dt = gdom.dt;
+				tint.dtMatchOutput(dom,io);
+				gdom.dt = dom.dt;
+			#elif !SERGHEI_SWE_MODEL
+        std::cout << RERROR << "Impossible configuration without SWE nor GW model" << std::endl;
+				return 0;
 			#endif
 		} 		// end of time loop
 		return 1;
@@ -371,6 +384,7 @@ public:
 		dom.timers.gwIntegrate = gdom.timers.gwIntegrate;
 		dom.timers.gwMPI = gdom.timers.gwMPI;
 		dom.timers.out += gdom.timers.out;
+		dom.cg_iter = gdom.cg_iter;
 		#endif
 		io.writeLogFile(dom, par, outFolder);
 		io.closeOutputStreams();

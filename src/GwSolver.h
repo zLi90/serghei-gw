@@ -38,10 +38,10 @@ public:
 
 	inline void init(GwMatrix &A, GwDomain &gdom)	{
 		nrow = A.nrow;	nnz = A.nnz;
-		iter_max = 40;
+		iter_max = gdom.cg_iter;
 		gsteps = 20;
 		iter_max = iter_max * gsteps;
-		eps_min = 1e-7;
+		eps_min = gdom.cg_tol;
 		#if SERGHEI_KOKKOSKERNELS_SOLVER
 		ptr = lno_view_t("ptr", A.nrow+1);
 		ind = lno_nnz_view_t("ind", A.nnz);
@@ -68,8 +68,8 @@ public:
 	void kkpcg(GwMatrix &A)
 	{
 		bool usePreconditioner = 1;
-		const unsigned cg_iteration_limit = 1000000;
-		const double   cg_iteration_tolerance     = 1e-8 ;
+		const unsigned cg_iteration_limit = iter_max;
+		const double   cg_iteration_tolerance     = eps_min ;
 
 		decompose(A);
 		Kokkos::deep_copy (ind, A.ind);
@@ -89,6 +89,7 @@ public:
 		KokkosKernels::Experimental::Example::pcgsolve(kh, matA, rhs, vecx, diag
 		    , cg_iteration_limit, cg_iteration_tolerance, &cg_result, usePreconditioner);
 		Kokkos::fence();
+		A.cg_iter = cg_result.iteration;
 		//solve_time = timer1.seconds();
 		//std::cout  << "DEFAULT SOLVE: " << "(P)CG_NUM_ITER = [" << cg_result.iteration << "], " << "RESIDUAL = [" << cg_result.norm_res << "]"<< std::endl ;
 		kh.destroy_gs_handle();

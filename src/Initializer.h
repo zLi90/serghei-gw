@@ -65,7 +65,9 @@ public:
     boundaryIni(state,dom,par,ebc.extbc);
 
     // Output the initial model state
-    io.outputIni(state, dom, ss, par,outFolder);
+		#if SERGHEI_SWE_MODEL
+    if(io.allowIni) io.outputIni(state, dom, ss, par,outFolder);
+		#endif
 
     return 1;
 

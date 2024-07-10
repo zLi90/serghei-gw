@@ -165,7 +165,9 @@ public:
         if (ncellsBC > 0 && onBoundary == 1) {
             real hbc;
 			// interpolate if time-series boundary value is read
-            if (bctype == SUB_BC_H_T || bctype == SUB_BC_WT_T) {hbc = interpolateLinear(ts, gdom.etime);}
+            if (bctype == SUB_BC_H_T || bctype == SUB_BC_WT_T) {
+				if (ts.nc == 1)	{hbc = interpolateLinear(ts, gdom.etime);}
+			}
             // zero gradient if Q BC is specified
             if (bctype == SUB_BC_Q_CONST || bctype == SUB_BC_Q_T || bctype == SUB_BC_FD)   {
                 Kokkos::parallel_for("gw_bc_h", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
@@ -199,13 +201,26 @@ public:
             }
             // Prescribed water table BC
             else if (bctype == SUB_BC_WT_T)  {
+
+            	findTimeBlock(ts, gdom.etime);
+  				int t_idx = ts.timeIndex;
+  				int t_next = t_idx + 1;
+  				if (t_idx == ts.np - 1) {t_next = t_idx;}
+
+  				//std::cout << t_idx << ", " << ts.np << ", " << ts.nc << "\n";
                 Kokkos::parallel_for("gw_bc_wt", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
                     int ivg, iGlob = bcells[ibc], iGhost = gcells[ibc];
-                    real wcs, wcr, alpha, n;
+                    real wcs, wcr, alpha, n, wtbc;
                     ivg = gw.soilID(iGlob) * gw.nVGparam;
                     wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
                     n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
-					gw.h(iGhost,1) = hbc - gdom.z(iGlob);
+					// interpolate cell-by-cell water table
+					if (ts.nc > 1)	{
+
+  						wtbc = ts.values(t_idx,ibc) + 
+  							(ts.values(t_next,ibc) - ts.values(t_idx,ibc))/(ts.time(t_next)-ts.time(t_idx))*(gdom.etime-ts.time(t_idx));
+					}
+					gw.h(iGhost,1) = wtbc - gdom.z(iGlob);
 					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr);
                 });
             }

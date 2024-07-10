@@ -23,7 +23,10 @@ class TimeIntegrator {
 public :
 
   inline void stepForward(State &state, SourceSinkData &ss, std::vector<ExtBC> &extbc, Domain &dom, Exchange &exch, Parallel &par, FileIO &io) {
-	computeDt(state,dom,io);
+		
+		#if !SERGHEI_SWE_GW
+	  computeDt(state,dom,io);
+		#endif
 
 		edge.computeDeltaStateSW(state, dom, exch, par);
 
@@ -75,7 +78,12 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 
 		hf = hold - dom.dt * (state.dsw0(ii)+state.dsw1(ii))/dom.dx();
 
-		if(dom.isRain) hf += ss.rainRate(ii)*dom.dt;
+		if (dom.isRain) {
+			hf += ss.rainRate(ii)*dom.dt;
+			// Negative rainfall represents evaporation
+			if (hf < 0.0)	{hf = 0.0;}
+		}
+
     if(ss.inf.model) {
 
 	 	ss.inf.rate(ii)=min(ss.inf.rate(ii),hf/dom.dt); //correct infiltration arte according to the available water volume
@@ -148,6 +156,16 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 		dom.timers.swe += timer.seconds();
   }
 
+	inline void dtMatchOutput(Domain &dom, const FileIO &io){
+    // correction to match output times
+		//std::cout << GGD << dom.etime << "\t" << dom.etime+dom.dt << "\t" << io.numOut << "\t" << io.outFreq*io.numOut << "\t" << io.numOut*io.outFreq + dom.startTime << std::endl;
+    if (dom.etime + dom.dt > dom.startTime +  io.numOut*io.outFreq) dom.dt = io.numOut*io.outFreq + dom.startTime - dom.etime;
+    if (dom.etime + dom.dt > dom.endTime) { dom.dt = dom.endTime - dom.etime; }
+		#if SERGHEI_DEBUG_DT
+			std::cout << "time = " << dom.etime << "\tdt_cor = " << dom.dt << std::endl;
+		#endif
+	}
+	
   inline void computeDt(State &state, Domain &dom, FileIO &io) {
   timer.reset();
 
@@ -186,16 +204,7 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 #endif
      }
     }
-    // correction to match output times
-		//std::cout << GGD << dom.etime << "\t" << dom.etime+dom.dt << "\t" << io.numOut << "\t" << io.outFreq*io.numOut << "\t" << io.numOut*io.outFreq + dom.startTime << std::endl;
-    if (dom.etime + dom.dt > dom.startTime +  io.numOut*io.outFreq) dom.dt = io.numOut*io.outFreq + dom.startTime - dom.etime;
-    if (dom.etime + dom.dt > dom.endTime) { dom.dt = dom.endTime - dom.etime; }
-
-
-#if SERGHEI_DEBUG_DT
-	std::cout << "time = " << dom.etime << "\tdt_cor = " << dom.dt << std::endl;
-#endif
-
+		dtMatchOutput(dom, io);
   dom.timers.dt=timer.seconds();
   }
 

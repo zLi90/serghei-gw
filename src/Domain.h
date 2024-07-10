@@ -54,6 +54,7 @@ public:
 
   int nIter;
   int countIterDt;
+  int cg_iter;
 
   real area;
   int id;  // subdomain ID
@@ -82,8 +83,8 @@ public:
   #if SERGHEI_MESH_UNIFORM
   KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int i, int j) const{
     geometry::point p;
-    p(_X) = i*dxConst + extent[0](_X);
-    p(_Y) = j*dxConst + extent[0](_Y);
+    p(_X) = extent[0](_X) + i*dxConst ;
+    p(_Y) = extent[1](_Y) - j*dxConst ;
     return(p);
   #endif
   }
@@ -157,11 +158,10 @@ void initialise() {
     endTime = startTime + simLength;
 
 
-    // physical cells onlys
     #if SERGHEI_MESH_UNIFORM
-      nCell = nx*ny;
-      nCellMem = (ny+2*hc)*(nx+2*hc);
-      nCellGlobal = nx_glob * ny_glob;
+      nCell = nx*ny;                    // physical cells in this subdomain
+      nCellMem = (ny+2*hc)*(nx+2*hc);   // size of arrays (including halos)
+      nCellGlobal = nx_glob * ny_glob;  // physical number of cells across all subdomains
     #endif
 
     globalBuffer = realArr("globalBuffer", nCellGlobal);
