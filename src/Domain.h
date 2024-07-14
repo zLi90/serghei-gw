@@ -35,6 +35,11 @@ public:
   #if SERGHEI_MESH_UNIFORM
   real dxConst;  // resolution
   #endif
+  
+  // variables for the porosity model
+  int dxRatio;
+  real hzmin, hzmax, dhz, nhz;
+  realArr2 phi, phiX, phiY, hArr;
 
   //flags to see if the subdomain touch with either a East, West, South or North boundaries
   int iE=0;
@@ -153,10 +158,9 @@ public:
 void initialise() {
    	// Initialize the time
    	nIter = 0;
-		countIterDt=0;
+	countIterDt=0;
     etime = startTime;
     endTime = startTime + simLength;
-
 
     #if SERGHEI_MESH_UNIFORM
       nCell = nx*ny;                    // physical cells in this subdomain
@@ -165,6 +169,23 @@ void initialise() {
     #endif
 
     globalBuffer = realArr("globalBuffer", nCellGlobal);
+	
+	#if SERGHEI_SWE_POROSITY
+	nCellRef = nCell * dxRatio * dxRatio;
+	nCellMemRef = (ny*dxRatio+2*hc)*(nx*dxRatio+2*hc);
+	nCellGlobalRef = nCellGlobal * dxRatio * dxRatio;
+	phi = realArr("phi", nCellMem, nhz);
+	phiX = realArr("phiX", nCellMem, nhz);
+	phiY = realArr("phiY", nCellMem, nhz);
+	hArr = realArr("hArr", nhz);
+	for (int ii = 0; ii < nhz; ii++)	{
+		hArr(ii) = hzmin + ii*dhz;
+		for (int iGlob = 0; iGlob < nCellMem; iGlob++)	{
+			phi(iGlob,ii) = 1.0;	phiX(iGlob,ii) = 1.0;	phiY(iGlob,ii) = 1.0;
+		}
+	}
+	#endif
+	
     if(id == 0) std::cout << GOK << "Domain initialised" << std::endl;
   };
 

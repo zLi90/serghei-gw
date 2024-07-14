@@ -178,6 +178,11 @@ public:
     par.nproc_y   = -999;
     io.outFreq    = -999;
     io.obsFreq    = -999;
+	dom.dxRatio   = -999;
+	dom.hzmin   = -999;
+	dom.dhz   = -999;
+	dom.nhz   = -999;
+	dom.   = -999;
     std::string strAux;
 
     // Read in colon-separated key: value file line by line
@@ -203,6 +208,10 @@ public:
 	  else if (!strcmp("nScreen", pline.key.c_str())) { pline.value >> io.nScreen; }
 	  else if (!strcmp("outFormat", pline.key.c_str())) { pline.value >> strAux; handleOutFormat(strAux,io,fNameIn,par); }
 	  else if (!strcmp("BCtype", pline.key.c_str())) { pline.value >> strAux; handleBCtype(strAux,dom,fNameIn,par); }
+	  else if (!strcmp("dxRatio", pline.key.c_str())) { pline.value >> dom.dxRatio; }
+	  else if (!strcmp("hzmin", pline.key.c_str())) { pline.value >> dom.hzmin; }
+	  else if (!strcmp("dhz", pline.key.c_str())) { pline.value >> dom.dhz; }
+	  else if (!strcmp("nhz", pline.key.c_str())) { pline.value >> dom.nhz; }
 	  else {
 	  	 if(par.masterproc){
 	    std::cerr << RERROR "key " << pline.key << " not understood in file " << fNameIn << "\n";
@@ -230,6 +239,9 @@ public:
     if (io.obsFreq    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "obsFreq"   << " not set.\n"; exit(-1); }
     if (io.outFormat  == -999) { if (par.masterproc) std::cerr << RERROR "key " << "outFormat" << " not set.\n"; exit(-1); }
     if (dom.BCtype    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "BCtype"    << " not set.\n"; exit(-1); }
+	#if SERGHEI_SWE_POROSITY
+	if (dom.dxRatio    == -999) { if (par.masterproc) std::cerr << RERROR "key " << "dxRatio"    << " not set.\n"; exit(-1); }
+	#endif
 
     // Print out the values
     if (par.masterproc) {
@@ -241,6 +253,12 @@ public:
       std::cerr << BDASH "obsFreq: "    << io.obsFreq    << "\n";
       std::cerr << BDASH "outFormat: "  << io.outFormat  << "\n";
       std::cerr << BDASH "BCtype: "     << dom.BCtype    << "\n";
+	  #if SERGHEI_SWE_POROSITY
+	  std::cerr << BDASH "dxRatio: "     << dom.dxRatio    << "\n";
+	  std::cerr << BDASH "hzmin: "     << dom.hzmin    << "\n";
+	  std::cerr << BDASH "nhz: "     << dom.nhz    << "\n";
+	  std::cerr << BDASH "dhz: "     << dom.dhz    << "\n";
+	  #endif 
     }
 
     if (par.masterproc){
@@ -1364,6 +1382,125 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
  	return 1;
 
   }
+  
+  
+  
+  
+int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+	if(par.masterproc) std::cout << BDASH << "Reading fine-resolution DEM file " << fNameIn << std::endl;
+	std::ifstream fInStream(fNameIn);
+	std::string line;
+  	int tnx=-999, tny=-999;
+  	real txll=-999, tyll=-999, tdx=-999, nodata=123456789;
+	std::string str;
+	
+	if (fInStream.is_open()){
+		std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+		std::stringstream(str) >> tnx;
+		std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+		std::stringstream(str) >> tny;
+		std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+		std::stringstream(str) >> txll;
+		std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+		std::stringstream(str) >> tyll;
+		std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+		std::stringstream(str) >> tdx;
+		std::getline(fInStream,str,' ');
+		std::getline(fInStream,str);
+		std::stringstream(str) >> nodata;
+		if (tnx*dom.dxRatio != dom.nx_glob || tny*dom.dxRatio != dom.ny_glob){
+			if (par.masterproc){
+				std::cerr << RERROR "Parameters in " << fNameIn << " don't match DEM file parameters." << std::endl;
+			}
+			return 0;
+		}
+		// read fine-resolution dem data 
+		real tmp;
+		for (int ii=0; ii < dom.nCellGlobalRef; ii++) {
+			if (!fInStream.fail() && !fInStream.eof()){
+				fInStream >> tmp;
+				if(tmp - nodata < TOL12 && tmp - nodata > TOL12NEG){
+					dom.globalBufferRef(ii) = NAN; //we set no data values to NAN
+				}else{
+					dom.globalBufferRef(ii) = tmp;
+				}
+			}
+			else {
+				if (par.masterproc) {
+					std::cerr << RERROR "Error reading " << fNameIn << ". Not enough data. Last index read: " << ii << std::endl;
+					return 0;
+				}
+			}
+		}
+		fInStream.close();
+	}
+	else {
+		if (par.masterproc) std::cerr << YEXC "Unable to open " << fNameIn << std::endl;
+		return 0;
+	}
+	if(par.masterproc) std::cerr << GOK << "Read file " << fNameIn << std::endl;
+	// Distribute data into subdomains
+	Kokkos::parallel_for("fetch_from_global_buffer", nCellRef , KOKKOS_CLASS_LAMBDA (int idom) {
+		int i, j, ii1, ii2;
+		int NX = dom.nx * dom.dxRatio;
+		int NX_glob = dom.nx_glob * dom.dxRatio;
+		// unpack indices 
+	    j = idom / NX;
+	    i = idom % NX;
+		// get halo extension
+		ii1 = (hc+j)*(NX+2*hc)+hc+i
+		// get subdomain extension
+		ii2 = (par.j_beg+j)*dom.dxRatio*NX_glob + (par.i_beg+i)*dom.dxRatio
+  		state.zRef(ii1) = dom.globalBufferRef(ii2);
+  	});
+	if(par.masterproc) std::cerr << GOK << "Distributed data from raster" << std::endl;
+	// Calculate porosity from fine-resolution DEM 
+	subgrid = realArr2("subgrid", dom.dxRatio, dom.dxRatio);
+	for (int kk = 0; kk < dom.nhz; kk++)	{
+		for (int idom = 0; idom < dom.nCell; idom++)	{
+			int i, j, iGlob, iref, jref, idomRef;
+			// get global index
+			dom.unpackIndices(idom,j,i);
+			iGlob = dom.getHaloExtension(i,j);
+			// get high-resolution index
+			int NX = dom.nx * dom.dxRatio;
+		    jref = j*dom.dxRatio;
+		    iref = i*dom.dxRatio;
+			// get the subgrid
+			for (int ii = 0; ii < dom.dxRatio; ii++)	{
+				for (int jj = 0; jj < dom.dxRatio; jj++)	{
+					idomRef = iref + ii + NX*(jref + jj);
+					subgrid(jj,ii) = dom.hArr(kk) - state.zRef(idomRef);
+					if (subgrid(jj,ii) < 0.0)	{subgrid(jj,ii) = 0.0;}
+				}
+			}
+			// calculate porosity
+			int iwet = 0;
+			real phiX_tmp = 0.0, phiY_tmp = 0.0;
+			for (int ii = 0; ii < dom.dxRatio; ii++)	{
+				for (int jj = 0; jj < dom.dxRatio; jj++)	{
+					if (subgrid(jj,ii) > 0.0)	{iwet += 1;}
+					if (ii == dom.dxRatio-1)	{
+						phiX_tmp += subgrid(jj,ii) / (dom.hArr(kk) - state.z(iGlob));
+					}
+					if (jj == dom.dxRatio-1)	{
+						phiY_tmp += subgrid(jj,ii) / (dom.hArr(kk) - state.z(iGlob));
+					}
+				}
+			}
+			dom.phi(iGlob, kk) = iwet / (dom.dxRatio * dom.dxRatio);
+			dom.phiX(iGlob, kk) = phiX_tmp / dom.dxRatio;
+			dom.phiY(iGlob, kk) = phiY_tmp / dom.dxRatio;
+		}
+	}
+	
+	return 1;
+}
 
 
 };

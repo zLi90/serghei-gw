@@ -31,6 +31,7 @@ public:
 
   //elevation
   realArr z;
+  realArr zRef;
 
   //roughness
   realArr roughness;
@@ -64,6 +65,10 @@ public:
     dsw0 			= realArr( "dsw0" , 3*dom.nCellMem );
     dsw1 			= realArr( "dsw1" , 3*dom.nCellMem );
     qss 				= realArr( "qss" , dom.nCell );
+	
+	#if SERGHEI_SWE_POROSITY
+	zRef = realArr( "zRef" , dom.nCellMemRef );
+	#endif
 
     #if SERGHEI_MAXFLOOD
       hMax = realArr("hMax",dom.nCellMem);
