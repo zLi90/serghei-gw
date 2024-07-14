@@ -45,11 +45,11 @@ public:
     dom.initialise();
     state.allocate(dom);
 
+	if(read) if(!parser.readInputFiles(inFolder, dom, state, ss, ebc, par, io)) return 0;
+
 	#if SERGHEI_SWE_POROSITY
 	if (read) if (!parser.readPorosity(inFolder, dom, state, par))	return 0;
 	#endif
-
-	if(read) if(!parser.readInputFiles(inFolder, dom, state, ss, ebc, par, io)) return 0;
 
     dom.getStatistics();
     ss.allocateSW(dom);

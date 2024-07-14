@@ -1388,8 +1388,11 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 
 
 int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
-	if(par.masterproc) std::cout << BDASH << "Reading fine-resolution DEM file " << fNameIn << std::endl;
-	std::ifstream fInStream(fNameIn);
+    std::string tempStr;
+ 	tempStr = fNameIn + "demref.input";
+
+	if(par.masterproc) std::cout << BDASH << "Reading fine-resolution DEM file " << tempStr << std::endl;
+	std::ifstream fInStream(tempStr);
 	std::string line;
   	int tnx=-999, tny=-999;
   	real txll=-999, tyll=-999, tdx=-999, nodata=123456789;
@@ -1414,7 +1417,7 @@ int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) 
 		std::getline(fInStream,str,' ');
 		std::getline(fInStream,str);
 		std::stringstream(str) >> nodata;
-		if (tnx*dom.dxRatio != dom.nx_glob || tny*dom.dxRatio != dom.ny_glob){
+		if (tnx != dom.nx_glob*dom.dxRatio || tny != dom.ny_glob*dom.dxRatio){
 			if (par.masterproc){
 				std::cerr << RERROR "Parameters in " << fNameIn << " don't match DEM file parameters." << std::endl;
 			}
@@ -1456,7 +1459,7 @@ int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) 
 		// get halo extension
 		ii1 = (hc+j)*(NX+2*hc)+hc+i;
 		// get subdomain extension
-		ii2 = (par.j_beg+j)*dom.dxRatio*NX_glob + (par.i_beg+i)*dom.dxRatio;
+		ii2 = (par.j_beg+j)*NX_glob + (par.i_beg+i);
   		state.zRef(ii1) = dom.globalBufferRef(ii2);
   	});
 	if(par.masterproc) std::cerr << GOK << "Distributed data from raster" << std::endl;
@@ -1475,7 +1478,8 @@ int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) 
 			// get the subgrid
 			for (int ii = 0; ii < dom.dxRatio; ii++)	{
 				for (int jj = 0; jj < dom.dxRatio; jj++)	{
-					idomRef = iref + ii + NX*(jref + jj);
+					idomRef = iref + hc + (NX+2*hc)*(jref+hc);
+                    idomRef += jj*(NX+2*hc) + ii;
 					subgrid(jj,ii) = dom.hArr(kk) - state.zRef(idomRef);
 					if (subgrid(jj,ii) < 0.0)	{subgrid(jj,ii) = 0.0;}
 				}
@@ -1486,17 +1490,19 @@ int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) 
 			for (int ii = 0; ii < dom.dxRatio; ii++)	{
 				for (int jj = 0; jj < dom.dxRatio; jj++)	{
 					if (subgrid(jj,ii) > 0.0)	{iwet += 1;}
-					if (ii == dom.dxRatio-1)	{
+					if (ii == dom.dxRatio-1 && dom.hArr(kk) > state.z(iGlob))	{
 						phiX_tmp += subgrid(jj,ii) / (dom.hArr(kk) - state.z(iGlob));
 					}
-					if (jj == dom.dxRatio-1)	{
+					if (jj == dom.dxRatio-1 && dom.hArr(kk) > state.z(iGlob))	{
 						phiY_tmp += subgrid(jj,ii) / (dom.hArr(kk) - state.z(iGlob));
 					}
 				}
 			}
+
 			dom.phi(iGlob, kk) = iwet / (dom.dxRatio * dom.dxRatio);
 			dom.phiX(iGlob, kk) = phiX_tmp / dom.dxRatio;
 			dom.phiY(iGlob, kk) = phiY_tmp / dom.dxRatio;
+
 		}
 	}
 
