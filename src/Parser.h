@@ -87,6 +87,8 @@ int checkValidOption(std::string mystring, std::set<std::string> myset){
 
 public:
 
+    realArr2 subgrid;
+
   int readDimensions(std::string fNameIn, Domain &dom, State &state, Parallel &par, FileIO &io){
 
 	std::string tempStr;
@@ -182,7 +184,6 @@ public:
 	dom.hzmin   = -999;
 	dom.dhz   = -999;
 	dom.nhz   = -999;
-	dom.   = -999;
     std::string strAux;
 
     // Read in colon-separated key: value file line by line
@@ -258,7 +259,7 @@ public:
 	  std::cerr << BDASH "hzmin: "     << dom.hzmin    << "\n";
 	  std::cerr << BDASH "nhz: "     << dom.nhz    << "\n";
 	  std::cerr << BDASH "dhz: "     << dom.dhz    << "\n";
-	  #endif 
+	  #endif
     }
 
     if (par.masterproc){
@@ -1382,10 +1383,10 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
  	return 1;
 
   }
-  
-  
-  
-  
+
+
+
+
 int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
 	if(par.masterproc) std::cout << BDASH << "Reading fine-resolution DEM file " << fNameIn << std::endl;
 	std::ifstream fInStream(fNameIn);
@@ -1393,7 +1394,7 @@ int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) 
   	int tnx=-999, tny=-999;
   	real txll=-999, tyll=-999, tdx=-999, nodata=123456789;
 	std::string str;
-	
+
 	if (fInStream.is_open()){
 		std::getline(fInStream,str,' ');
 		std::getline(fInStream,str);
@@ -1419,7 +1420,7 @@ int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) 
 			}
 			return 0;
 		}
-		// read fine-resolution dem data 
+		// read fine-resolution dem data
 		real tmp;
 		for (int ii=0; ii < dom.nCellGlobalRef; ii++) {
 			if (!fInStream.fail() && !fInStream.eof()){
@@ -1445,21 +1446,21 @@ int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) 
 	}
 	if(par.masterproc) std::cerr << GOK << "Read file " << fNameIn << std::endl;
 	// Distribute data into subdomains
-	Kokkos::parallel_for("fetch_from_global_buffer", nCellRef , KOKKOS_CLASS_LAMBDA (int idom) {
+	Kokkos::parallel_for("fetch_from_global_buffer", dom.nCellRef , KOKKOS_CLASS_LAMBDA (int idom) {
 		int i, j, ii1, ii2;
 		int NX = dom.nx * dom.dxRatio;
 		int NX_glob = dom.nx_glob * dom.dxRatio;
-		// unpack indices 
+		// unpack indices
 	    j = idom / NX;
 	    i = idom % NX;
 		// get halo extension
-		ii1 = (hc+j)*(NX+2*hc)+hc+i
+		ii1 = (hc+j)*(NX+2*hc)+hc+i;
 		// get subdomain extension
-		ii2 = (par.j_beg+j)*dom.dxRatio*NX_glob + (par.i_beg+i)*dom.dxRatio
+		ii2 = (par.j_beg+j)*dom.dxRatio*NX_glob + (par.i_beg+i)*dom.dxRatio;
   		state.zRef(ii1) = dom.globalBufferRef(ii2);
   	});
 	if(par.masterproc) std::cerr << GOK << "Distributed data from raster" << std::endl;
-	// Calculate porosity from fine-resolution DEM 
+	// Calculate porosity from fine-resolution DEM
 	subgrid = realArr2("subgrid", dom.dxRatio, dom.dxRatio);
 	for (int kk = 0; kk < dom.nhz; kk++)	{
 		for (int idom = 0; idom < dom.nCell; idom++)	{
@@ -1498,7 +1499,7 @@ int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) 
 			dom.phiY(iGlob, kk) = phiY_tmp / dom.dxRatio;
 		}
 	}
-	
+
 	return 1;
 }
 
