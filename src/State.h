@@ -43,6 +43,9 @@ public:
 
   // surface-subsurface exchange flux
   realArr qss;
+  
+  // porosity 
+  realArr phi, phiX, phiY;
 
   boolArr isnodata; //contains 0 if is a regular cell, 1 if is nodata cell
   intArr isBound; //positive values for inlet boundaries, negative values for outlet bvoundaries, 0 for inner cells
@@ -68,6 +71,9 @@ public:
 	
 	#if SERGHEI_SWE_POROSITY
 	zRef = realArr( "zRef" , dom.nCellMemRef );
+	phi = realArr("phi", dom.nCellMem);
+	phiX = realArr("phiX", dom.nCellMem);
+	phiY = realArr("phiY", dom.nCellMem);
 	#endif
 
     #if SERGHEI_MAXFLOOD

@@ -22,29 +22,28 @@ class TimeIntegrator {
 
 public :
 
-  inline void stepForward(State &state, SourceSinkData &ss, std::vector<ExtBC> &extbc, Domain &dom, Exchange &exch, Parallel &par, FileIO &io) {
-		
+	inline void stepForward(State &state, SourceSinkData &ss, std::vector<ExtBC> &extbc, Domain &dom, Exchange &exch, Parallel &par, FileIO &io) {
 		#if !SERGHEI_SWE_GW
-	  computeDt(state,dom,io);
+		computeDt(state,dom,io);
+		#endif
+		
+		#if SERGHEI_SWE_POROSITY
+		getPorosity(state, dom);	
 		#endif
 
 		edge.computeDeltaStateSW(state, dom, exch, par);
-
-    ss.ComputeSWSourceSink(state,dom);
-
-   	computeNewState(state, dom, ss);
+		ss.ComputeSWSourceSink(state,dom);
+		computeNewState(state, dom, ss);
 
 		for (int k = 0; k < extbc.size(); k ++) { //should be done before the exchange (water depth might be modified).
-		  extbc[k].apply(state,dom);
+			extbc[k].apply(state,dom);
 		}
 
 		exch.exchangeMPIh(state,dom,exch,par); //only neccesary to exchange the h (for wet-dry) but for the moment we exchange everything
 
 		wetDryCorrection( state, dom);
 
-
 		exch.exchangeMPIhuhv(state,dom,exch,par);//neccesary to exchange again because of the wet/dry correction
-
 		for (int k = 0; k < extbc.size(); k ++) { //after getting the final values, the discharge is integrated at every BC. The reason for not doing this before is because the previous kernels could eventually modify the boundary cell values.
 			extbc[k].integrate(state,dom);
 		}
@@ -236,6 +235,50 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 
     dom.timers.swe += timer.seconds();
   }
+  
+  // calculate porosity for the current time step 
+	inline void getPorosity(State &state, Domain &dom) {
+		Kokkos::parallel_for("getPorosity", dom.nCellMem , KOKKOS_LAMBDA (int iGlob) {
+			if (state.h(iGlob) > 0.0)	{
+				real hz = state.h(iGlob) + state.z(iGlob);
+				real r = 0.0;
+				int idx1 = 0, idx2 = 0;
+				for (int idx = 0; idx < dom.nhz-1; idx++)	{
+					if (hz >= dom.hArr(idx) && hz < dom.hArr(idx+1))	{
+						r = (hz - dom.hArr(idx)) / (dom.hArr(idx+1) - dom.hArr(idx));
+						idx1 = idx;
+						idx2 = idx+1;
+						break;
+					}
+				}
+				if (idx2 > idx1)	{
+					state.phi(iGlob) = r * (dom.phi(iGlob, idx2) - dom.phi(iGlob, idx1));
+					state.phiX(iGlob) = r * (dom.phiX(iGlob, idx2) - dom.phiX(iGlob, idx1));
+					state.phiY(iGlob) = r * (dom.phiY(iGlob, idx2) - dom.phiY(iGlob, idx1));
+					if (state.phi(iGlob) < 0.0 || state.phi(iGlob) > 1.0)	{
+						state.phi(iGlob) = 0.0;
+						std::cerr << RERROR << "Unphysical porosity! Should be within [0, 1]" << std::endl;
+					}
+					if (state.phiX(iGlob) < 0.0 || state.phiX(iGlob) > 1.0)	{
+						state.phiX(iGlob) = 0.0;
+						std::cerr << RERROR << "Unphysical porosityX! Should be within [0, 1]" << std::endl;
+					}
+					if (state.phiY(iGlob) < 0.0 || state.phiY(iGlob) > 1.0)	{
+						state.phiY(iGlob) = 0.0;
+						std::cerr << RERROR << "Unphysical porosityY! Should be within [0, 1]" << std::endl;
+					}
+				}
+				else {
+					if (par.masterproc) {
+						std::cerr << RERROR << "Surface elevation" << hz <<" out of range!" << std::endl;
+					}
+				}
+			}
+			else {
+				state.phi(iGlob) = 0.0;	state.phiX(iGlob) = 0.0;	state.phiY(iGlob) = 0.0;
+			}
+		});
+	}
 
 
 }; // end of TimeIntegrator class

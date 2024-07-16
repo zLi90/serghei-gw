@@ -38,8 +38,8 @@ public:
 
   // variables for the porosity model
   int nCellRef, nCellMemRef, nCellValidRef, nCellGlobalRef;
-  int dxRatio;
-  real hzmin, hzmax, dhz, nhz;
+  int dxRatio, nhz;
+  real hzmin, hzmax, dhz;
   realArr2 phi, phiX, phiY;
   realArr hArr;
 
