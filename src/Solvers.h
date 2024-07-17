@@ -9,7 +9,8 @@
 
 KOKKOS_INLINE_FUNCTION void roeSolver(const SArray<real,5> &s1, const SArray<real,5> &s2,
 										SArray<real,3> &upwM, SArray<real,3> &upwP,
-										real const &dt, real const &dx, real const &nx, real const &ny) {
+										real const &dt, real const &dx, real const &nx, real const &ny,
+										real const &phiV, real const &phiA) {
 
 	SArray<real,3> lambda, lambdaE, alpha, beta, diff;
 	SArray<real,3,3> eigenV;
@@ -60,9 +61,16 @@ KOKKOS_INLINE_FUNCTION void roeSolver(const SArray<real,5> &s1, const SArray<rea
 
 	un=u*nx+v*ny;
 
+	#if SERGHEI_SWE_POROSITY
+	lambda(0)=(phiA/phiV) * (un-c);
+	lambda(1)=(phiA/phiV) * un;
+	lambda(2)=(phiA/phiV) * (un+c);
+	#else
 	lambda(0)=un-c;
 	lambda(1)=un;
 	lambda(2)=un+c;
+	#endif
+	
 
 	//entropy correction
 	lambdaE(0)=0.0;
@@ -84,7 +92,17 @@ KOKKOS_INLINE_FUNCTION void roeSolver(const SArray<real,5> &s1, const SArray<rea
 		lambdaE(2)=lambda(2) - e2*(lambda(2)-e1)/(e2-e1);
 		lambda(2)=e2*(lambda(2)-e1)/(e2-e1);
 	}
-
+	#if SERGHEI_SWE_POROSITY
+	eigenV(0,0)=1.0;
+	eigenV(0,1)=(phiA/phiV) * (u-c*nx);
+	eigenV(0,2)=(phiA/phiV) * (v-c*ny);
+	eigenV(1,0)=0.0;
+	eigenV(1,1)=-(phiA/phiV) * c*ny;
+	eigenV(1,2)=(phiA/phiV) * c*nx;
+	eigenV(2,0)=1.0;
+	eigenV(2,1)=(phiA/phiV) * (u+c*nx);
+	eigenV(2,2)=(phiA/phiV) * (v+c*ny);
+	#else
 	eigenV(0,0)=1.0;
 	eigenV(0,1)=u-c*nx;
 	eigenV(0,2)=v-c*ny;
@@ -94,6 +112,8 @@ KOKKOS_INLINE_FUNCTION void roeSolver(const SArray<real,5> &s1, const SArray<rea
 	eigenV(2,0)=1.0;
 	eigenV(2,1)=u+c*nx;
 	eigenV(2,2)=v+c*ny;
+	#endif
+	
 
 	diff(0)=h2-h1;
 	diff(1)=hu2-hu1;

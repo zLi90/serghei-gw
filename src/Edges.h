@@ -47,6 +47,7 @@ public :
 		if(i>hc-2 && i<dom.nx+hc && j>hc-1 && j<dom.ny+hc){ //note the hc-2 (first valid halo-inner wall) 
 			SArray<real,3> upwM, upwP;
 			SArray<real,5> s1,s2; //3 sw variables plus z and roughness
+			real phi, phiX;
 			
 			ncells=dom.nCellMem;
 			id1=iGlob; //j*(dom.nx+2*hc)+i
@@ -66,8 +67,14 @@ public :
 				s2(idZ)=state.z(id2);
 				s1(idR)=state.roughness(id1);
 				s2(idR)=state.roughness(id2);
+				
+				#if SERGHEI_SWE_POROSITY
+				phi = 0.5 * (state.phi(id1) + state.phi(id2));
+				phiX = state.phiX(id1);
+				if (phi == 0)	{phi = 1.0;	phiX = 1.0;}
+				#endif
 
-				roeSolver(s1, s2, upwM, upwP, dom.dt ,dom.dx(), 1,0);
+				roeSolver(s1, s2, upwM, upwP, dom.dt ,dom.dx(), 1,0, phi, phiX);
 
 				state.dsw0(id1) = upwM(0);
 				state.dsw0(id1+ncells) = upwM(1);
@@ -93,6 +100,7 @@ public :
 		if(i>hc-1 && i<dom.nx+hc && j>hc-2  && j<dom.ny+hc){ //note the hc-2 (first valid halo-inner wall)
 			SArray<real,3> upwM, upwP;
 			SArray<real,5> s1,s2; //3 sw variables plus z and roughness
+			real phi, phiY;
 			
 			ncells=dom.nCellMem;
 			id1=iGlob; //j*(dom.nx+2*hc)+i
@@ -112,8 +120,14 @@ public :
 				s2(idZ)=state.z(id2);
 				s1(idR)=state.roughness(id1);
 				s2(idR)=state.roughness(id2);
+				
+				#if SERGHEI_SWE_POROSITY
+				phi = 0.5 * (state.phi(id1) + state.phi(id2));
+				phiY = state.phiY(id1);
+				if (phi == 0)	{phi = 1.0;	phiY = 1.0;}
+				#endif
 
-				roeSolver(s1, s2, upwM, upwP, dom.dt ,dom.dx(), 0,-1);
+				roeSolver(s1, s2, upwM, upwP, dom.dt ,dom.dx(), 0,-1, phi, phiY);
 
 				 //note that we have sum to not overwrite the x-contributions
 				state.dsw0(id1) += upwM(0);
