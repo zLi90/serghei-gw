@@ -1419,7 +1419,7 @@ int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) 
 		std::stringstream(str) >> nodata;
 		if (tnx != dom.nx_glob*dom.dxRatio || tny != dom.ny_glob*dom.dxRatio){
 			if (par.masterproc){
-				std::cerr << RERROR "Parameters in " << fNameIn << " don't match DEM file parameters." << std::endl;
+				std::cerr << RERROR "Parameters in " << tempStr << " don't match DEM file parameters." << std::endl;
 			}
 			return 0;
 		}
@@ -1464,6 +1464,16 @@ int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) 
   	});
 	if(par.masterproc) std::cerr << GOK << "Distributed data from raster" << std::endl;
 	// Calculate porosity from fine-resolution DEM
+    for (int kk = 0; kk < dom.nhz; kk++)	{
+        for (int idom = 0; idom < dom.nCellMem; idom++)	{
+            int i, j, iGlob;
+            dom.unpackIndices(idom,j,i);
+			iGlob = dom.getHaloExtension(i,j);
+            dom.phi(iGlob, kk) = 1.0;
+            dom.phiX(iGlob, kk) = 1.0;
+            dom.phiY(iGlob, kk) = 1.0;
+        }
+    }
 	subgrid = realArr2("subgrid", dom.dxRatio, dom.dxRatio);
 	for (int kk = 0; kk < dom.nhz; kk++)	{
 		for (int idom = 0; idom < dom.nCell; idom++)	{
@@ -1498,11 +1508,9 @@ int readPorosity(std::string fNameIn, Domain &dom, State &state, Parallel &par) 
 					}
 				}
 			}
-
 			dom.phi(iGlob, kk) = iwet / (dom.dxRatio * dom.dxRatio);
 			dom.phiX(iGlob, kk) = phiX_tmp / dom.dxRatio;
 			dom.phiY(iGlob, kk) = phiY_tmp / dom.dxRatio;
-
 		}
 	}
 

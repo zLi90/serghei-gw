@@ -26,9 +26,9 @@ public :
 		#if !SERGHEI_SWE_GW
 		computeDt(state,dom,io);
 		#endif
-		
+
 		#if SERGHEI_SWE_POROSITY
-		getPorosity(state, dom);	
+		getPorosity(state, dom);
 		#endif
 
 		edge.computeDeltaStateSW(state, dom, exch, par);
@@ -164,7 +164,7 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 			std::cout << "time = " << dom.etime << "\tdt_cor = " << dom.dt << std::endl;
 		#endif
 	}
-	
+
   inline void computeDt(State &state, Domain &dom, FileIO &io) {
   timer.reset();
 
@@ -235,8 +235,8 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 
     dom.timers.swe += timer.seconds();
   }
-  
-  // calculate porosity for the current time step 
+
+  // calculate porosity for the current time step
 	inline void getPorosity(State &state, Domain &dom) {
 		Kokkos::parallel_for("getPorosity", dom.nCellMem , KOKKOS_LAMBDA (int iGlob) {
 			if (state.h(iGlob) > 0.0)	{
@@ -251,10 +251,11 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 						break;
 					}
 				}
+
 				if (idx2 > idx1)	{
-					state.phi(iGlob) = r * (dom.phi(iGlob, idx2) - dom.phi(iGlob, idx1));
-					state.phiX(iGlob) = r * (dom.phiX(iGlob, idx2) - dom.phiX(iGlob, idx1));
-					state.phiY(iGlob) = r * (dom.phiY(iGlob, idx2) - dom.phiY(iGlob, idx1));
+					state.phi(iGlob) = dom.phi(iGlob, idx1) + r * (dom.phi(iGlob, idx2) - dom.phi(iGlob, idx1));
+					state.phiX(iGlob) = dom.phiX(iGlob, idx1) + r * (dom.phiX(iGlob, idx2) - dom.phiX(iGlob, idx1));
+					state.phiY(iGlob) = dom.phiY(iGlob, idx1) + r * (dom.phiY(iGlob, idx2) - dom.phiY(iGlob, idx1));
 					if (state.phi(iGlob) < 0.0 || state.phi(iGlob) > 1.0)	{
 						state.phi(iGlob) = 0.0;
 						std::cerr << RERROR << "Unphysical porosity! Should be within [0, 1]" << std::endl;
@@ -268,11 +269,9 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 						std::cerr << RERROR << "Unphysical porosityY! Should be within [0, 1]" << std::endl;
 					}
 				}
-				else {
-					if (par.masterproc) {
-						std::cerr << RERROR << "Surface elevation" << hz <<" out of range!" << std::endl;
-					}
-				}
+				// else {
+				// 	std::cerr << RERROR << "Surface elevation" << hz <<" out of range!" << std::endl;
+				// }
 			}
 			else {
 				state.phi(iGlob) = 0.0;	state.phiX(iGlob) = 0.0;	state.phiY(iGlob) = 0.0;

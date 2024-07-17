@@ -49,6 +49,8 @@ class surfaceIntegrator {
     } , Kokkos::Sum<real>(surfaceVolume) );
 		Kokkos::fence();
 
+
+
 	if(dom.etime<TOL12){ //change by initial time when hotstart is implemented
 
 	 	rainFlux=0.0;
