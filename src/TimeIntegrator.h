@@ -235,46 +235,77 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 
     dom.timers.swe += timer.seconds();
   }
+  
+  // get the index in the pre-defined table of surface elevation 
+	inline int getHzIndex(State &state, Domain &dom, int iGlob)	{
+		real hz = state.h(iGlob) + state.z(iGlob);
+		idx1 = -1;
+		if (state.h(iGlob) > 0.0)	{
+			for (int idx = 0; idx < dom.nhz-1; idx++)	{
+				if (hz >= dom.hArr(idx) && hz < dom.hArr(idx+1))	{
+					idx1 = idx;
+					break;
+				}
+			}
+		}
+		return idx1;
+	}
+	
+	// get the ratio for interpolating between adjacent pre-defined surfac elevations
+	inline real getHzRatio(Domain &dom, int idx, int iGlob)	{
+		real r = 0.0;
+		real hz = state.h(iGlob) + state.z(iGlob);
+		if (idx >= 0)	{
+			r = (hz - dom.hArr(idx)) / (dom.hArr(idx+1) - dom.hArr(idx));
+		}
+		return r;
+	}
 
   // calculate porosity for the current time step
 	inline void getPorosity(State &state, Domain &dom) {
 		Kokkos::parallel_for("getPorosity", dom.nCellMem , KOKKOS_LAMBDA (int iGlob) {
-			if (state.h(iGlob) > 0.0)	{
-				real hz = state.h(iGlob) + state.z(iGlob);
-				real r = 0.0;
-				int idx1 = 0, idx2 = 0;
-				for (int idx = 0; idx < dom.nhz-1; idx++)	{
-					if (hz >= dom.hArr(idx) && hz < dom.hArr(idx+1))	{
-						r = (hz - dom.hArr(idx)) / (dom.hArr(idx+1) - dom.hArr(idx));
-						idx1 = idx;
-						idx2 = idx+1;
-						break;
-					}
-				}
-
-				if (idx2 > idx1)	{
-					state.phi(iGlob) = dom.phi(iGlob, idx1) + r * (dom.phi(iGlob, idx2) - dom.phi(iGlob, idx1));
-					state.phiX(iGlob) = dom.phiX(iGlob, idx1) + r * (dom.phiX(iGlob, idx2) - dom.phiX(iGlob, idx1));
-					state.phiY(iGlob) = dom.phiY(iGlob, idx1) + r * (dom.phiY(iGlob, idx2) - dom.phiY(iGlob, idx1));
-					if (state.phi(iGlob) < 0.0 || state.phi(iGlob) > 1.0)	{
-						state.phi(iGlob) = 0.0;
-						std::cerr << RERROR << "Unphysical porosity! Should be within [0, 1]" << std::endl;
-					}
-					if (state.phiX(iGlob) < 0.0 || state.phiX(iGlob) > 1.0)	{
-						state.phiX(iGlob) = 0.0;
-						std::cerr << RERROR << "Unphysical porosityX! Should be within [0, 1]" << std::endl;
-					}
-					if (state.phiY(iGlob) < 0.0 || state.phiY(iGlob) > 1.0)	{
-						state.phiY(iGlob) = 0.0;
-						std::cerr << RERROR << "Unphysical porosityY! Should be within [0, 1]" << std::endl;
-					}
-				}
-				// else {
-				// 	std::cerr << RERROR << "Surface elevation" << hz <<" out of range!" << std::endl;
-				// }
+			int idx, idxX, idxY;
+			real r, rX, rY;
+			// get index in the hz look-up table
+			idx = getHzIndex(state, dom, iGlob);
+			idxX = getHzIndex(state, dom, iGlob+1);
+			idxY = getHzIndex(state, dom, iGlob+dom.nx+2*hc);
+			r = getHzRatio(dom, idx, iGlob);
+			rX = getHzRatio(dom, idxX, iGlob+1);
+			rY = getHzRatio(dom, idxY, iGlob+dom.nx+2*hc);
+			// volume porosity of each cell
+			if (idx >= 0)	{
+				state.phi(iGlob) = dom.phi(iGlob, idx) + r * (dom.phi(iGlob, idx+1) - dom.phi(iGlob, idx));
+			}
+			// area porosity of each edge
+			if (idx >= 0)	{
+				// cell iGlob is wet
+				state.phiX(iGlob) = dom.phiX(iGlob, idx) + r * (dom.phiX(iGlob, idx+1) - dom.phiX(iGlob, idx));
+				state.phiY(iGlob) = dom.phiY(iGlob, idx) + r * (dom.phiY(iGlob, idx+1) - dom.phiY(iGlob, idx));
+				if (state.h(iGlob)+state.z(iGlob) < state.z(iGlob+1))	{state.phiX(iGlob) = 0.0;}
+				if (state.h(iGlob)+state.z(iGlob) < state.z(iGlob+dom.nx+2*hc))	{state.phiY(iGlob) = 0.0;}
 			}
 			else {
-				state.phi(iGlob) = 0.0;	state.phiX(iGlob) = 0.0;	state.phiY(iGlob) = 0.0;
+				// cell iGlob is dry
+				if (idxX >= 0 && state.h(iGlob+1)+state.z(iGlob+1) > state.z(iGlob))	{
+					state.phiX(iGlob) = dom.phiX(iGlob, idxX) + rX * (dom.phiX(iGlob, idxX+1) - dom.phiX(iGlob, idxX));
+				}
+				if (idxY >= 0 && state.h(iGlob+dom.nx+2*hc)+state.z(iGlob+dom.nx+2*hc) > state.z(iGlob))	{
+					state.phiY(iGlob) = dom.phiY(iGlob, idxY) + rY * (dom.phiY(iGlob, idxY+1) - dom.phiY(iGlob, idxY));
+				}
+			}
+			// remove unrealistic porosity values
+			if (state.phi(iGlob) < 0.0 || state.phi(iGlob) > 1.0)	{
+				state.phi(iGlob) = 1.0;
+				std::cerr << RERROR << "Unphysical porosity! Should be within [0, 1]" << std::endl;
+			}
+			if (state.phiX(iGlob) < 0.0 || state.phiX(iGlob) > 1.0)	{
+				state.phiX(iGlob) = 0.0;
+				std::cerr << RERROR << "Unphysical porosityX! Should be within [0, 1]" << std::endl;
+			}
+			if (state.phiY(iGlob) < 0.0 || state.phiY(iGlob) > 1.0)	{
+				state.phiY(iGlob) = 0.0;
+				std::cerr << RERROR << "Unphysical porosityY! Should be within [0, 1]" << std::endl;
 			}
 		});
 	}
