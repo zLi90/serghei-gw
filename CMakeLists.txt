@@ -81,7 +81,7 @@ if (Enable_GPU)
 endif()
 
 #	Specify if the CI tests will be built
-set(Build_Tests "OFF")
+set(Build_Tests "ON")
 
 # Specify SERGHEI options (You can add more below)
 #	The defaults should be consistent with what is defined in SERGHEI source code
@@ -158,6 +158,14 @@ if(SERGHEI_FRICTION_MODEL)
 else()
 	message(STATUS ${DisableColour} "Friction model disabled" ${ColourReset})
 	add_compile_definitions(SERGHEI_FRICTION_MODEL=0)
+endif()
+
+option(SERGHEI_FRICTION_CENTERED "Enabled centered friction discretisation" OFF)   
+if(SERGHEI_FRICTION_CENTERED)
+	message(STATUS ${EnableColour} "Centered friction discretisation enabled" ${ColourReset})
+	add_compile_definitions(SERGHEI_POINTWISE_FRICTION=1)
+else()
+	message(STATUS ${DefaultColour} "Centered friction discretisation disabled" ${ColourReset})
 endif()
 
 option(SERGHEI_FRICTION_DARCY_WEISBACH "Enable Darcy-Weisbach friction model" OFF)   
@@ -312,6 +320,13 @@ option(SERGHEI_DEBUG_MPI  "Enable MPI debugging" OFF)
 if(SERGHEI_DEBUG_MPI)
 	add_compile_definitions(SERGHEI_DEBUG_MPI=1)
 	message(STATUS ${DebugColour}  "MPI debugging enabled" ${ColourReset})
+  set(CMAKE_BUILD_TYPE "Debug")
+endif()
+
+option(SERGHEI_DEBUG_INPUT_NETCDF  "Enable NetCDF input debugging" OFF)
+if(SERGHEI_DEBUG_INPUT_NETCDF)
+	add_compile_definitions(SERGHEI_DEBUG_INPUT_NETCDF=1)
+	message(STATUS ${DebugColour}  "NetCDF input debugging enabled" ${ColourReset})
   set(CMAKE_BUILD_TYPE "Debug")
 endif()
 

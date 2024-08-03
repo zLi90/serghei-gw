@@ -103,7 +103,7 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 		}else{
 			real mx= huold - (state.dsw0(ii+ncells)+state.dsw1(ii+ncells))*dom.dt/dom.dx();
 			real my= hvold - (state.dsw0(ii+2*ncells)+state.dsw1(ii+2*ncells))*dom.dt/dom.dx();
-			#if POINTWISE_FRICTION
+			#if SERGHEI_POINTWISE_FRICTION
 				real nsq= state.roughness(ii)*state.roughness(ii);
 				real modM=sqrt(mx*mx/hold/hold+my*my/hold/hold);
 				if(nsq>TOL12 && hold>=state.hmin && modM>TOL12){

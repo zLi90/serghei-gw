@@ -140,8 +140,10 @@ public:
   real sweflux=0;
   real exchange=0;
   real integrate=0;
+  real integrateMPI=0;
   real dt=0;
   real sweBC=0;
+  real halo=0;
   // timers for the subsurface solver
   real gw = 0;
   real gwBC = 0;

@@ -29,9 +29,10 @@ protected:
   realArr haloRecvBufW;
   realArr haloRecvBufE;
 
+  Kokkos::Timer timerExchange;
+  Kokkos::Timer timerHalo;
+
 public:
-  real MPItime=0;
-  real exchangeTime=0;
 
   inline void allocate(Domain &dom) {
 	// haloSendBuf* and haloRecvBuf* arrays are 1D containers (arrays) which should be able to store all state variables, for the exchanging band
@@ -140,6 +141,7 @@ public:
 	#if SERGHEI_DEBUG_MPI
 	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 	#endif
+		timerExchange.reset();
     	int ierr;
 		ierr=1;
 
@@ -180,7 +182,7 @@ public:
 			}
 		}
 
-
+		dom.timers.exchange += timerExchange.seconds();
 		return ierr;
 
 	}
@@ -190,6 +192,7 @@ public:
 	#if SERGHEI_DEBUG_MPI
 	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 	#endif
+	timerExchange.reset();
    	int ierr;
 		ierr=1;
 	 
@@ -230,6 +233,7 @@ public:
 			}
 		}
 
+    	dom.timers.exchange += timerExchange.seconds();
 		return ierr;
 	}
 
@@ -287,7 +291,7 @@ public:
 	#if SERGHEI_DEBUG_MPI
 	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 	#endif
-		Kokkos::Timer timer;	// only to keep track of time
+		timerHalo.reset();	// only to keep track of time
 
 		 // Exchange depth in x-direction
 		 exch.haloInit      ();
@@ -300,7 +304,7 @@ public:
 		 exch.haloPack_y   (dom, state.h);		// re-orders the entries in state.h array which are on the north/south halo regions into data packs which will be sent north and south
 		 exch.haloExchange_y(dom, par);			// MPI send/receives the data packs, and handles boundaries
 		 exch.haloUnpack_y (dom, state.h);		// re-order the updated data packs back into the state.h array
-    dom.timers.exchange += timer.seconds();
+    dom.timers.halo += timerHalo.seconds();
 	}
 
 	// high level wrapper for momentum
@@ -309,7 +313,7 @@ public:
 	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 	#endif
 
-		Kokkos::Timer timer;
+		timerHalo.reset();
 
 		 // Exchange momentum in x-direction
 		 exch.haloInit      ();
@@ -327,7 +331,7 @@ public:
 		 exch.haloUnpack_y (dom, state.hu);
 		 exch.haloUnpack_y (dom, state.hv);
 
-		 dom.timers.exchange += timer.seconds();
+		 dom.timers.halo += timerHalo.seconds();
 	}
 
 

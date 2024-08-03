@@ -30,8 +30,8 @@ public:
   int nCellMem = 0;   // physical cells + halo cells
   int nCell = 0;    // physical cells
   int nCellValid = 0; // cells which have data
-  double xll; // southwest corner x-coordinate
-  double yll; // southwest corner y-coordinate
+  double xll = 0; // southwest corner x-coordinate
+  double yll = 0; // southwest corner y-coordinate
   #if SERGHEI_MESH_UNIFORM
   real dxConst;  // resolution
   #endif
@@ -210,7 +210,6 @@ void getStatistics(){
     extent[1](_X) = xll + (par.i_end+1)*dxConst;
     extent[1](_Y) = yll + ny_glob*dxConst - (par.j_beg)*dxConst;
 
-
     for (int j = 0; j < 3; j++) {
       for (int i = 0; i < 3; i++) {
         int pxloc = par.px+i-1;
@@ -260,7 +259,7 @@ void getStatistics(){
 
 
 
-void fetchFieldFromGlobalBuffer(const Parallel &par, realArr &data){
+void fetchFieldFromGlobalBuffer(const Parallel &par, realArr &data) const {
   Kokkos::parallel_for("fetch_from_global_buffer", nCell , KOKKOS_CLASS_LAMBDA (int iGlob) {
  	  int i,j;
 		unpackIndices(iGlob,j,i);

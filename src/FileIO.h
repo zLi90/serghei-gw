@@ -4,7 +4,9 @@
 #include <chrono>
 #include <ctime>
 #include <unistd.h>
+#ifndef __NVCC__ 
 #include <cpuid.h>
+#endif
 #include "const.h"
 #include "define.h"
 #include "State.h"
@@ -935,9 +937,8 @@ public:
 	bint.integrate(extbc,dom,1);
 
 #if SERGHEI_DEBUG_BOUNDARY
-	if (par.masterproc)
-	  {
-	    //std::cerr << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "boundary cells (reduced): " << _ncellsBC << "\n";
+	if (par.masterproc){
+	    std::cerr << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "boundary cells (reduced): " << bint.ncellsBC << "\n";
 	    std::cerr << GGD  << GRAY << __PRETTY_FUNCTION__ << RESET << "inflow discharge (integrated) " << bint.inflowDischargeG << "\n";
 	    std::cerr << GGD  << GRAY << __PRETTY_FUNCTION__ << RESET << "inflow accumulated (integrated) " << bint.inflowAccumulatedG << "\n";
 	    std::cerr << GGD  << GRAY << __PRETTY_FUNCTION__ << RESET << "outflow discharge (integrated) " << bint.outflowDischargeG << "\n";
@@ -1084,12 +1085,19 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
           logFile << "rainInfTime : " << dom.timers.raininf << " : " << ratio << std::endl;
           ratio = dom.timers.swe/dom.timers.total;
           logFile << "sweNotFluxTime : " << dom.timers.swe << " : " << ratio << std::endl;
-          ratio = dom.timers.exchange / dom.timers.total;
-          logFile << "exchangeTime : " << dom.timers.exchange << " : " << ratio << std::endl;
-          ratio = dom.timers.integrate / dom.timers.total;
-          logFile << "integrateTime : " << dom.timers.integrate << " : " << ratio << std::endl;
-          ratio = dom.timers.dt / dom.timers.total;
-          logFile << "dtComputeTime : " << dom.timers.dt << " : " << ratio << std::endl;
+      	  ratio = dom.timers.exchange / dom.timers.total;
+      	  logFile << "exchangeTime : " << dom.timers.exchange << " : " << ratio << std::endl;
+		      dom.timers.halo -= dom.timers.exchange;
+      	  ratio = dom.timers.halo / dom.timers.total;
+      	  logFile << "haloTime : " << dom.timers.halo << " : " << ratio << std::endl;
+      	  ratio = dom.timers.integrate / dom.timers.total;
+      	  logFile << "integrateTime : " << dom.timers.integrate << " : " << ratio << std::endl;
+      	  ratio = dom.timers.integrateMPI / dom.timers.total;
+      	  logFile << "integrateMPITime : " << dom.timers.integrateMPI << " : " << ratio << std::endl;
+      	  ratio = dom.timers.dt / dom.timers.total;
+      	  logFile << "dtComputeTime : " << dom.timers.dt << " : " << ratio << std::endl;
+				  logFile << "sweBCtime : " << dom.timers.sweBC << " : " << dom.timers.sweBC/dom.timers.total << std::endl;
+
           #if SERGHEI_SUBSURFACE_MODEL
           logFile << " -------- GW Times --------" << std::endl;
           ratio = dom.timers.gw/dom.timers.total;
@@ -1124,8 +1132,12 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
           writeTimerRank(par,dom.timers.sweflux,"sweFluxTime");
           writeTimerRank(par,dom.timers.raininf,"rainInfTime");
           writeTimerRank(par,dom.timers.swe,"sweNotFluxTime");
-          writeTimerRank(par,dom.timers.exchange,"exchangeTime");
-          writeTimerRank(par,dom.timers.dt,"dtComputeTime");
+			    writeTimerRank(par,dom.timers.exchange,"exchangeTime");
+			    writeTimerRank(par,dom.timers.halo,"haloTime");
+			    writeTimerRank(par,dom.timers.integrate,"integrateTime");
+			    writeTimerRank(par,dom.timers.integrateMPI,"integrateMPITime");
+			    writeTimerRank(par,dom.timers.dt,"dtComputeTime");
+			    writeTimerRank(par,dom.timers.dt,"sweBCtime");
           #if SERGHEI_SUBSURFACE_MODEL
           writeTimerRank(par,dom.timers.gw,"gwTime");
           writeTimerRank(par,dom.timers.gwlinsys,"gwLinSysTime");
@@ -1157,37 +1169,40 @@ void writeLogFile(Domain const &dom, Parallel const &par, std::string dir){
               uint *CPUInfo = reinterpret_cast<uint*>(CPUBrandString.data());
               for (uint i=0; i<3; i++) __cpuid(0x80000002+i, CPUInfo[i*4+0], CPUInfo[i*4+1], CPUInfo[i*4+2], CPUInfo[i*4+3]);
               CPUBrandString.assign(CPUBrandString.data()); // correct null terminator
-              logFile << "CPU: " << CPUBrandString << std::endl;
+              logFile << "CPU : " << CPUBrandString << std::endl;
               #endif
               logFile << "nTasks : " << par.nranks << std::endl;
 
-              // write compilation setup
-      // logFile << "\nSERGHEI_GIT_VERSION " << SERGHEI_GIT_VERSION << std::endl;
-              logFile << "\n-------------------------\nMODEL COMPONENT SETUP" <<std::endl;
-              logFile << "SERGHEI_TOOLS " << SERGHEI_TOOLS << std::endl;
-              logFile << "SERGHEI_SUBSURFACE_MODEL " << SERGHEI_SUBSURFACE_MODEL << std::endl;
-              logFile << "SERGHEI_PARTICLE_TRACKING " << SERGHEI_PARTICLE_TRACKING << std::endl;
-              logFile << "SERGHEI_VEGETATION_MODEL " << SERGHEI_VEGETATION_MODEL << std::endl;
-              logFile << "SERGHEI_FRICTION_MODEL " << SERGHEI_FRICTION_MODEL << std::endl;
-              logFile << "SERGHEI_MAXFLOOD " << SERGHEI_MAXFLOOD << std::endl;
-      logFile << "SERGHEI_REAL " << SERGHEI_REAL << std::endl;
-      logFile << "SERGHEI_NC_MODE " << SERGHEI_NC_MODE << std::endl;
-      logFile << "SERGHEI_NC_REAL " ;
-        if(SERGHEI_NC_REAL == NC_FLOAT) logFile << "NC_FLOAT";
-        if(SERGHEI_NC_REAL == NC_DOUBLE) logFile << "NC_DOUBLE";
-        logFile << std::endl;
-      logFile << "SERGHEI_WRITE_HZ " << SERGHEI_WRITE_HZ << std::endl;
+				// write compilation setup
+        logFile << "\nSERGHEI_GIT_VERSION : " << SERGHEI_GIT_VERSION << std::endl;
+				logFile << "\n-------------------------\nMODEL COMPONENT SETUP" <<std::endl;
+				logFile << "SERGHEI_TOOLS : " << SERGHEI_TOOLS << std::endl;
+				logFile << "SERGHEI_SUBSURFACE_MODEL : " << SERGHEI_SUBSURFACE_MODEL << std::endl;
+				logFile << "SERGHEI_PARTICLE_TRACKING : " << SERGHEI_PARTICLE_TRACKING << std::endl;
+				logFile << "SERGHEI_VEGETATION_MODEL : " << SERGHEI_VEGETATION_MODEL << std::endl;
+				logFile << "SERGHEI_FRICTION_MODEL : " << SERGHEI_FRICTION_MODEL << std::endl;
+				logFile << "SERGHEI_POINTWISE_FRICTION : " << SERGHEI_POINTWISE_FRICTION << std::endl;
+				logFile << "SERGHEI_MAXFLOOD : " << SERGHEI_MAXFLOOD << std::endl;
+        logFile << "SERGHEI_REAL : " << SERGHEI_REAL << std::endl;
+        logFile << "SERGHEI_NC_MODE : " << SERGHEI_NC_MODE << std::endl;
+        logFile << "SERGHEI_NC_REAL : " ;
+	      if(SERGHEI_NC_REAL == NC_FLOAT) logFile << "NC_FLOAT";
+	      if(SERGHEI_NC_REAL == NC_DOUBLE) logFile << "NC_DOUBLE";
+ 	      logFile << std::endl;
+        logFile << "SERGHEI_WRITE_HZ : " << SERGHEI_WRITE_HZ << std::endl;
+				logFile << "SERGHEI_WRITE_SUBDOMS : " << SERGHEI_WRITE_SUBDOMS << std::endl;
 
       logFile << "\n-------------------------\nDEBUG FLAGS" <<std::endl;
-      logFile << "SERGHEI_DEBUG_PARALLEL_DECOMPOSITION " << SERGHEI_DEBUG_PARALLEL_DECOMPOSITION << std::endl;
-      logFile << "SERGHEI_DEBUG_WORKFLOW " << SERGHEI_DEBUG_WORKFLOW << std::endl;
-      logFile << "SERGHEI_DEBUG_KOKKOS_SETUP " << SERGHEI_DEBUG_KOKKOS_SETUP << std::endl;
-      logFile << "SERGHEI_DEBUG_BOUNDARY " << SERGHEI_DEBUG_BOUNDARY << std::endl;
-      logFile << "SERGHEI_DEBUG_DT " << SERGHEI_DEBUG_DT << std::endl;
-      logFile << "SERGHEI_DEBUG_TOOLS " << SERGHEI_DEBUG_TOOLS << std::endl;
-      logFile << "SERGHEI_DEBUG_MASS_CONS " << SERGHEI_DEBUG_MASS_CONS << std::endl;
-      logFile << "SERGHEI_DEBUG_INFILTRATION " << SERGHEI_DEBUG_INFILTRATION << std::endl;
-      logFile << "SERGHEI_DEBUG_MPI " << SERGHEI_DEBUG_MPI << std::endl;
+      logFile << "SERGHEI_DEBUG_PARALLEL_DECOMPOSITION : " << SERGHEI_DEBUG_PARALLEL_DECOMPOSITION << std::endl;
+      logFile << "SERGHEI_DEBUG_WORKFLOW : " << SERGHEI_DEBUG_WORKFLOW << std::endl;
+      logFile << "SERGHEI_DEBUG_KOKKOS_SETUP : " << SERGHEI_DEBUG_KOKKOS_SETUP << std::endl;
+      logFile << "SERGHEI_DEBUG_BOUNDARY : " << SERGHEI_DEBUG_BOUNDARY << std::endl;
+      logFile << "SERGHEI_DEBUG_DT : " << SERGHEI_DEBUG_DT << std::endl;
+      logFile << "SERGHEI_DEBUG_TOOLS : " << SERGHEI_DEBUG_TOOLS << std::endl;
+      logFile << "SERGHEI_DEBUG_MASS_CONS : " << SERGHEI_DEBUG_MASS_CONS << std::endl;
+      logFile << "SERGHEI_DEBUG_INFILTRATION : " << SERGHEI_DEBUG_INFILTRATION << std::endl;
+      logFile << "SERGHEI_DEBUG_MPI : " << SERGHEI_DEBUG_MPI << std::endl;
+			logFile << "SERGHEI_DEBUG_OUTPUT : " << SERGHEI_DEBUG_OUTPUT << std::endl;
           }
 
   }
@@ -1491,22 +1506,12 @@ static void handle_error(Parallel &par, int status, int lineno) {
 
 #if SERGHEI_INPUT_NETCDF
 int readNetCDFheader(const Parallel &par, ncStream &nc, Domain &dom){
-  MPI_Offset st[3], ct[3];
-
-  int flagNoData = 0; // flag for no data values
-  int var_ndims, var_natts;
-  nc_type vtype;
-
-  char varname[NC_MAX_NAME+1];
 	MPI_Offset dimsize;
 
   // open the netcdf file
   ncwrap(ncmpi_open(MPI_COMM_WORLD, nc.fname.c_str(), NC_NOWRITE, MPI_INFO_NULL, &nc.id),__LINE__,par.myrank);
 
-  if (par.masterproc) std::cout << GOK << "Read header from " << nc.fname << std::endl;
-
-  var_ndims = -1;
-  var_natts = -1;
+  if (par.masterproc) std::cout << GOK << "Read header from " << nc.fname << "(rank " << par.myrank << ")" << std::endl;
 
   ncwrap(ncmpi_inq(nc.id, &nc.ndims, &nc.nvars, &nc.ngatts, &nc.unlimited),__LINE__,par.myrank);
 
@@ -1532,9 +1537,7 @@ int readNetCDFheader(const Parallel &par, ncStream &nc, Domain &dom){
 	int varid;
 	ncwrap(ncmpi_inq_varid(nc.id,"t",&varid),__LINE__,par.myrank);
 	ncwrap(ncmpi_get_var_double_all(nc.id,varid,&dom.startTime),__LINE__,par.myrank);
-	std::cout << BDASH << "Current time read from NetCDF input: " << dom.startTime << std::endl;
-
-	char dimname[NC_MAX_NAME+1];
+	if(par.masterproc) std::cout << BDASH << "Current time read from NetCDF input: " << dom.startTime << std::endl; 
 
 	// read x dimension
 	ncwrap(ncmpi_inq_dimlen(nc.id, nc.dimids[2], &dimsize),__LINE__,par.myrank);
@@ -1588,70 +1591,97 @@ int readNetCDFcoordinates(const Parallel &par, ncStream &nc, Domain &dom){
 	// find the cell vertex, instead of cell center
 	dom.xll -= 0.5 * dom.dxConst;
 	dom.yll -= 0.5 * dom.dxConst;
-
-	std::cout << GOK << "dx = " << dom.dx() << std::endl;
-	std::cout << GOK << "Extent : (" << dom.xll << ", " << dom.yll << ") (" << dom.xll + dom.dx() * dom.nx_glob << ", " << dom.yll + dom.dx() * dom.ny_glob<< ")" << std::endl;
-
-	if(par.masterproc)	std::cout << GOK << "Coordinates read from " << nc.fname << std::endl;
+	
+	if(par.masterproc){
+    std::cout << GOK << "dx = " << dom.dx() << std::endl;
+	  std::cout << GOK << "Domain extent : (" << dom.xll << ", " << dom.yll << ") (" << dom.xll + dom.dx() * dom.nx_glob << ", " << dom.yll + dom.dx() * dom.ny_glob<< ")" << std::endl;
+    std::cout << GOK << "Coordinates read from " << nc.fname << std::endl;
+  }
 	return 1;
 }
 
-int readNetCDFvariable(const Parallel &par, const Domain &dom, State &state, ncStream &nc, std::string vname) {
-  MPI_Offset st[3], ct[3];
-
-  int flagNoData = 0; // flag for no data values
-  int var_ndims, var_natts;
-  nc_type vtype;
-
-
-  var_ndims = -1;
-  var_natts = -1;
+int readNetCDFvariable(const Parallel &par, Domain &dom, State &state, ncStream &nc, std::string vname) {
+	#if SERGHEI_DEBUG_INPUT_NETCDF
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "\tReading NetCDF variable " << vname << std::endl;
+    #endif
 
   int varid=-1;
 
-	ncwrap(ncmpi_inq_varid(nc.id,vname.c_str(),&varid),__LINE__,par.myrank);
-
-
+  int ncerr=ncmpi_inq_varid(nc.id,vname.c_str(),&varid);
+	if(ncerr != NC_NOERR){
+    if(ncerr == NC_ENOTVAR){  // if variable not found, return and deal with it one level up
+      return NC_ENOTVAR;
+      }
+    else{
+      ncwrap(ncerr,__LINE__,par.myrank);
+    }
+  }
+  
+  std::string attName = "_FillValue";
+  float nodata;
+  ncwrap(ncmpi_get_att_float(nc.id,varid,attName.c_str(),&nodata),__LINE__,par.myrank);
+  if(par.masterproc) std::cout << BDASH << "No data value for variable " << vname << " is " << nodata << std::endl;
+	
+	
 	#if SERGHEI_DEBUG_INPUT_NETCDF
 		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "\tTarget NetCDF variable " << vname << " has index " << varid << std::endl;
     #endif
 
-  // it is possible to read directly into the raw pointer of a Kokkos::View. However, because the order of dimensions is different, this is avoided here and we use a buffer
-  double *data = new double[nc.ndata];
-  ncwrap(ncmpi_get_var_double_all(nc.id,varid,data),__LINE__,par.myrank);
-  // this is how you read into a Kokkos::View
-  //ncwrap(ncmpi_get_var_double_all(ncin,ivar,state.h.data()),__LINE__,par.myrank);
+  int ndim=-1;
+  ncwrap(ncmpi_inq_varndims(nc.id, varid, &ndim),__LINE__,par.myrank);
 
+  MPI_Offset st[ndim], ct[ndim];
+  if(ndim > 2){
+    // This is the approach to read time-dependent varibles
+    st[0] = 0; st[1] = par.j_beg; st[2] = par.i_beg;
+    ct[0] = 1; ct[1] = dom.ny   ; ct[2] = dom.nx   ;
+  }
+  else{
+    // Read a time-independent variable
+    st[0] = par.j_beg; st[1] = par.i_beg;
+    ct[0] = dom.ny   ; ct[1] = dom.nx   ;
+  }
+  
+  // we use a buffer view, because of the order of coordinates
+  realArr data = realArr("ncdata",dom.nCell);
+  ncwrap(ncmpi_get_vara_double_all(nc.id,varid,st,ct,data.data()),__LINE__,par.myrank);
+  
   int var = getIOvarID(vname);
+
   #if SERGHEI_DEBUG_INPUT_NETCDF
+  std::cout << "rank = " << par.myrank << "\tst : " << st[0] << "\t" << st[1] << "\t" << st[2]  << std::endl;
+  std::cout << "rank = " << par.myrank << "\tct : " << ct[0] << "\t" << ct[1] << "\t" << ct[2]  <<std::endl;
+  
   std::cout << GGD << vname << " is internal var " << var << std::endl;
   #endif
   if(var < 0 ){
 		std::cerr << RERROR << "Internal variable " << vname << " not found." << std::endl;
 		return 0;
-	}
-
-  Kokkos::parallel_for(nc.ndata, KOKKOS_LAMBDA(int iGlob) {
-    int i, j;
-		dom.unpackIndices(iGlob,j,i);
-		int ii1 = dom.getHaloExtension(i,j);
-		int ii2 = dom.getSubdomainExtension(par,i,j);
-    if(var == ioH) state.h(ii1) = data[ii2];
-    if(var == ioZ){
-	  	state.z(ii1) = data[ii2];
-	  	if (state.z(ii1) > NDTH) {
-	   	 state.isnodata(ii1) = true;
+	} 
+ 
+  if(var == ioZ){
+    Kokkos::parallel_reduce("readNC_z_reduce",dom.nCell, KOKKOS_LAMBDA(int iGlob, int &nValid) {
+		int ii = dom.getIndex(iGlob);
+	  	state.z(ii) = data(iGlob);
+	  	if (state.z(ii) <= nodata) {
+	   	 state.isnodata(ii) = true;
 	  	} else {
-	   	 state.isnodata(ii1) = false;
+	   	 state.isnodata(ii) = false;
+		 nValid++;
 	  	}
-    }
-    if(var == ioU) state.hu(ii1) = data[ii2]*state.h(ii1);
-    if(var == ioV) state.hv(ii1) = data[ii2]*state.h(ii1);
+	}, Kokkos::Sum<int>(dom.nCellValid));
+  } 
+  else{
+  Kokkos::parallel_for("netCDFvariable",dom.nCell, KOKKOS_LAMBDA(int iGlob) {
+		int ii = dom.getIndex(iGlob);
+    if(var == ioH) state.h(ii) = data[iGlob];
+    if(var == ioU) state.hu(ii) = data[iGlob]*state.h(ii);
+    if(var == ioV) state.hv(ii) = data[iGlob]*state.h(ii);
 	});
+}
 
 
   if(par.masterproc) std::cout << GOK << "NetCDF variable " << GREEN << BOLD << vname << RESET << " read" << std::endl;
-  free(data);
   return 1;
 
 }

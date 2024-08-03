@@ -56,7 +56,7 @@ public:
 
 
 
-	inline int find_bcells(State &state, std::string &id, Domain &dom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly){
+	inline int find_bcells(State &state, std::string &id, const Domain &dom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly){
 		int foundInSubdom; // to keep track of which subdomains are associated to this boundary
 		std::vector<int> tmpbcells; //array of indexes of boundary cells
 		std::vector<int> subdomains;	// keeps track of which subdomains are associated to the BC

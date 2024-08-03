@@ -87,6 +87,7 @@ public:
     Kokkos::deep_copy(isnodata, false);
     Kokkos::deep_copy(dsw0, 0);
     Kokkos::deep_copy(dsw1, 0);
+	if(dom.id==0) std::cout << GOK << "State allocated and initialised" << std::endl;
   }
 
   inline void filterDomain(const Domain &dom){

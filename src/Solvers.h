@@ -56,7 +56,6 @@ KOKKOS_INLINE_FUNCTION void roeSolver(const SArray<real,5> &s1, const SArray<rea
 	real u = ( u1*sqrt1 + u2*sqrt2) / (sqrt1 + sqrt2);
 	real v = ( v1*sqrt1 + v2*sqrt2) / (sqrt1 + sqrt2);
 	real c = mysqrt(GRAV*h);
-	real n = 0.5*(n1+n2);
 
 	un=u*nx+v*ny;
 
@@ -124,7 +123,10 @@ KOKKOS_INLINE_FUNCTION void roeSolver(const SArray<real,5> &s1, const SArray<rea
 	betaB=0.5/c*GRAV*(hp-0.5*fabs(dzp))*dzp;
 
 
-	#if POINTWISE_FRICTION==0
+	#if SERGHEI_POINTWISE_FRICTION==0
+		// interface value of roughness
+		real n = 0.5*(n1+n2);
+
 		real gamma, hbeta, frictionSlope;
 		#if SERGHEI_FRICTION_MODEL == SERGHEI_FRICTION_MANNING
 			gamma = n*n;

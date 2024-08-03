@@ -66,7 +66,9 @@
 #endif
 
 //friction model (0-->upwind or 1-->pointwise-centered)
-#define POINTWISE_FRICTION 1
+#ifndef SERGHEI_POINTWISE_FRICTION
+#define SERGHEI_POINTWISE_FRICTION 0
+#endif
 
 #define SERGHEI_FRICTION_MANNING 1
 #define SERGHEI_FRICTION_DARCYWEISBACH 2

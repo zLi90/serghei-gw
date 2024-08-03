@@ -115,7 +115,7 @@ public:
 
 		#if SERGHEI_INPUT_NETCDF
 			tempStr = fNameIn + "input.nc";
-			int nvar;
+      if(par.masterproc) std::cout << BDASH << "Reading variables from NetCDF file" << std::endl;
     	if(!io.readNetCDFvariable(par,dom,state,io.ncin,"z")){
         if(par.masterproc) std::cout << RERROR << tempStr << " not found" << std::endl;
         return 0;
@@ -343,7 +343,7 @@ public:
 		return 1;
   }
 
-  int readRoughnessFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+  int readRoughnessFile(std::string fNameIn, Domain const &dom, State &state, Parallel &par) {
 
 		int found = readRasterField(fNameIn, dom, par, state.roughness);
 
@@ -379,7 +379,7 @@ public:
 
 
 
-	int readHiniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+	int readHiniFile(std::string fNameIn, Domain const &dom, State &state, Parallel &par) {
 
 		int found = readRasterField(fNameIn, dom, par, state.h);
 
@@ -411,7 +411,7 @@ public:
 	}
 
 
-	int readUiniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+	int readUiniFile(std::string fNameIn, Domain const &dom, State &state, Parallel &par) {
 
 		int found;
 		const real constVel=0.0;
@@ -441,7 +441,7 @@ public:
 
 	}
 
-	int readViniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+	int readViniFile(std::string fNameIn, Domain const &dom, State &state, Parallel &par) {
 
 		int found;
 		const real constVel=0.0;
@@ -642,6 +642,9 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
   /* Reads rainfall data file */
   inline int readRainfallFile (std::string fNameIn, Domain &dom, TimeSeries &rain, Parallel &par)
   {
+	#if SERGHEI_DEBUG_WORKFLOW
+  	  std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
 
     // TODO modify this reader to use a parsing strategy
 
@@ -1051,6 +1054,9 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 
 
   int readSWFile(std::string fNameIn, Domain &dom, Parallel &par, State &state, std::string fDirIn, FileIO &io){
+	#if SERGHEI_DEBUG_WORKFLOW
+  	  std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    	#endif
     std::ifstream fInStream(fNameIn);
     std::string line;
     ParserLine pline;
@@ -1143,7 +1149,7 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 
     if(!checkValidOption(sw.initialMode, sw.initialModes)){
 	 	if(par.masterproc){
-      std::cerr << RERROR "Invalid initial SW mode. Pleese correct sw.input" << std::endl;
+      std::cerr << RERROR "Invalid initial SW mode. Please correct sw.input" << std::endl;
       return 0;
 		}
     }
@@ -1158,9 +1164,35 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
     }
 		#if SERGHEI_INPUT_NETCDF
     else if(!sw.initialMode.compare("netcdf")){
-      if(!io.readNetCDFvariable(par,dom,state,io.ncin,"h")) return 0;
-      if(!io.readNetCDFvariable(par,dom,state,io.ncin,"u")) return 0;
-      if(!io.readNetCDFvariable(par,dom,state,io.ncin,"v")) return 0;
+      int varfound=1;
+      varfound = io.readNetCDFvariable(par,dom,state,io.ncin,"h");
+      // if variable not found, set to zero (nothing needs to be done, as variables are initialised to zero at allocation)
+      if(varfound == NC_ENOTVAR && par.masterproc) std::cout << YEXC << "Water depth not found in NetCDF input file. Domain will be set dry" << std::endl;
+      if(!varfound) return 0;
+
+      varfound = io.readNetCDFvariable(par,dom,state,io.ncin,"u");
+      if(varfound == NC_ENOTVAR && par.masterproc) std::cout << YEXC << "x-velocity (u) not found in NetCDF input file. u will be set to zero" << std::endl;
+      if(!varfound) return 0;
+      
+      varfound = io.readNetCDFvariable(par,dom,state,io.ncin,"v");
+      if(varfound == NC_ENOTVAR && par.masterproc) std::cout << YEXC << "y-velocity (v) not found in NetCDF input file. v will be set to zero" << std::endl;
+      if(!varfound) return 0;
+
+      int err;
+		  Kokkos::parallel_reduce("validate_init", dom.nCell , KOKKOS_LAMBDA (int iGlob, int &hzero) {
+        int ii = dom.getIndex(iGlob);
+        hzero=0;
+        if(state.isnodata(ii)){
+          state.h(ii) = state.hu(ii) = state.hv(ii) = 0.;
+        }
+        else{
+          if(state.h(ii) < 0.) hzero++;  
+        }
+		  }, Kokkos::Sum<int>(err));
+      if(err){
+        std::cerr << RERROR << "There are " << err << " cells with negative depths in initial condition in NetCDF file" << std::endl;
+        return 0;
+      }
     }
 		#endif
     else{
@@ -1260,7 +1292,7 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
   }
 
 
-  int readInfiltrationMap(std::string fNameIn, Domain &dom, InfiltrationModel &inf, Parallel &par) {
+  int readInfiltrationMap(std::string fNameIn, Domain const &dom, InfiltrationModel &inf, Parallel &par) {
 		#if SERGHEI_DEBUG_INFILTRATION
 	    std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "inf.Model = " << inf.model << "\tinf.nLabels = " << inf.nLabels << std::endl;
 		#endif
