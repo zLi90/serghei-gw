@@ -459,13 +459,21 @@ public:
     real Qinflow, Qoutflow, Cpipe;
     TimeSeries ts;
     TimeSeries evap, tran;
-
+	
+	// water stress and root distribution function
+	real h1, h2, h3, h4;
+	real px, py, pz, xs, ys, zs, xm, ym, zm;
+	realArr coef_wat, coef_root;
 
 	MPI_Comm comm;	// communicator for ranks associated to the BC
 
-    void allodateGW (GwDomain const &gdom)  {
+    void allocateGW (GwDomain const &gdom)  {
         ssdata = realArr ("ssdata", gdom.nCellMem);
         for (int idx = 0; idx < gdom.nCellMem; idx++)   {ssdata(idx) = 0.0;}
+		if (sstype == 0)	{
+			coef_wat = realArr("wat", ncellsIT);
+			coef_root = realArr("root", ncellsIT);
+		}
     }
 
     // find internal cells for applying source/sink conditions
@@ -529,6 +537,25 @@ public:
 		}
 		return 1;
 	}
+	
+	// get coefficients for root water uptake declining and root distribution 
+	inline void rootCoef(GwState &gw, GwDomain &gdom)	{
+        Kokkos::parallel_for("root", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
+                int ii, jj, kk, ivg, idom, iGlob = icells[idx];
+                gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+				real c_wat = 1.0, c_root = 1.0, expo;
+				// get coef_wat
+				if (gw.h(iGlob,1) <= h1 && gw.h(iGlob,1) > h2)	{c_wat = (gw.h(iGlob,1) - h1) / (h2 - h1);}
+				else if (gw.h(iGlob,1) <= h3 && gw.h(iGlob,1) > h4)	{c_wat = (gw.h(iGlob,1) - h4) / (h3 - h4);}
+				else if (gw.h(iGlob,1) > h1 || gw.h(iGlob,1) <= h4)	{c_wat = 0.0;}
+				// get coef_root
+				expo = px/(xm*myfabs(xs-x)) + py/(ym*myfabs(ys-y)) + pz/(zm*myfabs(zs-z))
+				c_root = (1.0-x/xm)*(1.0-y/ym)*(1.0-z/zm)*exp(-expo);
+				
+				coef_wat(idx) = c_wat;
+				coef_root(idx) = c_root;
+        });
+	}
 
     inline void applyMatSS(GwState &gw, GwDomain &gdom) {
         if (ncellsIT > 0)   {
@@ -540,7 +567,9 @@ public:
                         int ii, jj, kk, ivg, idom, iGlob = icells[idx];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
                         idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-                        gw.coef(idom,7) += gdom.dt * qt;
+						// get root function coefficients 
+						rootCoef(gw, gdom);
+                        gw.coef(idom,7) += gdom.dt * qt * coef_wat(idx) * coef_root(idx);
                         if (kk == 1)    {
                             gw.coef(idom,7) += gdom.dt * qe;
                         }
@@ -636,8 +665,8 @@ public:
                         int ii, jj, kk, ivg, idom, iGlob = icells[idx];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
                         idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-                        gw.wc(iGlob,1) += gdom.dt * qt;
-                        tmp += qt * gdom.dt;
+                        gw.wc(iGlob,1) += gdom.dt * qt * coef_wat(idx) * coef_root(idx);
+                        tmp += qt * gdom.dt * coef_wat(idx) * coef_root(idx);
                         if (kk == 1)    {
                             gw.wc(iGlob,1) += gdom.dt * qe;
                             tmp += qe * gdom.dt;

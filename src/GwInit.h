@@ -772,7 +772,7 @@ public:
         std::string line;
         PsLn pline;
         int nPoly;
-        dir = fNameIn.substr(0, fNameIn.length() - 10); // 10 chars equivalent to "gwbc.input" to get the dir
+        dir = fNameIn.substr(0, fNameIn.length() - 10); // 10 chars equivalent to "gwbc.input"
         int sscount = 0, sscountFound = 0, iss = -2, readts = 0, hasssfile;
         real val;
         // Read the gwbc.input file
@@ -873,6 +873,8 @@ public:
                     }
                 }
                 if(!ss.gwss[k].find_icells(gw, ss.id[k], gdom, par, nPoly, xPoly, yPoly, zPoly)) return 0;
+				// allocate ss data array 
+				ss.gwss[k].allocateGW(gdom);
             }
             else{
                 if (par.masterproc) {
@@ -893,6 +895,7 @@ public:
     				if(fts.is_open()) {
                         gdom.hasET = 1;
                         real lat, dayoffset, albedo;
+						real h1, h2, h3, h4;
                         TimeSeries wind, solar, rhmax, rhmin, tmax, tmin, crop, lai;
                         // number of data
                         fts.ignore(256,' ');
@@ -906,6 +909,13 @@ public:
                         // albedo
                         fts.ignore(256,' ');
                         fts >> albedo;
+						// h1, h2, h3, h4 for Feddes model
+                        fts.ignore(256,' ');
+                        fts >> h1 >> h2 >> h3 >> h4;
+						ss.gwss[k].h1 = h1;
+						ss.gwss[k].h2 = h2;
+						ss.gwss[k].h3 = h3;
+						ss.gwss[k].h4 = h4;
                         // allocate time series
                         wind.value = realArr ("w",     ndatat);
                         solar.value = realArr ("s",     ndatat);
