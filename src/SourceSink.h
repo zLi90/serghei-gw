@@ -539,22 +539,23 @@ public:
 	}
 	
 	// get coefficients for root water uptake declining and root distribution 
-	inline void rootCoef(GwState &gw, GwDomain &gdom)	{
-        Kokkos::parallel_for("root", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
-                int ii, jj, kk, ivg, idom, iGlob = icells[idx];
-                gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-				real c_wat = 1.0, c_root = 1.0, expo;
-				// get coef_wat
-				if (gw.h(iGlob,1) <= h1 && gw.h(iGlob,1) > h2)	{c_wat = (gw.h(iGlob,1) - h1) / (h2 - h1);}
-				else if (gw.h(iGlob,1) <= h3 && gw.h(iGlob,1) > h4)	{c_wat = (gw.h(iGlob,1) - h4) / (h3 - h4);}
-				else if (gw.h(iGlob,1) > h1 || gw.h(iGlob,1) <= h4)	{c_wat = 0.0;}
-				// get coef_root
-				expo = px/(xm*myfabs(xs-x)) + py/(ym*myfabs(ys-y)) + pz/(zm*myfabs(zs-z))
-				c_root = (1.0-x/xm)*(1.0-y/ym)*(1.0-z/zm)*exp(-expo);
-				
-				coef_wat(idx) = c_wat;
-				coef_root(idx) = c_root;
-        });
+	void rootCoef(const GwState &gw, const GwDomain &gdom)	{
+		Kokkos::parallel_for("root", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
+			real c_wat = 1.0, c_root = 1.0, expo, x, y, z;
+			int iGlob = icells[idx];
+			real h = gw.h(iGlob,1);
+			// get coef_wat
+			if (h <= h1 && h > h2)	{c_wat = (h - h1) / (h2 - h1);}
+			else if (h <= h3 && h > h4)	{c_wat = (h - h4) / (h3 - h4);}
+			else if (h > h1 || h <= h4)	{c_wat = 0.0;}
+			// get coordinates x, y, z
+			
+			// get coef_root
+			expo = px/(xm*myfabs(xs-x)) + py/(ym*myfabs(ys-y)) + pz/(zm*myfabs(zs-z));
+			c_root = (1.0-x/xm)*(1.0-y/ym)*(1.0-z/zm)*exp(-expo);
+			coef_wat(idx) = c_wat;
+			coef_root(idx) = c_root;
+		});
 	}
 
     inline void applyMatSS(GwState &gw, GwDomain &gdom) {
@@ -563,12 +564,12 @@ public:
         	if (sstype == 0)	{
         		real qt = interpolateLinear(tran, gdom.etime);
                 real qe = interpolateLinear(evap, gdom.etime);
+				// get root function coefficients 
+				rootCoef(gw, gdom);
                 Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
                         int ii, jj, kk, ivg, idom, iGlob = icells[idx];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
                         idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-						// get root function coefficients 
-						rootCoef(gw, gdom);
                         gw.coef(idom,7) += gdom.dt * qt * coef_wat(idx) * coef_root(idx);
                         if (kk == 1)    {
                             gw.coef(idom,7) += gdom.dt * qe;
