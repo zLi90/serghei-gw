@@ -83,7 +83,10 @@ public:
         gdom.nhalo = 2*(gdom.nxhc*gdom.nyhc + gdom.nxhc*gdom.nzhc + gdom.nyhc*gdom.nzhc);
         gdom.nCellSw = dom.nCell;
         gdom.nCellSwMem = dom.nCellMem;
+		gdom.x = realArr("x", gdom.nCellMem);
+		gdom.y = realArr("y", gdom.nCellMem);
         gdom.z = realArr("z", gdom.nCellMem);
+		gdom.depth = realArr("depth", gdom.nCellMem);
         gdom.dz = realArr("dz", gdom.nCellMem);
         gdom.sinx = realArr("sinx", gdom.nCellMem);
         gdom.cosx = realArr("cosx", gdom.nCellMem);
@@ -99,14 +102,18 @@ public:
         for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++) {
             gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
             iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj, ii);
+			gdom.x(iGlob) = gdom.xll + ( par.i_beg + ii + 0.5) * gdom.dx;
+			gdom.y(iGlob) = gdom.yll + gdom.ny_glob*gdom.dx - ( par.j_beg + jj + 0.5) * gdom.dx;
             if (gdom.dz_multiplier == 1.0)  {
                 gdom.dz(iGlob) = gdom.thickH / gdom.nz_glob;
                 if (read)   {
+					gdom.depth(iGlob) = (kk-hc+0.5)*gdom.dz(iGlob);
                     gdom.z(iGlob) = state.z(iGlobSW) - (kk-hc+0.5)*gdom.dz(iGlob);
                 }
                 else {
                     state.z(iGlobSW) = 0.0;
                     gdom.z(iGlob) = - (kk-hc+0.5)*gdom.dz(iGlob);
+					gdom.depth(iGlob) = (kk-hc+0.5)*gdom.dz(iGlob);
                 }
             }
             else {
@@ -125,11 +132,14 @@ public:
                 gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
                 iGlobSW = packIndicesUniformGrid(gdom.nyhc, gdom.nxhc, jj, ii);
                 gdom.z(iGlob) = state.z(iGlobSW);
+				gdom.depth(iGlob) = 0.0;
                 for (int krow = 0; krow < kk-1; krow++)   {
                     int idx = (hc+krow)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
                     gdom.z(iGlob) -= gdom.dz(idx);
+					gdom.depth(iGlob) += gdom.dz(idx);
                 }
                 gdom.z(iGlob) -= 0.5*gdom.dz(iGlob);
+				gdom.depth(iGlob) += 0.5*gdom.dz(iGlob);
             }
         }
         gmpi.mpi_sendrecv1(gdom.z, gdom, par);
@@ -896,6 +906,7 @@ public:
                         gdom.hasET = 1;
                         real lat, dayoffset, albedo;
 						real h1, h2, h3, h4;
+						real xs, ys, zs, px, py, pz;
                         TimeSeries wind, solar, rhmax, rhmin, tmax, tmin, crop, lai;
                         // number of data
                         fts.ignore(256,' ');
@@ -916,6 +927,18 @@ public:
 						ss.gwss[k].h2 = h2;
 						ss.gwss[k].h3 = h3;
 						ss.gwss[k].h4 = h4;
+						// xs, ys, zs for root distribution model
+                        fts.ignore(256,' ');
+                        fts >> xs >> ys >> zs;
+						ss.gwss[k].xs = xs;
+						ss.gwss[k].ys = ys;
+						ss.gwss[k].zs = zs;
+						// px, py, pz for root distribution model
+                        fts.ignore(256,' ');
+                        fts >> px >> py >> pz;
+						ss.gwss[k].px = px;
+						ss.gwss[k].py = py;
+						ss.gwss[k].pz = pz;
                         // allocate time series
                         wind.value = realArr ("w",     ndatat);
                         solar.value = realArr ("s",     ndatat);

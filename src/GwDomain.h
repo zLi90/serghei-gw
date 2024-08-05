@@ -24,7 +24,7 @@ public:
 	real cg_tol = 1e-8;
     bool async;
     // Kokkos views
-    realArr z, dz, sinx, cosx, siny, cosy, rainRate, evapRate, etpmRate;
+    realArr x, y, z, dz, depth, sinx, cosx, siny, cosy, rainRate, evapRate, etpmRate;
     intArr isnodata;
 
     // other variables

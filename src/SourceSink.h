@@ -483,7 +483,7 @@ public:
 		std::vector<int> tmpgcells; //array of indexes of ghost cells
 		std::vector<int> subdomains;	// keeps track of which subdomains are associated to the BC
 		// Loop over the entire domain to find internal source/sink cells
-        int kmax = 0, kmin = gdom.nz;
+        int kmax = 0, kmin = gdom.nz, idx = 0;
 		for (int kk = 0; kk < gdom.nz; kk++) {
 			for (int jj = 0; jj < gdom.ny; jj++) {
 				for (int ii = 0; ii < gdom.nx; ii++) {
@@ -549,10 +549,12 @@ public:
 			else if (h <= h3 && h > h4)	{c_wat = (h - h4) / (h3 - h4);}
 			else if (h > h1 || h <= h4)	{c_wat = 0.0;}
 			// get coordinates x, y, z
-			
+			x = gdom.x(iGlob);	y = gdom.y(iGlob);	z = gdom.depth(iGlob);
 			// get coef_root
-			expo = px/(xm*myfabs(xs-x)) + py/(ym*myfabs(ys-y)) + pz/(zm*myfabs(zs-z));
-			c_root = (1.0-x/xm)*(1.0-y/ym)*(1.0-z/zm)*exp(-expo);
+			//expo = px/(xm*myfabs(xs-x)) + py/(ym*myfabs(ys-y)) + pz/(zm*myfabs(zs-z));
+			//c_root = (1.0-x/xm)*(1.0-y/ym)*(1.0-z/zm)*exp(-expo);
+			expo = pz/(zm*myfabs(zs-z));
+			c_root = (1.0-z/zm)*exp(-expo);
 			coef_wat(idx) = c_wat;
 			coef_root(idx) = c_root;
 		});
