@@ -461,6 +461,7 @@ public:
     TimeSeries evap, tran;
 	
 	// water stress and root distribution function
+    real lai;
 	real h1, h2, h3, h4;
 	real px, py, pz, xs, ys, zs, xm, ym, zm;
 	realArr coef_wat, coef_root;

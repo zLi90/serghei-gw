@@ -899,27 +899,21 @@ public:
             std::string fname = dir + tsFile[k];
             std::ifstream fts(fname);
             int ndatat=0;
-            // Read metero data and calculate ET using Penman-Monteith equation
+            // Read meteo data and calculate ET using Penman-Monteith equation
             if (ss.gwss[k].sstype == 0) {
                 if (readts) {
     				if(fts.is_open()) {
                         gdom.hasET = 1;
-                        real lat, dayoffset, albedo;
+                        real lai;
 						real h1, h2, h3, h4;
 						real xs, ys, zs, px, py, pz;
-                        TimeSeries wind, solar, rhmax, rhmin, tmax, tmin, crop, lai;
                         // number of data
                         fts.ignore(256,' ');
                         fts >> ndatat;
                         // latitude
                         fts.ignore(256,' ');
-                        fts >> lat;
-                        // day offset
-                        fts.ignore(256,' ');
-                        fts >> dayoffset;
-                        // albedo
-                        fts.ignore(256,' ');
-                        fts >> albedo;
+                        fts >> lai;
+                        ss.gwss[k].lai = lai;
 						// h1, h2, h3, h4 for Feddes model
                         fts.ignore(256,' ');
                         fts >> h1 >> h2 >> h3 >> h4;
@@ -939,15 +933,6 @@ public:
 						ss.gwss[k].px = px;
 						ss.gwss[k].py = py;
 						ss.gwss[k].pz = pz;
-                        // allocate time series
-                        wind.value = realArr ("w",     ndatat);
-                        solar.value = realArr ("s",     ndatat);
-                        rhmax.value = realArr ("rmax",     ndatat);
-                        rhmin.value = realArr ("rmin",     ndatat);
-                        tmax.value = realArr ("tmax",     ndatat);
-                        tmin.value = realArr ("tmin",     ndatat);
-                        crop.value = realArr ("c",     ndatat);
-                        lai.value = realArr ("l",     ndatat);
                         if (ndatat > 0) {
                             ss.gwss[k].ts.initialise(ndatat);
                             ss.gwss[k].evap.initialise(ndatat);
@@ -955,15 +940,7 @@ public:
                         }
                         for (int i = 0; i < ndatat; i++) {
                             if (!fts.fail() && !fts.eof()) {
-                                fts >> ss.gwss[k].ts.time(i);
-                                fts >> tmax.value(i);
-                                fts >> tmin.value(i);
-                                fts >> rhmax.value(i);
-                                fts >> rhmin.value(i);
-                                fts >> wind.value(i);
-                                fts >> solar.value(i);
-                                fts >> crop.value(i);
-                                fts >> lai.value(i);
+                                fts >> ss.gwss[k].ts.time(i) >> ss.gwss[k].ts.value(i);
                             }
                             else {
                                 if(par.masterproc){
@@ -973,49 +950,11 @@ public:
                             }
       					} // end for ndata
       					fts.close();
-                        // Use PM equation to calculate evapotranspiration
-                        //  Note that the ET flux is in m/s
-                        // ASSUMPTIONS:
-                        //      wind measured at 2m elevation
-                        //      atmosphere pressure = 101kPa
-                        //      soil radiation is negligible
-                        //      albedo = 0.23 (for grass)
-                        real gamma = 0.665e-3 * 101.3;
-                        real gsc = 0.082;
-                        real sigma = 4.903e-9;
-                        real tavg, es, ea, e0max, e0min, delta, rn, ra, rso, rns, rnl, rg, day, dr, d, ws, nume, deno;
                         for (int ii = 0; ii < ndatat; ii++)    {
-                            // day in year
-                            day = dayoffset + ss.gwss[k].ts.time(ii);
-                            dr = 1.0 + 0.033 * cos(2.0 * 3.14 * day / 365);
-                            d = 0.409 * sin(2.0 * 3.14 * day / 365 - 1.39);
-                            ws = acos(-tan(lat)*tan(d));
-                            // temperature and humidity
-                            tavg = 0.5 * (tmax.value(ii) + tmin.value(ii));
-                            e0max = 0.6108 * exp(17.27*tmax.value(ii)/(237.3+tmax.value(ii)));
-                            e0min = 0.6108 * exp(17.27*tmin.value(ii)/(237.3+tmin.value(ii)));
-                            es = 0.5 * (e0max + e0min);
-                            ea = 0.5 * (e0max * rhmax.value(ii) + e0min * rhmin.value(ii));
-                            delta = 4098 * (0.6108 * exp(17.27*tavg/(237.3+tavg))) / pow((tavg+237.3),2.0);
-                            // net radiation
-                            rns = solar.value(ii) * (1 - albedo);
-                            ra = (24*60*gsc*dr/3.14)*(ws*sin(lat)*sin(d) + cos(lat)*cos(d)*sin(ws));
-                            rso = 0.75*ra;
-                            rnl = 0.25*sigma*(pow(tmax.value(ii),4)+pow(tmin.value(ii),4))*(0.34-0.14*sqrt(ea))*(1.35*solar.value(ii)/rso-0.35);
-                            rn = rns - rnl;
-                            rg = 0.0;
-                            // integrate into the PM equation
-                            nume = 0.408*delta*(rn-rg) + 900*gamma*wind.value(ii)*(es-ea)/(tavg+273.0);
-                            deno = delta + gamma*(1.0+0.34*wind.value(ii));
-                            ss.gwss[k].ts.value(ii) = nume / deno;
-                            // from mm/d to m/s
-                            ss.gwss[k].ts.time(ii) = ss.gwss[k].ts.time(ii) * 86400.0;
-                            ss.gwss[k].ts.value(ii) = -ss.gwss[k].ts.value(ii) * crop.value(ii) / 1e3 / 86400.0;
-                            // split evaporation and transpiration
-                            ss.gwss[k].evap.time(ii) = ss.gwss[k].ts.time(ii);
-                            ss.gwss[k].evap.value(ii) = ss.gwss[k].ts.value(ii) * (1.0 - lai.value(ii));
                             ss.gwss[k].tran.time(ii) = ss.gwss[k].ts.time(ii);
-                            ss.gwss[k].tran.value(ii) = ss.gwss[k].ts.value(ii) * lai.value(ii);
+                            ss.gwss[k].tran.value(ii) = ss.gwss[k].ts.value(ii) * ss.gwss[k].lai;
+                            ss.gwss[k].evap.time(ii) = ss.gwss[k].ts.time(ii);
+                            ss.gwss[k].evap.value(ii) = ss.gwss[k].ts.value(ii) * (1.0 - ss.gwss[k].lai);
                             // distributed along the root depth
                             ss.gwss[k].tran.value(ii) = ss.gwss[k].tran.value(ii) / ss.gwss[k].ndepth;
                         }
