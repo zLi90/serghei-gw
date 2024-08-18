@@ -956,7 +956,7 @@ public:
                             ss.gwss[k].evap.time(ii) = ss.gwss[k].ts.time(ii);
                             ss.gwss[k].evap.value(ii) = ss.gwss[k].ts.value(ii) * (1.0 - ss.gwss[k].lai);
                             // distributed along the root depth
-                            ss.gwss[k].tran.value(ii) = ss.gwss[k].tran.value(ii) / ss.gwss[k].ndepth;
+                            //ss.gwss[k].tran.value(ii) = ss.gwss[k].tran.value(ii) / ss.gwss[k].ndepth;
                         }
       				}
                     else {

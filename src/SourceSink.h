@@ -485,6 +485,7 @@ public:
 		std::vector<int> subdomains;	// keeps track of which subdomains are associated to the BC
 		// Loop over the entire domain to find internal source/sink cells
         int kmax = 0, kmin = gdom.nz, idx = 0;
+        real zm_min = -1e5, zm_max = 0.0;
 		for (int kk = 0; kk < gdom.nz; kk++) {
 			for (int jj = 0; jj < gdom.ny; jj++) {
 				for (int ii = 0; ii < gdom.nx; ii++) {
@@ -497,11 +498,15 @@ public:
 						tmpicells.push_back(iGlob);
                         if (kk > kmax)  {kmax = kk;}
                         if (kk < kmin)  {kmin = kk;}
+                        if (zCoord < zm_max)    {zm_max = zCoord;}
+                        if (zCoord > zm_min)    {zm_min = zCoord;}
 		            }
 				}
 			}
 		}
-        if (kmax > kmin)    {ndepth = kmax - kmin;}
+        // For now, only consider 1D(z) root distribution, 20240818
+        xm = 0.0;   ym = 0.0;   zm = 0.0;
+        if (kmax > kmin)    {ndepth = kmax - kmin;  zm = zm_min - zm_max;}
         else {ndepth = 1;}
 
 		ncellsIT=int(tmpicells.size());
@@ -556,6 +561,7 @@ public:
 			//c_root = (1.0-x/xm)*(1.0-y/ym)*(1.0-z/zm)*exp(-expo);
 			expo = pz/(zm*myfabs(zs-z));
 			c_root = (1.0-z/zm)*exp(-expo);
+            if (c_root < 0.0)   {c_root = 0.0;}
 			coef_wat(idx) = c_wat;
 			coef_root(idx) = c_root;
 		});
@@ -565,17 +571,17 @@ public:
         if (ncellsIT > 0)   {
         	// ET (Penman-Monteith)
         	if (sstype == 0)	{
-        		real qt = interpolateLinear(tran, gdom.etime);
-                real qe = interpolateLinear(evap, gdom.etime);
+        		real qt = -interpolateLinear(tran, gdom.etime);
+                real qe = -interpolateLinear(evap, gdom.etime);
 				// get root function coefficients 
 				rootCoef(gw, gdom);
                 Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
                         int ii, jj, kk, ivg, idom, iGlob = icells[idx];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
                         idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-                        gw.coef(idom,7) += gdom.dt * qt * coef_wat(idx) * coef_root(idx);
+                        gw.coef(idom,7) += gdom.dt * qt * coef_wat(idx) * coef_root(idx) / gdom.dz(iGlob);
                         if (kk == 1)    {
-                            gw.coef(idom,7) += gdom.dt * qe;
+                            gw.coef(idom,7) += gdom.dt * qe / gdom.dz(iGlob);
                         }
                 });
         	}
@@ -663,17 +669,17 @@ public:
 			Qinflow = 0.0;
     		// ET (Penman-Monteith)
         	if (sstype == 0)	{
-        		real qt = interpolateLinear(tran, gdom.etime);
-                real qe = interpolateLinear(evap, gdom.etime);
+        		real qt = -interpolateLinear(tran, gdom.etime);
+                real qe = -interpolateLinear(evap, gdom.etime);
                 Kokkos::parallel_reduce("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx, real &tmp){
                         int ii, jj, kk, ivg, idom, iGlob = icells[idx];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
                         idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-                        gw.wc(iGlob,1) += gdom.dt * qt * coef_wat(idx) * coef_root(idx);
-                        tmp += qt * gdom.dt * coef_wat(idx) * coef_root(idx);
+                        gw.wc(iGlob,1) += gdom.dt * qt * coef_wat(idx) * coef_root(idx) / gdom.dz(iGlob);
+                        tmp += qt * coef_wat(idx) * coef_root(idx) * gdom.dx * gdom.dy;
                         if (kk == 1)    {
-                            gw.wc(iGlob,1) += gdom.dt * qe;
-                            tmp += qe * gdom.dt;
+                            gw.wc(iGlob,1) += gdom.dt * qe / gdom.dz(iGlob);
+                            tmp += qe * gdom.dx * gdom.dy;
                         }
 				} , Kokkos::Sum<real>(Qoutflow) );
         	}
