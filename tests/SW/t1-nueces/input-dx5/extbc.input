@@ -1,0 +1,6 @@
+bccount : 1
+id : openboundary
+bctype : 10
+direction : 1.0 1.0
+polygon : polygon.input
+hydrograph : tide.input
