@@ -308,13 +308,17 @@ class SourceSinkData{
 
 public:
 
-    TimeSeries rain, evap;
+    TimeSeries rain, evap, wind;
     InfiltrationModel inf;
-    realArr rainRate, evapRate;
+    realArr rainRate, evapRate, windspd, winddir;
 
     void allocateSW (Domain const &dom){
         if (dom.isRain) {rainRate  = realArr ("rainRate", dom.nCellMem);}
         if (dom.isEvap) {evapRate  = realArr ("evapRate", dom.nCellMem);}
+        if (dom.isWind) {
+            windspd = realArr("windspd", dom.nCellMem);
+            winddir = realArr("winddir", dom.nCellMem);
+        }
         if (inf.model)  {inf.allocate(dom);}
     }
 
@@ -415,6 +419,26 @@ public:
           });
       }
   }
+  
+  
+    inline void ComputeWind(const Domain &dom)    {
+        if (dom.isWind)   {
+            realArr &rr_w = windspd;
+            realArr &rr_d = winddir;
+            findTimeBlock(wind, dom.etime);
+            TimeSeries rwind = wind;
+            Kokkos::parallel_for("wind_interpolation", dom.nCell, KOKKOS_LAMBDA (int idom){
+                int ix, iy;
+                dom.unpackIndices (idom, iy, ix);
+                int ii = dom.getHaloExtension(ix,iy);
+                real spdValue = interpolatePiecewise(rwind, dom.etime, 0);
+                rr_w(ii) = spdValue;
+                real dirValue = interpolatePiecewise(rwind, dom.etime, 1);
+                rr_d(ii) = dirValue;
+            });
+        }
+    }
+    
 
   inline void ComputeSWSourceSink(const State &state, const Domain &dom){
     Kokkos::Timer timer;
@@ -423,6 +447,7 @@ public:
     #endif
     ComputeRain(dom);
     ComputeEvap(dom);
+    ComputeWind(dom);
     inf.ComputeInfiltrationCapacity(dom);
     //no rate correction is necessary here beacuse the rate correction is done in ComputeNewState, according to the new water depth
    // timerRainInf += timer.seconds();

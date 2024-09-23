@@ -49,14 +49,13 @@ public:
 
   // other variables
   int BCtype;
-  int isRain = 0;
-  int isEvap = 0;
+  int isRain = 0, isEvap = 0, isWind = 0;
 
   int nIter;
   int countIterDt;
   int cg_iter;
 
-  real area;
+  real area, hwmin, CwT;
   int id;  // subdomain ID
 
   realArr globalBuffer;

@@ -23,6 +23,9 @@
 // Some physical constants
 #define GRAV 9.81
 #define SQRTGRAV 3.132091953
+#define RHOW 998.0
+#define RHOA 1.225
+#define PI 3.14159
 
 //#define GRAV 9.807
 //#define SQRTGRAV 3.13161300291

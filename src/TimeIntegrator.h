@@ -4,6 +4,7 @@
 #define _TIMEINTEGRATOR_H_
 
 #include <stdlib.h>
+#include <math.h>
 
 #include "define.h"
 #include "Parallel.h"
@@ -103,6 +104,21 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 		}else{
 			real mx= huold - (state.dsw0(ii+ncells)+state.dsw1(ii+ncells))*dom.dt/dom.dx();
 			real my= hvold - (state.dsw0(ii+2*ncells)+state.dsw1(ii+2*ncells))*dom.dt/dom.dx();
+            // wind stress 
+            if (dom.isWind == 1 && hf > dom.hwmin)    {
+                real absu = sqrt(mx*mx/hold/hold+my*my/hold/hold);
+                real coef = dom.dt * RHOA * dom.CwT / RHOW;
+                // omega, beta both in radians
+                real omega = (90.0 - ss.winddir(ii)) * PI/180.0;
+                real beta;
+                if (huold == 0)	{beta = omega-90.0*PI/180.0;}
+                else {beta = omega - atan(hvold/huold);}
+                real sigmax, sigmay;
+                sigmax = coef * cos(omega) * (ss.windspd(ii) - absu*cos(beta)) * (ss.windspd(ii) - absu*cos(beta));
+                sigmay = coef * sin(omega) * (ss.windspd(ii) - absu*cos(beta)) * (ss.windspd(ii) - absu*cos(beta));
+                mx += sigmax;
+                my += sigmay;
+            }
 			#if SERGHEI_POINTWISE_FRICTION
 				real nsq= state.roughness(ii)*state.roughness(ii);
 				real modM=sqrt(mx*mx/hold/hold+my*my/hold/hold);

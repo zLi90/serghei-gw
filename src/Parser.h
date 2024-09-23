@@ -109,7 +109,7 @@ public:
 		      ExternalBoundaries &ebc, Parallel &par, FileIO &io)
   {
 
-    int const Nfiles = 6;
+    int const Nfiles = 7;
     int ierr[Nfiles];
     std::string tempStr;
 
@@ -159,6 +159,9 @@ public:
 
         tempStr = fNameIn + "infiltrationMap.input";
         ierr[5] = readInfiltrationMap(tempStr, dom, ss.inf, par);
+        
+        tempStr = fNameIn + "wind.input";
+        ierr[5] = readWindFile(tempStr, dom, ss.wind, par);
 
         for (int i = 0; i < Nfiles; i++){
           if (!ierr[i])	return 0;
@@ -793,6 +796,46 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 
     return 1;
 
+}
+
+
+  /* Reads wind data file */
+  inline int readWindFile (std::string fNameIn, Domain &dom, TimeSeries &wind, Parallel &par)
+  {
+    std::ifstream fInStream (fNameIn);
+    std::string line;
+
+    if (fInStream.is_open ()){
+	     dom.isWind = 1;
+	     wind.timeIndex = 0;
+	     fInStream.ignore (256, ' ');
+	     fInStream >> wind.np;
+	     fInStream.ignore (256, ' ');
+	     fInStream >> dom.CwT;
+	     fInStream.ignore (256, ' ');
+	     fInStream >> dom.hwmin;
+	     wind.time  = realArr ("wind", wind.np);
+	     wind.value = realArr ("wind", 2 * wind.np);
+         
+         for (int i = 0; i < wind.np; i++)  {
+             if (!fInStream.fail () && !fInStream.eof ()){
+                 fInStream >> wind.time(i);
+                 fInStream >> wind.value (i);
+                 fInStream >> wind.value (i + wind.np);
+             }
+             else {
+                 if (par.masterproc)    {
+                     std::cerr << RERROR "Error reading wind file\n";   return 0;
+                 }
+             }
+         }
+         fInStream.close();
+     }
+     else{
+         dom.isWind = 0;
+     }
+     if (par.masterproc) std::cerr << GOK "Wind set\n";
+     return 1;
 }
 
 
