@@ -514,6 +514,10 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
             inf.model = INF_GREENAMPT;
             check++;
           }
+          if(!modelName.compare("sink")){
+            inf.model = INF_SINK;
+            check++;
+          }
           #if SERGHEI_DEBUG_INFILTRATION
           std::cout << GGD << "modelName: " << modelName << std::endl;
           std::cout << GGD << "model: " << inf.model << std::endl;
@@ -579,6 +583,10 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
       inf.f0(ii) = NO_DATA;
     }
   }
+  
+  if (inf.model == INF_SINK)    {
+      inf.storage = realArr( "storage", dom.nCellMem);
+  }
 
   // now read the data
   fInStream.clear();
@@ -609,6 +617,11 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
           if(!strcmp("ks",pline.key.c_str())){ pline.value >> inf.ks  ; }
           if(!strcmp("psi",pline.key.c_str())){ pline.value >> inf.psi  ; }
           if(!strcmp("dtheta",pline.key.c_str())){ pline.value >> inf.dtheta  ;}
+        }
+        if(inf.model == INF_SINK){
+          // Simple sink
+          if(!strcmp("sink_area",pline.key.c_str())){ pline.value >> inf.sink_area  ; }
+          if(!strcmp("sink_capacity",pline.key.c_str())){ pline.value >> inf.sink_capacity  ; }
         }
       }
     }

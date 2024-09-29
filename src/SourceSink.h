@@ -13,6 +13,7 @@
 #define INF_CONSTANT 1
 #define INF_HORTON 2
 #define INF_GREENAMPT 3
+#define INF_SINK 4
 
 
 //class State;	// forward declaration
@@ -141,6 +142,10 @@ public:
     real ks = -999;
     real psi = -999;
     real dtheta = -999;
+    // Sink
+    real sink_area = -999;
+    real sink_capacity = -999;
+    realArr storage;
 
     real infDry = 1E-8;  // [L] threshold to consider dry for infiltration purposes
 
@@ -253,6 +258,14 @@ public:
          	error++;
          }
          break;
+         case INF_SINK:
+             if(sink_area < 0 || sink_capacity < 0){
+                if(par.masterproc){
+                    std::cerr << RERROR << "Sink area and capacity must be > 0" << std::endl;
+                }
+                error++;
+             }
+             break;
       default:
 		if(par.masterproc){
         	std::cerr << RERROR << "Error processing data in infiltration.input using infiltration model " << model << "." << std::endl;
@@ -300,6 +313,55 @@ public:
 
                     }
             }
+    }
+    
+    // simple drainge model
+    inline void ComputeDrain(const State &state, const Domain &dom) {
+        if (model == INF_SINK) {
+            realArr &inf_p = rate;
+            intArr infLabel = this->infLabel;
+            realArr constCap = this->constCap;
+            Kokkos::parallel_for("inf_sink", dom.nCell, KOKKOS_LAMBDA (int iGlob){
+                int ii = dom.getIndex(iGlob);
+                int id = infLabel(ii);
+                real vc, dh, flux = 0;
+                if (id > 0) {
+                    // copute drainge if water flows towards the drainage outlet
+                    //vc = mysqrt(GRAV*state.h(ii));
+                    //flux += vc * state.h(ii) * dom.dx();
+
+                    if (state.hu(ii) < 0)   {
+                        // assume flow is critical
+                        vc = mysqrt(GRAV*state.h(ii+1));
+                        flux += vc * state.h(ii+1) * dom.dx();
+                    }
+                    if (state.hu(ii-1) > 0)   {
+                        vc = mysqrt(GRAV*state.h(ii-1));
+                        flux += vc * state.h(ii-1) * dom.dx();
+                    }
+                    if (state.hv(ii) < 0)   {
+                        vc = mysqrt(GRAV*state.h(ii+dom.nx+2*hc));
+                        flux += vc * state.h(ii+dom.nx+2*hc) * dom.dx();
+                    }
+                    if (state.hv(ii-dom.nx-2*hc) > 0)   {
+                        vc = mysqrt(GRAV*state.h(ii-dom.nx+2*hc));
+                        flux += vc * state.h(ii-dom.nx+2*hc) * dom.dx();
+                    }
+                    // get the equivalent drainage depth
+                    dh = flux * dom.dt * sink_area / (dom.dx() * dom.dx());
+                    if (storage(ii) < sink_capacity)   {
+                        inf_p(ii) = dh;
+                        storage(ii) += dh;
+                    }
+                    else {
+                        inf_p(ii) = 0.0;
+                    }
+                }
+                else {
+                    inf_p(ii) = 0.0;
+                }
+            });
+        }
     }
 };
 
@@ -448,7 +510,12 @@ public:
     ComputeRain(dom);
     ComputeEvap(dom);
     ComputeWind(dom);
-    inf.ComputeInfiltrationCapacity(dom);
+    if (inf.model == INF_SINK)  {
+        inf.ComputeDrain(state, dom);
+    }
+    else {
+        inf.ComputeInfiltrationCapacity(dom);
+    }
     //no rate correction is necessary here beacuse the rate correction is done in ComputeNewState, according to the new water depth
    // timerRainInf += timer.seconds();
    dom.timers.raininf += timer.seconds();

@@ -86,11 +86,17 @@ inline void computeNewState(State &state , const Domain &dom, const SourceSinkDa
 		}
 
     if(ss.inf.model) {
-
-	 	ss.inf.rate(ii)=min(ss.inf.rate(ii),hf/dom.dt); //correct infiltration arte according to the available water volume
-		ss.inf.rate(ii)=max(ss.inf.rate(ii),0.0); //avoid negative (in the order of machine accuracy) infiltration rates
-
-      hf -= ss.inf.rate(ii)*dom.dt;
+        if (ss.inf.model != INF_SINK)  {
+            ss.inf.rate(ii)=min(ss.inf.rate(ii),hf/dom.dt); //correct infiltration based on available water volume
+            ss.inf.rate(ii)=max(ss.inf.rate(ii),0.0); //avoid negative infiltration rates
+            hf -= ss.inf.rate(ii)*dom.dt;
+        }
+        else {
+            // named "rate" for simplicity, but this is actualy a depth
+            if (ss.inf.rate(ii) > 0)    {
+                hf -= ss.inf.rate(ii);
+            }
+        }
     }
 
 		if(hf<TOL_MACHINE_ACCURACY || nodata){
