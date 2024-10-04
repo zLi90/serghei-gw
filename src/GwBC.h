@@ -175,8 +175,8 @@ public:
 					gw.h(iGhost,1) = gw.h(iGlob,1);
                 });
             }
-			// H CONST or WT CONST
-			else if (bctype == SUB_BC_H_CONST || bctype == SUB_BC_WT_CONST)	{
+			// H CONST 
+			else if (bctype == SUB_BC_H_CONST)	{
 				Kokkos::parallel_for("gw_bc_h", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
                     int ivg, iGlob = bcells[ibc], iGhost = gcells[ibc];
                     real wcs, wcr, alpha, n;
@@ -187,9 +187,21 @@ public:
 					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr);
                 });
 			}
+            // WT CONST
+            else if (bctype == SUB_BC_WT_CONST) {
+				Kokkos::parallel_for("gw_bc_wt", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+                    int ivg, iGlob = bcells[ibc], iGhost = gcells[ibc];
+                    real wcs, wcr, alpha, n;
+                    ivg = gw.soilID(iGlob) * gw.nVGparam;
+                    wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
+                    n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
+					gw.h(iGhost,1) = bcvals(ibc) - gdom.z(iGlob);
+					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr);
+                });
+            }
             // H Time series
             else if (bctype == SUB_BC_H_T)  {
-                Kokkos::parallel_for("gw_bc_h", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+                Kokkos::parallel_for("gw_bc_wt", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
                     int ivg, iGlob = bcells[ibc], iGhost = gcells[ibc];
                     real wcs, wcr, alpha, n;
                     ivg = gw.soilID(iGlob) * gw.nVGparam;
@@ -216,11 +228,11 @@ public:
                     n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
 					// interpolate cell-by-cell water table
 					if (ts.nc > 1)	{
-
   						wtbc = ts.values(t_idx,ibc) + 
   							(ts.values(t_next,ibc) - ts.values(t_idx,ibc))/(ts.time(t_next)-ts.time(t_idx))*(gdom.etime-ts.time(t_idx));
+                        gw.h(iGhost,1) = wtbc - gdom.z(iGlob);
 					}
-					gw.h(iGhost,1) = wtbc - gdom.z(iGlob);
+					else {gw.h(iGhost,1) = hbc - gdom.z(iGlob);}
 					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr);
                 });
             }
@@ -274,25 +286,25 @@ public:
                 int iGlob = bcells[ibc], iGhost = gcells[ibc], ivg = gw.soilID(iGlob) * NVG;
                 real ks = gw.vgTable(ivg);
 				if (direction == 1)	{
-					if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGlob,0) = ks;}
+					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGlob,0) = ks;}
 					else {gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
 				}
 				else if (direction == 2)	{
-					if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGhost,0) = ks;}
+					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGhost,0) = ks;}
 					else {gw.k(iGhost,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
 				}
 				else if (direction == 3)	{
-					if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGlob,1) = ks;}
+					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGlob,1) = ks;}
 					else {gw.k(iGlob,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
 				}
 				else if (direction == 4)	{
-					if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGhost,1) = ks;}
+					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGhost,1) = ks;}
 					else {gw.k(iGhost,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
 				}
 				else if (direction == 5)	{
 					if (bctype == SUB_BC_FD)	{gw.k(iGlob,2) = ks * gw.k(iGlob,3);}
 					else {
-						if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGlob,2) = ks;}
+						if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGlob,2) = ks;}
 						else {gw.k(iGlob,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
 					}
 				}
@@ -477,14 +489,14 @@ public:
 				if (Qtot > 0)	{Qinflow = Qtot;}
 				else {Qoutflow = -Qtot;}
             }
-            else if (direction == 6)	{
-            	Kokkos::parallel_reduce("reducez", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc, real &tmp){
-					int iGlob = bcells[ibc], iGhost = gcells[ibc];
-					tmp += gw.q(iGhost,2) * gdom.dx * gdom.dy;
-				}, Kokkos::Sum<real>(Qtot));
-				if (Qtot < 0)	{Qinflow = -Qtot;}
-				else {Qoutflow = Qtot;}
-            }
+            // else if (direction == 6)    {
+//                 Kokkos::parallel_reduce("reducez", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc, real &tmp){
+//                     int iGlob = bcells[ibc], iGhost = gcells[ibc];
+//                     tmp += gw.q(iGhost,2) * gdom.dx * gdom.dy;
+//                 }, Kokkos::Sum<real>(Qtot));
+//                 if (Qtot < 0)    {Qinflow = -Qtot;}
+//                 else {Qoutflow = Qtot;}
+//             }
         }
     }
 
