@@ -287,19 +287,19 @@ public:
                 real ks = gw.vgTable(ivg);
 				if (direction == 1)	{
 					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGlob,0) = ks;}
-					else {gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
+					else {gw.k(iGlob,0) = ks * gw.k(iGlob,3);}
 				}
 				else if (direction == 2)	{
 					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGhost,0) = ks;}
-					else {gw.k(iGhost,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
+					else {gw.k(iGhost,0) = ks * gw.k(iGlob,3);}
 				}
 				else if (direction == 3)	{
 					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGlob,1) = ks;}
-					else {gw.k(iGlob,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
+					else {gw.k(iGlob,1) = ks * gw.k(iGlob,3);}
 				}
 				else if (direction == 4)	{
 					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGhost,1) = ks;}
-					else {gw.k(iGhost,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
+					else {gw.k(iGhost,1) = ks * gw.k(iGlob,3);}
 				}
 				else if (direction == 5)	{
 					if (bctype == SUB_BC_FD)	{gw.k(iGlob,2) = ks * gw.k(iGlob,3);}
@@ -372,15 +372,18 @@ public:
 	                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 	                        iGlobSW = (jj-1)*gdom.nx + ii - 1;
 	                        real wcs = gw.vgTable(ivg+2);
-							if (swgw_type(ibc) == 0)    {
-								gw.q(iGhost,2) = 0.0;
-							}
-							else if (swgw_type(ibc) == 2)   {
-								gw.q(iGhost,2) = -gw.h(iGhost,1) / gdom.dt;
-							}
-							else {
-								gw.q(iGhost,2) = 2.0 * gw.k(iGhost,2) * (gw.h(iGlob,1) - gw.h(iGhost,1)) / gdom.dz(iGlob) - gw.k(iGhost,2);
-							}
+                            if (gdom.isnodata(iGlob) == 0)  {
+    							if (swgw_type(ibc) == 0)    {
+    								gw.q(iGhost,2) = 0.0;
+    							}
+    							else if (swgw_type(ibc) == 2)   {
+    								gw.q(iGhost,2) = -gw.h(iGhost,1) / gdom.dt;
+    							}
+    							else {
+    								gw.q(iGhost,2) = 2.0 * gw.k(iGhost,2) * (gw.h(iGlob,1) - gw.h(iGhost,1)) / gdom.dz(iGlob) - gw.k(iGhost,2);
+    							}
+                            }
+                            else {gw.q(iGhost,2) = 0.0;}
 							// Get exchange flux
 							gw.qss(iGlobSW) = gw.q(iGhost,2);
 	                    });

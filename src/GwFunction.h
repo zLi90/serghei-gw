@@ -377,7 +377,8 @@ public:
             else if (ii == gdom.nx-1 && par.px < par.nproc_x-1)   {gw.coef(idom,7) -= gw.coef(idom,1) * gw.h(iGlob+1,1);}
             if (jj == 0 && par.py > 0)    {gw.coef(idom,7) -= gw.coef(idom,4) * gw.h(iGlob-gdom.nxhc,1);}
             else if (jj == gdom.ny-1 && par.py < par.nproc_y-1)   {gw.coef(idom,7) -= gw.coef(idom,3) * gw.h(iGlob+gdom.nxhc,1);}
-
+            // no data cells 
+            if (gdom.isnodata(iGlob) == 1)  {gw.coef(idom,0) = 1e10; gw.coef(idom,7) = 1e10;}
         });
         // Apply outer boundary conditions
         for (int k = 0; k < gbc.size(); k++) {
@@ -387,9 +388,6 @@ public:
 
         Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             gw.coef(idom,0) -= (gw.coef(idom,1)+gw.coef(idom,2)+gw.coef(idom,3)+gw.coef(idom,4)+gw.coef(idom,5)+gw.coef(idom,6));
-
-			// printf(" -%d- : %f %f %f %f %f - %f\n",idom,1e3*gw.coef(idom,1),1e3*gw.coef(idom,5),1e3*gw.coef(idom,0),
-			// 	1e3*gw.coef(idom,6),1e3*gw.coef(idom,2),1e3*gw.coef(idom,7));
         });
 
         // Apply internal source/sink terms
@@ -434,12 +432,15 @@ public:
                 qqx = (gw.q(iGlob,0) - gw.q(iGlob-1,0)) / gdom.dx;
                 qqy = (gw.q(iGlob,1) - gw.q(iGlob-gdom.nxhc,1)) / gdom.dy;
                 qqz = (gw.q(iGlob,2) - gw.q(iGlob-gdom.nxhc*gdom.nyhc,2)) / gdom.dz(iGlob);
-                gw.wc(iGlob,1) = (gw.wc(iGlob,0) + gdom.dt * (qqx + qqy + qqz)) / coef;
-				// evaporation
-				if (kk == 0 && gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) <= 0 && gdom.isEvap == 1)	{
-					gw.wc(iGlob,1) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);
-				}
-                gw.wc(iGlob,2) = 0.0;
+                if (gdom.isnodata(iGlob) == 0)  {
+                    gw.wc(iGlob,1) = (gw.wc(iGlob,0) + gdom.dt * (qqx + qqy + qqz)) / coef;
+    				// evaporation
+    				if (kk == 0 && gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) <= 0 && gdom.isEvap == 1)	{
+    					gw.wc(iGlob,1) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);
+    				}
+                    gw.wc(iGlob,2) = 0.0;
+                }
+                
             });
 			// source/sink terms
 			for (int k = 0; k < gss.size(); k++) {
@@ -484,19 +485,21 @@ public:
                         if (gw.wc(iGlob,1) < wcs-TOL8NEG && gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) == 0.0)   {flag = 0;}
                         else {flag = 1;}
                     }
-                    if (flag == 1)  {
-                        real tmp = gw.wc(iGlob,1);
-                        sbar = mypow(1.0 + mypow(myfabs(alpha*gw.h(iGlob,1)), n), -m);
-                        if (gw.h(iGlob,1) > gdom.aev)   {gw.wc(iGlob,1) = wcs;}
-                        else {gw.wc(iGlob,1) = sbar * (wcm - wcr) + wcr;}
-                        gw.wc(iGlob,2) = tmp - gw.wc(iGlob,1);
-                    }
-                    else    {
-                        if (gw.wc(iGlob,1) < wcs)   {
-                            if (gw.wc(iGlob,1) < wcr)   {gw.wc(iGlob,1) = wcr + 1e-5;}
-                            gw.h(iGlob,1) = -(1.0/alpha) * (mypow(mypow((wcm-wcr)/(gw.wc(iGlob,1)-wcr),(1/m)) - 1.0, 1/n));
+                    if (gdom.isnodata(iGlob) == 0)  {
+                        if (flag == 1)  {
+                            real tmp = gw.wc(iGlob,1);
+                            sbar = mypow(1.0 + mypow(myfabs(alpha*gw.h(iGlob,1)), n), -m);
+                            if (gw.h(iGlob,1) > gdom.aev)   {gw.wc(iGlob,1) = wcs;}
+                            else {gw.wc(iGlob,1) = sbar * (wcm - wcr) + wcr;}
+                            gw.wc(iGlob,2) = tmp - gw.wc(iGlob,1);
                         }
-                        else {gw.h(iGlob,1) = 0.0;}
+                        else    {
+                            if (gw.wc(iGlob,1) < wcs)   {
+                                if (gw.wc(iGlob,1) < wcr)   {gw.wc(iGlob,1) = wcr + 1e-5;}
+                                gw.h(iGlob,1) = -(1.0/alpha) * (mypow(mypow((wcm-wcr)/(gw.wc(iGlob,1)-wcr),(1/m)) - 1.0, 1/n));
+                            }
+                            else {gw.h(iGlob,1) = 0.0;}
+                        }
                     }
                 }
             });
@@ -513,11 +516,12 @@ public:
                 m = 1.0 - 1.0 / n;
                 wcm = wcr + (wcs-wcr)*mypow((1.0 + mypow(myfabs(gdom.aev)*alpha,n)), m);
                 sbar = mypow(1.0 + mypow(myfabs(alpha*gw.h(iGlob,1)), n), -m);
-                if (gw.h(iGlob,1) > gdom.aev)   {gw.wc(iGlob,1) = wcs;}
-                else {gw.wc(iGlob,1) = sbar * (wcm - wcr) + wcr;}
-                if (gw.wc(iGlob,1) > wcs)	{gw.wc(iGlob,2) += (gw.wc(iGlob,1)-wcs); gw.wc(iGlob,1) = wcs;}
-        		else if (gw.wc(iGlob,1) < wcr+1e-5)	{gw.wc(iGlob,1) = wcr+1e-5;}
-
+                if (gdom.isnodata(iGlob) == 0)  {
+                    if (gw.h(iGlob,1) > gdom.aev)   {gw.wc(iGlob,1) = wcs;}
+                    else {gw.wc(iGlob,1) = sbar * (wcm - wcr) + wcr;}
+                    if (gw.wc(iGlob,1) > wcs)	{gw.wc(iGlob,2) += (gw.wc(iGlob,1)-wcs); gw.wc(iGlob,1) = wcs;}
+            		else if (gw.wc(iGlob,1) < wcr+1e-5)	{gw.wc(iGlob,1) = wcr+1e-5;}
+                }
             });
         }
 
