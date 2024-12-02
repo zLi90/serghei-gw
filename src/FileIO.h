@@ -22,6 +22,7 @@
 #include "GwIntegrator.h"
 
 #include "RTState.h"
+#include "HTState.h"
 
 #ifndef SERGHEI_NC_MODE
 #define SERGHEI_NC_MODE NC_CLOBBER
@@ -106,7 +107,7 @@ protected:
 
   int ncid;
   int tDim, xDim, yDim, zDim;
-  int tVar, xVar, yVar, hVar, hzVar, uVar, vVar, zVar, z3Var, hdVar, wcVar, qVar, cVar, qxVar, qyVar, qzVar;
+  int tVar, xVar, yVar, hVar, hzVar, uVar, vVar, zVar, z3Var, hdVar, wcVar, qVar, cVar, c_solidVar, TVar, qxVar, qyVar, qzVar;
   int infVar,infVolVar;
   std::ofstream domainOutputFile;
   std::ofstream SubsurfaceOutputFile;
@@ -156,6 +157,7 @@ public:
 		numOut=0;
 		if(outFormat==OUT_NETCDF){
 			outputInitNETCDF(state,dom,ss,par,dir);
+
 		}
 		if(outFormat==OUT_VTK){
 			outputVTK(state,dom,ss,par,dir);
@@ -192,6 +194,21 @@ public:
     void outputTransport(const RTState &rt, GwDomain const &gdom, Parallel const &par, std::string dir){
         numOut--;
         outputNETCDFTransport(rt, gdom, par, dir);
+        numOut++;
+	}
+	#endif
+
+  #if SERGHEI_SUBSURFACE_HEAT
+    void outputIniHT(const HTState &ht, GwDomain const &gdom, Parallel const &par, std::string dir){
+		numOut=0;
+		outputInitNETCDFHT(ht, gdom, par, dir);
+		numOut++;
+    
+	}
+
+    void outputHeat(const HTState &ht, GwDomain const &gdom, Parallel const &par, std::string dir){
+        numOut--;
+        outputNETCDFHeat(ht, gdom, par, dir);
         numOut++;
 	}
 	#endif
@@ -1714,6 +1731,9 @@ void outputInitNETCDFRT(const RTState &rt, GwDomain const &gdom, Parallel const 
     ncwrap( ncmpi_def_var( ncid , "z3d" , NC_DOUBLE , 3 , dimids , &z3Var  ) , __LINE__ );
     dimids[0] = tDim; dimids[1] = zDim; dimids[2] = yDim; dimids[3] = xDim;
     ncwrap( ncmpi_def_var( ncid , "c" , NC_DOUBLE , 4 , dimids , &cVar  ) , __LINE__ );
+//20240814
+    ncwrap( ncmpi_def_var( ncid , "c_solid" , NC_DOUBLE , 4 , dimids , &c_solidVar  ) , __LINE__ );
+//20240814
 
     // End "define" mode
     ncwrap( ncmpi_enddef( ncid ) , __LINE__ );
@@ -1765,7 +1785,10 @@ void outputNETCDFTransport(const RTState &rt, GwDomain const &gdom, Parallel con
     // Create the file
     ncwrap( ncmpi_open( MPI_COMM_WORLD , filename.c_str() , NC_WRITE , MPI_INFO_NULL , &ncid ) , __LINE__ );
     ncwrap( ncmpi_inq_varid( ncid , "c" , &cVar  ) , __LINE__ );
+//20240814
+    ncwrap( ncmpi_inq_varid( ncid , "c_solid" , &c_solidVar  ) , __LINE__ );
 
+//20240814
     writeRTNETCDF(rt, gdom, par);
 
     ncwrap( ncmpi_close(ncid) , __LINE__ );
@@ -1793,6 +1816,137 @@ void writeRTNETCDF(const RTState &rt, GwDomain const &gdom, Parallel const &par)
     });
     Kokkos::fence();
     ncwrap( ncmpi_put_vara_double_all( ncid , cVar , st , ct , data.data() ) , __LINE__ );
+
+//20240814 
+    Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
+        int ii, jj, kk, iGlob;
+        gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+        iGlob = (hc+kk)*nxhalo*nyhalo + (hc+jj)*nxhalo + ii + hc;
+        data(idom) = rt.c_solid(iGlob,1);
+    });
+    Kokkos::fence();
+    ncwrap( ncmpi_put_vara_double_all( ncid , c_solidVar , st , ct , data.data() ) , __LINE__ );
+//20240814
+}
+#endif
+
+
+#if SERGHEI_SUBSURFACE_HEAT
+void outputInitNETCDFHT(const HTState &ht, GwDomain const &gdom, Parallel const &par, std::string dir) {
+    int dimids[4], nxhalo, nyhalo;
+    MPI_Offset st[3], ct[3];
+    realArr xCoord = realArr("xCoord",gdom.nx);
+    realArr yCoord = realArr("yCoord",gdom.ny);
+    realArr zCoord = realArr("zCoord",gdom.nz);
+    realArr data   = realArr("data",gdom.nCell);
+    static char title[] = "seconds" ;
+    std::string filename;
+
+    filename=dir+"output_heat.nc";
+
+    // Create the file
+    ncwrap( ncmpi_create( MPI_COMM_WORLD , filename.c_str() , NC_CLOBBER , MPI_INFO_NULL , &ncid ) , __LINE__ );
+
+    // Create the dimensions
+    ncwrap( ncmpi_def_dim( ncid , "t" , (MPI_Offset) NC_UNLIMITED , &tDim ) , __LINE__ );
+    ncwrap( ncmpi_def_dim( ncid , "x" , (MPI_Offset) gdom.nx_glob  , &xDim ) , __LINE__ );
+    ncwrap( ncmpi_def_dim( ncid , "y" , (MPI_Offset) gdom.ny_glob  , &yDim ) , __LINE__ );
+    ncwrap( ncmpi_def_dim( ncid , "z" , (MPI_Offset) gdom.nz_glob  , &zDim ) , __LINE__ );
+    // Create the variables
+    dimids[0] = tDim;
+    ncwrap( ncmpi_def_var( ncid , "t"      , NC_DOUBLE , 1 , dimids , &tVar ) , __LINE__ );
+    ncwrap( ncmpi_put_att_text (ncid, tVar, "units",strlen(title), title), __LINE__ );
+    dimids[0] = xDim;
+    ncwrap( ncmpi_def_var( ncid , "x"      , NC_DOUBLE , 1 , dimids , &xVar ) , __LINE__ );
+    dimids[0] = yDim;
+    ncwrap( ncmpi_def_var( ncid , "y"      , NC_DOUBLE , 1 , dimids , &yVar ) , __LINE__ );
+    dimids[0] = zDim;
+    ncwrap( ncmpi_def_var( ncid , "z"      , NC_DOUBLE , 1 , dimids , &zVar ) , __LINE__ );
+
+    dimids[0] = zDim; dimids[1] = yDim; dimids[2] = xDim;
+    ncwrap( ncmpi_def_var( ncid , "z3d" , NC_DOUBLE , 3 , dimids , &z3Var  ) , __LINE__ );
+    dimids[0] = tDim; dimids[1] = zDim; dimids[2] = yDim; dimids[3] = xDim;
+    ncwrap( ncmpi_def_var( ncid , "T" , NC_DOUBLE , 4 , dimids , &TVar  ) , __LINE__ );
+
+    // End "define" mode
+    ncwrap( ncmpi_enddef( ncid ) , __LINE__ );
+
+    // Compute x, y, z coordinates
+    Kokkos::parallel_for( gdom.nx , KOKKOS_LAMBDA(int i) {
+        xCoord(i) = gdom.xll + ( par.i_beg + i + 0.5) * gdom.dx;
+    });
+    Kokkos::parallel_for( gdom.ny , KOKKOS_LAMBDA(int j) {
+        yCoord(j) = gdom.yll + gdom.ny_glob*gdom.dx - ( par.j_beg + j + 0.5) * gdom.dx;
+    });
+    Kokkos::parallel_for( gdom.nz , KOKKOS_LAMBDA(int k) {
+        zCoord(k) = -(k+0.5)*gdom.dz(k);
+    });
+    Kokkos::fence();
+
+    // Write out x, y coordinates
+    st[0] = par.i_beg;
+    ct[0] = gdom.nx;
+    ncwrap( ncmpi_put_vara_double_all( ncid , xVar , st , ct , xCoord.data() ) , __LINE__ );
+    st[0] = par.j_beg;
+    ct[0] = gdom.ny;
+    ncwrap( ncmpi_put_vara_double_all( ncid , yVar , st , ct , yCoord.data() ) , __LINE__ );
+    st[0] = 0;
+    ct[0] = gdom.nz;
+    ncwrap( ncmpi_put_vara_double_all( ncid , zVar , st , ct , zCoord.data() ) , __LINE__ );
+
+    // Write z for the 3D domain
+    nxhalo = gdom.nx + 2*haloc;
+    nyhalo = gdom.ny + 2*haloc;
+    st[0] = 0;          st[1] = par.j_beg;  st[2] = par.i_beg;
+    ct[0] = gdom.nz;    ct[1] = gdom.ny;    ct[2] = gdom.nx;
+    Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
+        int ii, jj, kk, iGlob;
+        gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+        iGlob = (haloc+kk)*nxhalo*nyhalo + (haloc+jj)*nxhalo + ii + haloc;
+        data(idom) = gdom.z(iGlob);
+    });
+    Kokkos::fence();
+    ncwrap( ncmpi_put_vara_double_all( ncid , z3Var  , st , ct , data.data() ) , __LINE__ );
+
+    writeHTNETCDF(ht, gdom, par);
+    ncwrap( ncmpi_close(ncid) , __LINE__ );
+}
+
+void outputNETCDFHeat(const HTState &ht, GwDomain const &gdom, Parallel const &par, std::string dir) {
+    std::string filename;
+    filename=dir+"output_heat.nc";
+    // Create the file
+    ncwrap( ncmpi_open( MPI_COMM_WORLD , filename.c_str() , NC_WRITE , MPI_INFO_NULL , &ncid ) , __LINE__ );
+    ncwrap( ncmpi_inq_varid( ncid , "T" , &TVar  ) , __LINE__ );
+
+    writeHTNETCDF(ht, gdom, par);
+
+    ncwrap( ncmpi_close(ncid) , __LINE__ );
+}
+
+void writeHTNETCDF(const HTState &ht, GwDomain const &gdom, Parallel const &par) {
+    realArr data = realArr("data",gdom.nCell);
+    MPI_Offset st[4], ct[4];
+    double timeIter[numOut+1];
+    int nxhalo = gdom.nx + 2*hc, nyhalo = gdom.ny + 2*hc;
+    //write t. As the first one is written in the first iteration we should add +1
+    for (int i=0; i<numOut+1; i++) { timeIter[i] = i*1.0;}
+    st[0] = 0;
+ 	ct[0] = numOut+1;
+    ncwrap( ncmpi_put_vara_double_all( ncid , tVar ,  st , ct , timeIter ) , __LINE__ );
+
+    st[0] = numOut; st[1] = 0;       st[2] = par.j_beg;  st[3] = par.i_beg;
+    ct[0] = 1     ; ct[1] = gdom.nz; ct[2] = gdom.ny  ;  ct[3] = gdom.nx  ;
+
+    Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
+        int ii, jj, kk, iGlob;
+        gdom.unpackIndicesGw(idom, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
+        iGlob = (hc+kk)*nxhalo*nyhalo + (hc+jj)*nxhalo + ii + hc;
+        data(idom) = ht.T(iGlob,1);
+    });
+    Kokkos::fence();
+    ncwrap( ncmpi_put_vara_double_all( ncid , TVar , st , ct , data.data() ) , __LINE__ );
+
 }
 #endif
 

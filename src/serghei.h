@@ -28,6 +28,7 @@
 #include "GwState.h"
 #include "GwSolver.h"
 #include "GwIntegrator.h"
+
 #endif
 
 #if SERGHEI_SUBSURFACE_TRANSPORT
@@ -37,7 +38,18 @@
 #include "RTMatrix.h"
 #include "RTSolver.h"
 #include "GwMPI.h"
+// #include "RTMatrixyz.h"
 #endif
+
+#if SERGHEI_SUBSURFACE_HEAT
+#include "HTState.h"
+#include "HTInit.h"
+#include "HTFunction.h"
+#include "HTMatrix.h"
+#include "HTSolver.h"
+#include "GwMPI.h"
+#endif
+
 
 class SERGHEI
 {
@@ -74,6 +86,20 @@ public:
 	RTSolver<Kokkos::Cuda> rtsolver;
 #else
 	RTSolver<Kokkos::OpenMP> rtsolver;
+#endif
+#endif
+
+#if SERGHEI_SUBSURFACE_HEAT
+	HTState ht;
+	HTInit htinit;
+	HTFunction htf;
+	HTSubsurfaceBoundaries htgbc;
+	HTMatrix htA;
+
+#ifdef __NVCC__
+	HTSolver<Kokkos::Cuda> htsolver;
+#else
+	HTSolver<Kokkos::OpenMP> htsolver;
 #endif
 #endif
 
@@ -173,6 +199,18 @@ public:
 		rtsolver.init(rtA, gdom);
 #endif
 
+// Initialize heat module if activated
+#if SERGHEI_SUBSURFACE_HEAT
+		if (!htinit.initialize_ht(ht, rt, gw, gdom, htgbc, gmpi, par, io, ss, inFolder, outFolder))
+		{
+			std::cerr << RERROR "Unable to initialize the heat module"
+					<< "\n";
+			return 0;
+		};
+		htA.init(gdom);
+		htsolver.init(htA, gdom);
+#endif
+
 #if SERGHEI_TOOLS
 		if (!obs.readInputFiles(inFolder, par))
 			return 0;
@@ -249,6 +287,14 @@ public:
 		dom.dt = rt.dt;	
 #endif
 /*---------------zzb修改-----------------*/
+
+/*---------------ysl修改-----------------*/
+#if SERGHEI_SUBSURFACE_HEAT
+		ht.dt = gdom.dt_init;
+		ht.dtOld = gdom.dt_init;
+		dom.dt = ht.dt;	
+#endif
+/*---------------ysl修改-----------------*/
 
 // Main Time Loop
 #if SERGHEI_SUBSURFACE_MODEL
@@ -349,20 +395,28 @@ public:
 					{
 						rtf.rt_pca_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc,  gmpi, par, rtsolver);
 					}
-					else
+					if (rt.rt_scheme == 2)
 					{
 						rtf.rt_picard_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
+					}
+					else
+					{
+						rtf.rt_Gauss_Seidel_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);	
 					}
 #else
 					if (rt.rt_scheme == 1)
 					{
 						rtf.rt_pca_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc,  gmpi, par, rtsolver);
 					}
-					else
+					if (rt.rt_scheme == 2)
 					{
-						
 						rtf.rt_picard_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
 					}
+					else
+					{
+						rtf.rt_Gauss_Seidel_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);	
+					}
+
 #endif
 					 		 
 			}
@@ -376,21 +430,124 @@ public:
 						
 						rtf.rt_pca_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc,  gmpi, par, rtsolver);
 					}
-					else
+					if (rt.rt_scheme == 2)
 					{
 						rtf.rt_picard_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
 					}
+					else
+					{
+						rtf.rt_Gauss_Seidel_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);	
+					}
+
 #else
 					if (rt.rt_scheme == 1)
 					{
 						// std::cout << "rt_scheme1: " << rt.rt_scheme << std::endl;
 						rtf.rt_pca_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);
 					}
-					else
+					if (rt.rt_scheme == 2)
 					{
 						// std::cout << "rt_scheme2: " << rt.rt_scheme << std::endl;
 						rtf.rt_picard_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
 					}
+					else
+					{
+						// std::cout << "rt_scheme2: " << rt.rt_scheme << std::endl;
+						rtf.rt_Gauss_Seidel_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);	
+					}
+
+#endif
+			// std::cout << "dom.etime: "<< dom.etime << std::endl;
+			}
+#endif
+
+// solve the heat transport equation
+#if SERGHEI_SUBSURFACE_HEAT
+
+		if (gdom.async)
+		{
+			if (gdom.etime + gdom.dt < dom.etime)
+			{
+				gdom.etime += gdom.dt;
+#ifdef __NVCC__
+					if (ht.ht_scheme == 1)
+					{
+						htf.ht_pca_solve<Kokkos::Cuda>(ht, htA, gw, gdom, htgbc.htgwbc,  gmpi, par, htsolver);
+					}
+					if (ht.ht_scheme == 2)
+					{
+						htf.ht_picard_solve<Kokkos::Cuda>(ht, htA, gw, gdom, htgbc.htgwbc, htsolver,  gmpi, gint, par);
+					}
+					if (ht.ht_scheme == 3)
+					{
+						htf.ht_Gauss_Seidel_solve<Kokkos::Cuda>(ht, htA, gw, gdom, htgbc.htgwbc, htsolver,  gmpi, gint, par);	
+					}
+					else
+					{
+						htf.ht_solve<Kokkos::Cuda>(ht, rt, htA, gw, gdom, htgbc.htgwbc, htsolver, gmpi, par);	
+					}
+#else
+					if (ht.ht_scheme == 1)
+					{
+						htf.ht_pca_solve<Kokkos::OpenMP>(ht, rt, htA, gw, gdom, htgbc.htgwbc,  gmpi, par, htsolver);
+					}
+					if (ht.ht_scheme == 2)
+					{
+						htf.ht_picard_solve<Kokkos::OpenMP>(ht, rt, htA, gw, gdom, htgbc.htgwbc, htsolver,  gmpi, gint, par);
+					}
+					if (ht.ht_scheme == 3)
+					{
+						htf.ht_Gauss_Seidel_solve<Kokkos::OpenMP>(ht, rt, htA, gw, gdom, htgbc.htgwbc, gmpi, par, htsolver);	
+					}
+					else
+					{
+						htf.ht_solve<Kokkos::OpenMP>(ht, rt, htA, gw, gdom, htgbc.htgwbc, gmpi, par, htsolver);	
+					}
+
+#endif
+					 		 
+			}
+		}
+			else
+			{
+				gdom.etime = dom.etime;
+#ifdef __NVCC__
+					if (ht.ht_scheme == 1)
+					{
+						
+						htf.ht_pca_solve<Kokkos::Cuda>(ht, htA, gw, gdom, htgbc.htgwbc,  gmpi, par, htsolver);
+					}
+					if (ht.ht_scheme == 2)
+					{
+						htf.ht_picard_solve<Kokkos::Cuda>(ht, htA, gw, gdom, htgbc.htgwbc, htsolver,  gmpi, gint, par);
+					}
+					if (ht.ht_scheme == 3)
+					{
+						htf.ht_Gauss_Seidel_solve<Kokkos::Cuda>(ht, htA, gw, gdom, htgbc.htgwbc, htsolver,  gmpi, gint, par);	
+					}
+					else
+					{
+						htf.ht_solve<Kokkos::Cuda>(ht, htA, gw, gdom, htgbc.htgwbc, htsolver, gmpi, par);	
+					}
+
+#else
+					if (ht.ht_scheme == 1)
+					{
+						htf.ht_pca_solve<Kokkos::OpenMP>(ht, rt, htA, gw, gdom, htgbc.htgwbc, gmpi, par, htsolver);
+					}
+					if (ht.ht_scheme == 2)
+					{
+						htf.ht_picard_solve<Kokkos::OpenMP>(ht, rt, htA, gw, gdom, htgbc.htgwbc, htsolver,  gmpi, gint, par);
+					}
+					if (ht.ht_scheme == 3)
+					{
+						htf.ht_Gauss_Seidel_solve<Kokkos::OpenMP>(ht, rt, htA, gw, gdom, htgbc.htgwbc, gmpi, par, htsolver);	
+					}
+					else
+					{
+						htf.ht_solve<Kokkos::OpenMP>(ht, rt, htA, gw, gdom, htgbc.htgwbc, gmpi, par, htsolver);	
+					}
+
 #endif
 			// std::cout << "dom.etime: "<< dom.etime << std::endl;
 			}
@@ -449,6 +606,9 @@ public:
 #endif
 #if SERGHEI_SUBSURFACE_TRANSPORT
 					io.outputTransport(rt, gdom, par, outFolder);
+#endif
+#if SERGHEI_SUBSURFACE_HEAT
+					io.outputHeat(ht, gdom, par, outFolder);
 #endif
 					if (par.masterproc)
 						std::cerr << GIO "File " << io.numOut - 1 << " written" << std::endl; // io.numOut already updated
@@ -529,6 +689,19 @@ public:
 				else
 				{
 					rt.dt = dom.dt;
+				}
+#endif
+
+#if SERGHEI_SUBSURFACE_HEAT // 热传输模块开启			
+			//选取rt.dt和ht.dt中较小的作为ht.dt
+				if (ht.dt < dom.dt)
+				{
+					ht.dt = dom.dt;
+				}
+
+				else
+				{
+					dom.dt = ht.dt;
 				}
 #endif
 			// if (par.masterproc)

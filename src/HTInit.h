@@ -1,7 +1,7 @@
 /* -*- mode: c++; c-default-style: "linux" -*- */
 
-#ifndef _RT_INIT_H_
-#define _RT_INIT_H_
+#ifndef _HT_INIT_H_
+#define _HT_INIT_H_
 
 #include "define.h"
 #include "Domain.h"
@@ -12,8 +12,9 @@
 #include "Parser.h"
 #include "SourceSink.h"
 #include "RTBC.h"
+#include "HTBC.h"
 
-class RTInit : public Initializer
+class HTInit : public Initializer
 {
 
     // Parse lines, same as Parser : ParserLine
@@ -61,36 +62,36 @@ class RTInit : public Initializer
     };
 
 public:
-    int initialize_rt(RTState &rt, GwState &gw, GwDomain &gdom, RTSubsurfaceBoundaries &rtgbc, GwMPI &gmpi, Parallel &par, FileIO &io, SourceSink &ss, std::string inFolder, std::string outFolder)
+    int initialize_ht(HTState &ht, RTState &rt, GwState &gw, GwDomain &gdom, HTSubsurfaceBoundaries &htgbc, GwMPI &gmpi, Parallel &par, FileIO &io, SourceSink &ss, std::string inFolder, std::string outFolder)
     {
         int flag = -1;
         int ii, jj, kk, idx, iGlob, iGlobSW;
-        // Read solute transport input file
-        std::string fNameIn = inFolder + "transport.input";
-        if (!readRTFile(fNameIn, rt, par))
+        // Read soil heat input file
+        std::string fNameIn = inFolder + "heat.input";
+        if (!readHTFile(fNameIn, ht, par))
         {
-            std::cerr << GOK << " Reading in reactive transport input file failed." << std::endl;
+            std::cerr << GOK << " Reading in heat transport input file failed." << std::endl;
             return 0;
         
         }
         // allocate subsurface state variable
-        rt.allocate(gdom);
+        ht.allocate(gdom);
         // gmpi.allocate(gdom);//20240510添加
         // READ BOUNDARY CONDITIONS FOR REACTIVE TRANSPORT
 
-        fNameIn = inFolder + "rtgwbc.input";
-        if (!readRTBCFile(fNameIn, gdom, rtgbc, par, rt, gw))
+        fNameIn = inFolder + "htgwbc.input";
+        if (!readHTBCFile(fNameIn, gdom, htgbc, par, ht, gw))
 
         {
             if (par.masterproc)
             {
-                std::cerr << RERROR "Unable to read transport BC" << std::endl;
+                std::cerr << RERROR "Unable to read heat BC" << std::endl;
                 return 0;
             }
         }
 
         // 读取溶质物理化学反应相关参数
-        if (rt.ReactionModule == 1 || rt.ReactionModule == 2)
+      /*  if (rt.ReactionModule == 1 || rt.ReactionModule == 2)
         {
             fNameIn = inFolder + "reaction.input";
             if (!readRTReactionFile(fNameIn, rt, par))
@@ -101,7 +102,7 @@ public:
                     return 0;
                 }
             }
-        }
+        }*/
         // READ SOURCE/SINK TERMS FOR REACTIVE TRANSPORT
         // fNameIn = inFolder + "rtss.input";
         // if (!readRTSSFile(fNameIn))
@@ -115,31 +116,30 @@ public:
 
         // READ INITIAL CONDITIONS FOR REACTIVE TRANSPORT
         fNameIn = inFolder;
-        if (!setRtState(fNameIn, rt, gw, gdom, par, io))
+        if (!setHtState(fNameIn, ht, gw, gdom, par, io))
         {
             if (par.masterproc)
             {
-                std::cerr << RERROR "Unable to read RTM transport IC" << std::endl;
+                std::cerr << RERROR "Unable to read HTM transport IC" << std::endl;
                 return 0;
             }
         }
         Kokkos::parallel_for(
             gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) { 
-                rt.c(iGlob, 0) = rt.c(iGlob, 1);
-                rt.c_solid(iGlob, 0) = rt.c_solid(iGlob, 1);
+                ht.T(iGlob, 0) = ht.T(iGlob, 1);                
                 });
-        gmpi.mpi_sendrecv(rt.c, gdom, par);
+        gmpi.mpi_sendrecv(ht.T, gdom, par);
 
         // 施加边界条件
-        for (int k = 0; k < rtgbc.rtgwbc.size(); k++)
+        for (int k = 0; k < htgbc.htgwbc.size(); k++)
         {
-            rtgbc.rtgwbc[k].applyConcentrationBC(rt, gw, gdom, par);
+            htgbc.htgwbc[k].applyTemperatureBC(ht, gw, gdom, par);
         }
         /*
         // WRITE OUTPUT FOR REACTIVE TRANSPORT
         io.outputIniRT(outFolder);
         */
-        io.outputIniRT(rt, gdom, par, outFolder);
+        io.outputIniHT(ht, gdom, par, outFolder);
 
         flag = 1;
         return flag;
@@ -148,19 +148,16 @@ public:
     /*
         Read input file for the subsurface
     */
-    int readRTFile(std::string fNameIn, RTState &rt, Parallel &par)
+    int readHTFile(std::string fNameIn, HTState &ht, Parallel &par)
     {
         // Initialize all read-in values to -999
-        rt.RT_Aquifer_initialMode = -999;
-        rt.ReactionModule = -999;
-        rt.RT_Solid_initialMode = -999;
-        rt.n_mass = -999;
-        rt.diffusion_molecular = -999;
-        rt.alpha_T = -999;
-        rt.alpha_L = -999;
-        rt.rt_scheme = -999;
-        rt.Up_Weighting_vplus = -999;
-        rt.Up_Weighting_vminus = -999;
+        ht.HT_Aquifer_initialMode = -999;       
+        ht.ht_scheme = -999;
+        ht.Cw = -999;
+        ht.b1 = -999;
+        ht.b2 = -999;
+        ht.b3 = -999;
+        ht.theta_n = -999;
         std::string strAux;
         // Read in colon-separated key: value file line by line
         std::ifstream fInStream(fNameIn);
@@ -174,54 +171,34 @@ public:
                 pline.parse();
                 if (!pline.key.empty())
                 {
-                    if (!strcmp("n_mass", pline.key.c_str()))
+                    if (!strcmp("HT_Aquifer_initialMode", pline.key.c_str()))
                     {
-                        pline.value >> rt.n_mass;
-                        std::cout << "rt.n_mass: " << rt.n_mass << std::endl; // 添加打印语句
-                    }
-                    else if (!strcmp("diffusion_molecular", pline.key.c_str()))
+                        pline.value >> ht.HT_Aquifer_initialMode;
+                        //std::cout << "ht.HT_Aquifer_initialMode: " << ht.HT_Aquifer_initialMode << std::endl; // 添加打印语句
+                    }                                     
+                    else if (!strcmp("ht_scheme", pline.key.c_str()))
                     {
-                        pline.value >> rt.diffusion_molecular;
-                    }
-                    else if (!strcmp("RT_Aquifer_initialMode", pline.key.c_str()))
-                    {
-                        pline.value >> rt.RT_Aquifer_initialMode;
-                        //std::cout << "rt.RT_Aquifer_initialMode: " << rt.RT_Aquifer_initialMode << std::endl; // 添加打印语句
-
-                    }
-                     else if (!strcmp("RT_Solid_initialMode", pline.key.c_str()))
-                    {
-                        pline.value >> rt.RT_Solid_initialMode;
-                        //std::cout << "rt.RT_Solid_initialMode: " << rt.RT_Solid_initialMode << std::endl; // 添加打印语句
+                        pline.value >> ht.ht_scheme;
                     }                   
-                    else if (!strcmp("alpha_T", pline.key.c_str()))
+                    else if (!strcmp("Cw", pline.key.c_str()))
                     {
-                        pline.value >> rt.alpha_T;
+                        pline.value >> ht.Cw;
                     }
-                    else if (!strcmp("alpha_L", pline.key.c_str()))
+                    else if (!strcmp("b1", pline.key.c_str()))
                     {
-                        pline.value >> rt.alpha_L;
+                        pline.value >> ht.b1;
                     }
-                    else if (!strcmp("diffusion_molecular", pline.key.c_str()))
+                    else if (!strcmp("b2", pline.key.c_str()))
                     {
-                        pline.value >> rt.diffusion_molecular;
+                        pline.value >> ht.b2;
                     }
-                    else if (!strcmp("rt_scheme", pline.key.c_str()))
+                    else if (!strcmp("b3", pline.key.c_str()))
                     {
-                        pline.value >> rt.rt_scheme;
+                        pline.value >> ht.b3;
                     }
-                    
-                    else if (!strcmp("Up_Weighting_vplus", pline.key.c_str()))
+                    else if (!strcmp("theta_n", pline.key.c_str()))
                     {
-                        pline.value >> rt.Up_Weighting_vplus;
-                    }
-                    else if (!strcmp("Up_Weighting_vminus", pline.key.c_str()))
-                    {
-                        pline.value >> rt.Up_Weighting_vminus;
-                    }
-                    else if (!strcmp("ReactionModule", pline.key.c_str()))
-                    {
-                        pline.value >> rt.ReactionModule;
+                        pline.value >> ht.theta_n;
                     }
                 }
             }
@@ -235,117 +212,80 @@ public:
             }
         }
         // Test to make sure all values were initialized
-        if (rt.n_mass == -999)
+        if (ht.HT_Aquifer_initialMode == -999)
         {
             if (par.masterproc)
                 std::cerr << RERROR "key "
-                          << "n_mass"
+                          << "HT_Aquifer_initialMode"
+                          << " not set."
+                          << std::endl;
+            exit(-1);
+        }                     
+        if (ht.ht_scheme == -999)
+        {
+            if (par.masterproc)
+                std::cerr << RERROR "key "
+                          << "ht_scheme"
                           << " not set."
                           << std::endl;
             exit(-1);
         }
-        if (rt.diffusion_molecular == -999)
+        if (ht.Cw == -999)
         {
             if (par.masterproc)
                 std::cerr << RERROR "key "
-                          << "diffusion_molecular"
+                          << "Cw"
                           << " not set."
                           << std::endl;
             exit(-1);
         }
-        
-        if (rt.RT_Aquifer_initialMode == -999)
+        if (ht.b1 == -999)
         {
             if (par.masterproc)
                 std::cerr << RERROR "key "
-                          << "RT_Aquifer_initialMode"
+                          << "b1"
                           << " not set."
                           << std::endl;
             exit(-1);
         }
-        if (rt.RT_Solid_initialMode == -999)
+        if (ht.b2 == -999)
         {
             if (par.masterproc)
                 std::cerr << RERROR "key "
-                          << "RT_Solid_initialMode"
+                          << "b2"
                           << " not set."
                           << std::endl;
             exit(-1);
         }
-        if (rt.alpha_T == -999)
+        if (ht.b3 == -999)
         {
             if (par.masterproc)
                 std::cerr << RERROR "key "
-                          << "alpha_T"
+                          << "b3"
                           << " not set."
                           << std::endl;
             exit(-1);
         }
-        if (rt.alpha_L == -999)
+        if (ht.theta_n == -999)
         {
             if (par.masterproc)
                 std::cerr << RERROR "key "
-                          << "alpha_L"
+                          << "theta_n"
                           << " not set."
                           << std::endl;
             exit(-1);
         }
-        if (rt.diffusion_molecular == -999)
-        {
-            if (par.masterproc)
-                std::cerr << RERROR "key "
-                          << "diffusion_molecular"
-                          << " not set."
-                          << std::endl;
-            exit(-1);
-        }
-        if (rt.rt_scheme == -999)
-        {
-            if (par.masterproc)
-                std::cerr << RERROR "key "
-                          << "rt_scheme"
-                          << " not set."
-                          << std::endl;
-            exit(-1);
-        }
-        if (rt.Up_Weighting_vplus == -999)
-        {
-            if (par.masterproc)
-                std::cerr << RERROR "key "
-                          << "Up_Weighting_vplus"
-                          << " not set."
-                          << std::endl;
-            exit(-1);
-        }
-        if (rt.Up_Weighting_vminus == -999)
-        {
-            if (par.masterproc)
-                std::cerr << RERROR "key "
-                          << "Up_Weighting_vminus"
-                          << " not set."
-                          << std::endl;
-            exit(-1);
-        }
-        if (rt.ReactionModule == -999)
-        {
-            if (par.masterproc)
-                std::cerr << RERROR "key "
-                          << "ReactionModule"
-                          << " not set."
-                          << std::endl;
-            exit(-1);
-        }
-        
+                       
         if (par.masterproc)
         {
-            std::cerr << GOK "Transport parameters read\n";
+            std::cerr << GOK "Heat transport parameters read\n";
         }
         return 1;
     }
     /*
     读取反应相关参数
     */
-    int readRTReactionFile(std::string fNameIn, RTState &rt, Parallel &par)
+   /* int readRTReactionFile(std::string fNameIn, RTState &rt, Parallel &par)
     {
         // Initialize all read-in values to -999
         // rt.ReactionModule = -999;
@@ -635,12 +575,12 @@ public:
             std::cerr << GOK "RTM Reaction parameters read\n";
         }
         return 1;
-    }
+    }*/
 
     /*
         READ BOUNDARY CONDITIONS file
     */
-    int readRTBCFile(std::string fNameIn, GwDomain &gdom, RTSubsurfaceBoundaries &rtgbc, Parallel &par, RTState &rt, GwState &gw)
+    int readHTBCFile(std::string fNameIn, GwDomain &gdom, HTSubsurfaceBoundaries &htgbc, Parallel &par, HTState &ht, GwState &gw)
     {
         std::ifstream fInStream(fNameIn);
         std::string dir;
@@ -650,7 +590,7 @@ public:
         std::string line;
         PsLn pline;
         int nPoly, nPoly3D;
-        dir = fNameIn.substr(0, fNameIn.length() - 12); // 12 chars equivalent to "rtgwbc.input" to get the dir
+        dir = fNameIn.substr(0, fNameIn.length() - 12); // 12 chars equivalent to "htgwbc.input" to get the dir
         int bccount = 0, bccountFound = 0, ibc = -2, ndata = 0, hasbcfile;
         real val;
         // Read the gwbc.input file
@@ -670,11 +610,11 @@ public:
                         bccountFound = 1;
                         if (bccount < 1)
                         {
-                            std::cout << YEXC << "RTM rtgwbc.input indicates zero external boundaries." << std::endl;
+                            std::cout << YEXC << "HTM htgwbc.input indicates zero external boundaries." << std::endl;
                             return 1;
                         }
-                        rtgbc.rtgwbc.resize(bccount);
-                        rtgbc.id.resize(bccount);
+                        htgbc.htgwbc.resize(bccount);
+                        htgbc.id.resize(bccount);
                         polygonFile.resize(bccount);
                         fullPathPoly.resize(bccount);
                         tsFile.resize(bccount);
@@ -687,13 +627,13 @@ public:
                         hasbcfile = 0;
                         if (bccount > 0 && ibc >= 0)
                         {
-                            pline.value >> rtgbc.id[ibc];
+                            pline.value >> htgbc.id[ibc];
                         }
                     }
-                    else if (!strcmp("rtbctype", pline.key.c_str()) && ibc >= 0)
+                    else if (!strcmp("htbctype", pline.key.c_str()) && ibc >= 0)
                     {
                         if (bccount > 0)
-                            pline.value >> rtgbc.rtgwbc[ibc].rtbctype;
+                            pline.value >> htgbc.htgwbc[ibc].htbctype;
                     }
                     else if (!strcmp("polygon", pline.key.c_str()) && ibc >= 0)
                     {
@@ -705,22 +645,22 @@ public:
                         if (bccount > 0)
                         {
                             // pline.value >> gbc.gwbc[ibc].normalx >> gbc.gwbc[ibc].normaly >> gbc.gwbc[ibc].normalz;
-                            pline.value >> rtgbc.rtgwbc[ibc].direction;
-                            if (rtgbc.rtgwbc[ibc].direction == 1 || rtgbc.rtgwbc[ibc].direction == 2)
+                            pline.value >> htgbc.htgwbc[ibc].direction;
+                            if (htgbc.htgwbc[ibc].direction == 1 || htgbc.htgwbc[ibc].direction == 2)
                             {
                                 ndata = gdom.ny_glob * gdom.nz;
                             }
-                            else if (rtgbc.rtgwbc[ibc].direction == 3 || rtgbc.rtgwbc[ibc].direction == 4)
+                            else if (htgbc.htgwbc[ibc].direction == 3 || htgbc.htgwbc[ibc].direction == 4)
                             {
                                 ndata = gdom.nx_glob * gdom.nz;
                             }
-                            else if (rtgbc.rtgwbc[ibc].direction == 5 || rtgbc.rtgwbc[ibc].direction == 6)
+                            else if (htgbc.htgwbc[ibc].direction == 5 || htgbc.htgwbc[ibc].direction == 6)
                             {
                                 ndata = gdom.nx_glob * gdom.ny_glob;
                             }
                             else
                             {
-                                std::cerr << RERROR << "In rtgwbc.input: direction must be 1, 2, 3, 4, 5 or 6 " << std::endl;
+                                std::cerr << RERROR << "In htgwbc.input: direction must be 1, 2, 3, 4, 5 or 6 " << std::endl;
                             }
                         }
                     }
@@ -730,13 +670,13 @@ public:
                         {
                             if (ndata <= 0)
                             {
-                                std::cerr << RERROR << "In rtgwbc.input: direction should on top of bcvals " << std::endl;
+                                std::cerr << RERROR << "In htgwbc.input: direction should on top of bcvals " << std::endl;
                             }
-                            rtgbc.rtgwbc[ibc].bcvals = realArr("bcvals", ndata);
+                            htgbc.htgwbc[ibc].bcvals = realArr("bcvals", ndata);
                             pline.value >> val;
                             for (int idx = 0; idx < ndata; idx++)
                             {
-                                rtgbc.rtgwbc[ibc].bcvals(idx) = val;
+                                htgbc.htgwbc[ibc].bcvals(idx) = val;
                             }
                         }
                     }
@@ -752,16 +692,16 @@ public:
                         {
                             if (ndata <= 0)
                             {
-                                std::cerr << RERROR << "In rtgwbc.input: direction should on top of bcfile " << std::endl;
+                                std::cerr << RERROR << "In htgwbc.input: direction should on top of bcfile " << std::endl;
                             }
-                            rtgbc.rtgwbc[ibc].bcvals = realArr("bcvals", ndata);
+                            htgbc.htgwbc[ibc].bcvals = realArr("bcvals", ndata);
                         }
                     }
                     else if (ibc >= 0)
                     {
                         if (par.masterproc)
                         {
-                            std::cerr << RERROR << "In rtgwbc.input: Key " << pline.key << " not understood." << std::endl;
+                            std::cerr << RERROR << "In htgwbc.input: Key " << pline.key << " not understood." << std::endl;
                             return 0;
                         }
                     }
@@ -769,7 +709,7 @@ public:
                     {
                         if (par.masterproc)
                         {
-                            std::cerr << RERROR << "No boundaries defined in rtgwbc.input, number of boundaries not defined, or 'id' key not found." << std::endl;
+                            std::cerr << RERROR << "No boundaries defined in htgwbc.input, number of boundaries not defined, or 'id' key not found." << std::endl;
                             return 0;
                         }
                     }
@@ -778,14 +718,14 @@ public:
             fInStream.close();
             if (!bccountFound)
             {
-                std::cerr << RERROR << "Number of boundaries not defined in rtgwbc.input. Please define 'bccount'" << std::endl;
+                std::cerr << RERROR << "Number of boundaries not defined in htgwbc.input. Please define 'bccount'" << std::endl;
                 return 0;
             }
             else
             {
                 if (par.masterproc)
                 {
-                    std::cerr << GOK "RTM Subsurface BC set\n";
+                    std::cerr << GOK "HTM Subsurface BC set\n";
                 }
             }
         }
@@ -793,7 +733,7 @@ public:
         {
             if (par.masterproc)
             {
-                std::cerr << YEXC << "rtgwbc.input not found. Default boundaries used." << std::endl;
+                std::cerr << YEXC << "htgwbc.input not found. Default boundaries used." << std::endl;
             }
         }
         // Read polygon file
@@ -816,26 +756,26 @@ public:
                     {
                         fPoly >> xPoly(i) >> yPoly(i);
 #if SERGHEI_DEBUG_BOUNDARY
-                        std::cout << GGD << "RTM subbc polygon " << k << ". Point " << i << "/" << nPoly << "\t" << xPoly(i) << "\t" << yPoly(i) << std::endl;
+                        std::cout << GGD << "HTM subbc polygon " << k << ". Point " << i << "/" << nPoly << "\t" << xPoly(i) << "\t" << yPoly(i) << std::endl;
 #endif
                     }
                     else
                     {
                         if (par.masterproc)
                         {
-                            std::cerr << RERROR "Error reading RTM subsurface boundary polygon file " << k << ": " << fullPathPoly[k] << std::endl;
+                            std::cerr << RERROR "Error reading HTM subsurface boundary polygon file " << k << ": " << fullPathPoly[k] << std::endl;
                             return 0;
                         }
                     }
                 }
-                if (!rtgbc.rtgwbc[k].find_bcells(gw, rtgbc.id[k], gdom, par, nPoly, xPoly, yPoly))
+                if (!htgbc.htgwbc[k].find_bcells(gw, htgbc.id[k], gdom, par, nPoly, xPoly, yPoly))
                     return 0;
             }
             else
             {
                 if (par.masterproc)
                 {
-                    std::cerr << RERROR "RTM Polygon file " << k << ": " << fullPathPoly[k] << " not found." << std::endl;
+                    std::cerr << RERROR "HTM Polygon file " << k << ": " << fullPathPoly[k] << " not found." << std::endl;
                     return 0;
                 }
             }
@@ -850,11 +790,11 @@ public:
             std::ifstream fts(fname);
             int ndatat = 0, readts = 0;
             // Read ts file if a ts boundary exists
-            switch (rtgbc.rtgwbc[k].rtbctype)
+            switch (htgbc.htgwbc[k].htbctype)
             {
-            case SUB_RT_BC_Dirichlet_T:
-            case SUB_RT_BC_Neumann_T:
-            case SUB_RT_BC_Cauchy_T:
+            case SUB_HT_BC_Dirichlet_T:
+            case SUB_HT_BC_Neumann_T:
+            case SUB_HT_BC_Cauchy_T:
                 readts = 1;
                 break;
             }
@@ -866,19 +806,19 @@ public:
                     fts >> ndatat;
                     if (ndatat > 0)
                     {
-                        rtgbc.rtgwbc[k].ts.initialise(ndatat);
+                        htgbc.htgwbc[k].ts.initialise(ndatat);
                     }
                     for (int i = 0; i < ndatat; i++)
                     {
                         if (!fts.fail() && !fts.eof())
                         {
-                            fts >> rtgbc.rtgwbc[k].ts.time(i) >> rtgbc.rtgwbc[k].ts.value(i);
+                            fts >> htgbc.htgwbc[k].ts.time(i) >> htgbc.htgwbc[k].ts.value(i);
                         }
                         else
                         {
                             if (par.masterproc)
                             {
-                                std::cerr << RERROR "Error reading timeseries file for RTM boundary " << k << ": " << tsFile[k] << std::endl;
+                                std::cerr << RERROR "Error reading timeseries file for HTM boundary " << k << ": " << tsFile[k] << std::endl;
                                 return 0;
                             }
                         }
@@ -889,7 +829,7 @@ public:
                 {
                     if (par.masterproc)
                     {
-                        std::cerr << RERROR "Error opening RTM timeseries file " << fname << std::endl;
+                        std::cerr << RERROR "Error opening HTM timeseries file " << fname << std::endl;
                         return 0;
                     }
                 }
@@ -904,9 +844,9 @@ public:
             // Read bc file if a bc boundary exists
             if (bcFile[k].length() > 0)
             {
-                switch (rtgbc.rtgwbc[k].rtbctype)
+                switch (htgbc.htgwbc[k].htbctype)
                 {
-                case SUB_RT_BC_Neumann_CONST:
+                case SUB_HT_BC_Neumann_CONST:
                     if (gdom.isRain)
                     {
                         break;
@@ -915,8 +855,8 @@ public:
                     {
                         readbc = 1;
                     }
-                case SUB_RT_BC_Dirichlet_CONST:
-                case SUB_RT_BC_Cauchy_CONST:
+                case SUB_HT_BC_Dirichlet_CONST:
+                case SUB_HT_BC_Cauchy_CONST:
                     readbc = 1;
                     break;
                 }
@@ -927,13 +867,13 @@ public:
                 // get total data size should be read
                 if (fbc.is_open())
                 {
-                    std::cout << GOK << "Reading RTM subsurface boundary file : " << fname << std::endl;
+                    std::cout << GOK << "Reading HTM subsurface boundary file : " << fname << std::endl;
                     fbc.ignore(256, ' ');
                     fbc >> nx >> ny >> nz;
                     if (nx * ny * nz != ndata)
                     {
                         std::cerr << RERROR << nx << ny << nz << ndata << std::endl;
-                        std::cerr << RERROR "Error reading RTM bc data file " << bcFile[k] << " nx*ny*nz != ndata! " << std::endl;
+                        std::cerr << RERROR "Error reading HTM bc data file " << bcFile[k] << " nx*ny*nz != ndata! " << std::endl;
                         return 0;
                     }
                     if (ndata > 0)
@@ -947,14 +887,14 @@ public:
                                 {
                                     if (!fbc.fail() && !fbc.eof())
                                     {
-                                        fbc >> rtgbc.rtgwbc[k].bcvals(idx);
+                                        fbc >> htgbc.htgwbc[k].bcvals(idx);
                                         idx += 1;
                                     }
                                     else
                                     {
                                         if (par.masterproc)
                                         {
-                                            std::cerr << RERROR "Error reading RTM bc file for boundary " << k << ": " << bcFile[k] << std::endl;
+                                            std::cerr << RERROR "Error reading HTM bc file for boundary " << k << ": " << bcFile[k] << std::endl;
                                             return 0;
                                         }
                                     }
@@ -968,14 +908,14 @@ public:
                 {
                     if (par.masterproc)
                     {
-                        std::cerr << RERROR "Error opening RTM bc file " << fname << std::endl;
+                        std::cerr << RERROR "Error opening HTM bc file " << fname << std::endl;
                         return 0;
                     }
                 }
             }
         }
         if (par.masterproc)
-            std::cout << GOK << "RTM Subsurface boundary file parsed and boundaries set" << std::endl;
+            std::cout << GOK << "HTM Subsurface boundary file parsed and boundaries set" << std::endl;
         return 1;
     }
 
@@ -1064,11 +1004,11 @@ public:
     /*
         READ AQUIFER AND Solid INITIAL CONDITIONS FOR REACTIVE TRANSPORT
     */
-    int setRtState(std::string inFolder, RTState &rt, GwState &gw, GwDomain &gdom, Parallel &par, FileIO &io)
+    int setHtState(std::string inFolder, HTState &ht, GwState &gw, GwDomain &gdom, Parallel &par, FileIO &io)
     {
         int ii, jj, kk, idx, ivg, iGlob, iGlobSW;
 
-        std::ifstream fInStream(inFolder + "transport.input");
+        std::ifstream fInStream(inFolder + "heat.input");
         std::string line;
         PsLn pline;
         // SubsurfaceModel sub;
@@ -1105,37 +1045,25 @@ public:
         // }
         // initialize the primary variables
         for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++){
-            rt.c(iGlob, 0) = 0.0;
-            rt.c(iGlob, 1) = 0.0;
-            rt.c_solid(iGlob, 0) = 0.0;
-            rt.c_solid(iGlob, 1) = 0.0;
+            ht.T(iGlob, 0) = 0.0;
+            ht.T(iGlob, 1) = 0.0;            
         }
         //read initial condition from file
-        if (rt.RT_Aquifer_initialMode == IC_REACTIVE_TRANSPORT_CON){
-            tempStr = "concen.input";
-            readRtICFile(tempStr, inFolder, rt, gdom, par);
+        if (ht.HT_Aquifer_initialMode == IC_HEAT_TRANSPORT_TEM){
+            tempStr = "temperature.input";
+            readHtICFile(tempStr, inFolder, ht, gdom, par);
         }
-        else if(rt.RT_Aquifer_initialMode != 0 && rt.RT_Aquifer_initialMode != 1){
+        else if(ht.HT_Aquifer_initialMode != 0 && ht.HT_Aquifer_initialMode != 1){
             // if (par.masterproc){
-                std::cerr << RERROR "RTM Aquifer initial mode must be RTIC_ZERO(1) OR RTIC_CON(2)!" << std::endl;
+                std::cerr << RERROR "HTM Aquifer initial mode must be HTIC_ZERO(1) OR HTIC_TEM(2)!" << std::endl;
             // }
             exit(-1);
         }     
 
-        if (rt.ReactionModule == 1 || rt.ReactionModule == 2) {
-                    if (rt.RT_Solid_initialMode == IC_REACTIVE_TRANSPORT_CON){
-                            tempStr = "concen_solid.input";
-                            readRt_Solid_ICFile(tempStr, inFolder, rt, gdom, par);
-        }
-                    else if (rt.RT_Solid_initialMode != 0 && rt.RT_Solid_initialMode != 1){
-                            std::cerr << RERROR "RTM Solid transport initial mode must be RTIC_ZERO(1) OR RTIC_CON(2)!" << std::endl;
-                             exit(-1);
-        }
-
-        }
+        
 
 
-        if (par.masterproc){std::cerr<<GOK "Subsurface Reactive transport initial condition set" << std::endl;}
+        if (par.masterproc){std::cerr<<GOK "Subsurface Heat transport initial condition set" << std::endl;}
         return 1;
 
     }
@@ -1147,7 +1075,7 @@ public:
         Read rt subsurface initial condition from file
     */
 
-    int readRtICFile(std::string fNameIn, std::string fDirIn, RTState &rt, GwDomain &gdom, Parallel &par)
+    int readHtICFile(std::string fNameIn, std::string fDirIn, HTState &ht, GwDomain &gdom, Parallel &par)
     {
         std::string fname = fDirIn + fNameIn;
         std::ifstream fInStream(fname);
@@ -1173,7 +1101,7 @@ public:
             {
                 if (par.masterproc)
                 {
-                    std::cerr << RERROR "RTM IC file parameters don't match DEM parameters. Unable to continue\n";
+                    std::cerr << RERROR "HTM IC file parameters don't match DEM parameters. Unable to continue\n";
                     if (par.masterproc)
                     {
                         std::cerr << BDASH "nx_glob: " << gdom.nx_glob << tnx << "\n";
@@ -1194,7 +1122,7 @@ public:
                 {
                     if (par.masterproc)
                     {
-                        std::cerr << RERROR "Error reading RTM IC file. Not enough data\n";
+                        std::cerr << RERROR "Error reading HTM IC file. Not enough data\n";
                         return 0;
                     }
                 }
@@ -1207,7 +1135,7 @@ public:
             exit(-1);
         }
         // Copy data into head or water content
-        if (!strcmp(fNameIn.c_str(), "concen.input"))
+        if (!strcmp(fNameIn.c_str(), "temperature.input"))
         {
             for (idx = 0; idx < gdom.nCell; idx++)
             {
@@ -1217,130 +1145,33 @@ public:
                 iGlob = (hc + kk) * gdom.nxhc * gdom.nyhc + (hc + jj) * gdom.nxhc + ii + hc;
                 // get concentration
                 ii2 = kk * gdom.nx_glob * gdom.ny_glob + (par.j_beg + jj) * (gdom.nx_glob) + par.i_beg + ii;
-                rt.c(iGlob, 1) = tmpVar(ii2);               
+                ht.T(iGlob, 1) = tmpVar(ii2);               
 
-                rt.c(iGlob, 0) = rt.c(iGlob, 1);
+                ht.T(iGlob, 0) = ht.T(iGlob, 1);
             }
         }
         else
         {
             if (par.masterproc)
             {
-                std::cerr << RERROR "Error reading RTM concentration IC file. File name might be wrong.\n";
+                std::cerr << RERROR "Error reading HTM temperature IC file. File name might be wrong.\n";
                 return 0;
             }
         }
         if (par.masterproc)
         {
-            std::cerr << GOK "RTM Subsurface concentration content set\n";
-        }
-        return 1;
-    }
-// 20240814修改
-
-    /*
-        read subsurface Solid reactive transport initial condition from file
-    */
-    int readRt_Solid_ICFile(std::string fNameIn, std::string fDirIn, RTState &rt, GwDomain &gdom, Parallel &par)
-    {
-        std::string fname = fDirIn + fNameIn;
-        std::ifstream fInStream(fname);
-        std::string line;
-        int tnx, tny, iGlob, iGlobSW, idx, ivg, ii, jj, kk, ii2;
-        real tmp, nodata_value;
-        int ndata = gdom.ny_glob * gdom.nx_glob * gdom.nz_glob;
-        intArr tmpVar = intArr("var", ndata);
-        std::string str;
-        if (fInStream.is_open())
-        {
-            std::getline(fInStream, str, ' ');
-            std::getline(fInStream, str);
-            std::stringstream(str) >> tnx;
-            std::getline(fInStream, str, ' ');
-            std::getline(fInStream, str);
-            std::stringstream(str) >> tny;
-            std::getline(fInStream, str, ' ');
-            std::getline(fInStream, str);
-            std::stringstream(str) >> nodata_value;
-            // compare the values t* with the DEM file just to check if we are using the same values, otherwise error
-            if (gdom.ny_glob != tny || gdom.nx_glob != tnx)
-            {
-                if (par.masterproc)
-                {
-                    std::cerr << RERROR "RTM rt_Solid_IC file parameters don't match DEM parameters. Unable to continue\n";
-                    if (par.masterproc)
-                    {
-                        std::cerr << BDASH "nx_glob: " << gdom.nx_glob << tnx << "\n";
-                        std::cerr << BDASH "ny_glob: " << gdom.ny_glob << tny << "\n";
-                    }
-                    return 0;
-                }
-            }
-            // read and store data into a temporary view
-            for (int ii = 0; ii < ndata; ii++)
-            {
-                if (!fInStream.fail() && !fInStream.eof())
-                {
-                    fInStream >> tmp;
-                    tmpVar(ii) = tmp;
-                }
-                else
-                {
-                    if (par.masterproc)
-                    {
-                        std::cerr << RERROR "Error reading rt_Solid_IC file. Not enough data\n";
-                        return 0;
-                    }
-                }
-            }
-            fInStream.close();
-        }
-        else
-        {
-            if (par.masterproc)
-            {
-                std::cerr << RERROR "Unable to open " << fNameIn << "\n";
-                exit(-1);
-            }
-        }
-        // Copy data into subsurface Solid concentration
-        if (!strcmp(fNameIn.c_str(), "concen_solid.input"))
-        {
-            for (idx = 0; idx < gdom.nCell; idx++)
-            {
-                gdom.unpackIndices(idx, kk, jj, ii);
-                // gdom.unpackIndicesGw(idx, gdom.nz, gdom.ny, gdom.nx, kk, jj, ii);
-                // get global index
-                iGlob = (hc + kk) * gdom.nxhc * gdom.nyhc + (hc + jj) * gdom.nxhc + ii + hc;
-                // get concentration
-                ii2 = kk * gdom.nx_glob * gdom.ny_glob + (par.j_beg + jj) * (gdom.nx_glob) + par.i_beg + ii;
-                rt.c_solid(iGlob, 1) = tmpVar(ii2);
-
-                rt.c_solid(iGlob, 0) = rt.c_solid(iGlob, 1);
-            }
-        }
-        else
-        {
-            if (par.masterproc)
-            {
-                std::cerr << RERROR "Error reading RTM Solid concentration IC file. File name might be wrong.\n";
-                return 0;
-            }
-        }
-        if (par.masterproc)
-        {
-            std::cerr << GOK "RTM Soils Subsurface concentration content set\n";
+            std::cerr << GOK "HTM Subsurface temperature content set\n";
         }
         return 1;
     }
 
 
     /*
-        Read boundary condition for the Reactive transport
+        Read boundary condition for the Heat transport
     */
 
     /*---------------------------------------
-                   修改部分zzb
+                   修改ysl
     ------------------------------------------+++*/
 };
 
