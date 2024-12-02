@@ -5,10 +5,8 @@
 
 #include "define.h"
 #include "Indexing.h"
-#include "SourceSink.h"
 
 // DCV 05.05.2021, left these here defined for generic use in exchange.h, not for hydraulics.
-// ZhiLi 02.02.2024, Moved to  define.h
 // #define BC_PERIODIC 1
 // #define BC_REFLECTIVE 2
 // #define BC_TRANSMISSIVE 3
@@ -25,7 +23,6 @@
 #define SWE_BC_HZ_T_INLET 10
 #define SWE_BC_HZ_T_OUTLET 11
 #define SWE_BC_Q_T 12
-
 
 
 KOKKOS_INLINE_FUNCTION real criticalDepth(real hu, real hv, real Fr){
@@ -59,7 +56,7 @@ public:
 
 
 
-	inline int find_bcells(State &state, std::string &id, Domain &dom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly){
+	inline int find_bcells(State &state, std::string &id, const Domain &dom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly){
 		int foundInSubdom; // to keep track of which subdomains are associated to this boundary
 		std::vector<int> tmpbcells; //array of indexes of boundary cells
 		std::vector<int> subdomains;	// keeps track of which subdomains are associated to the BC
@@ -335,8 +332,6 @@ public:
 		          state.hu(ii)=hu;
 		          state.hv(ii)=hv;
 		        }
-
-
 				  });
         	break;
 
@@ -504,12 +499,9 @@ public:
     real totalDischarge=0.0;
 
     if(ncellsBC > 0){
-		//discharge integration
-		Kokkos::parallel_reduce("reduceDischargeBC",ncellsBC, KOKKOS_CLASS_LAMBDA (int iGlob, real &sumD){
-			int ii = bcells[iGlob];
-            int i, j;
-            // dom.unpackIndices(ii,dom.ny+2*hc,dom.nx+2*hc,j,i);
-            dom.unpackIndices(ii,j,i);
+			//discharge integration
+			Kokkos::parallel_reduce("reduceDischargeBC",ncellsBC, KOKKOS_CLASS_LAMBDA (int iGlob, real &sumD){
+				int ii = bcells[iGlob];
 		    if( state.h(ii)>=state.hmin) {
 					//the integration is done over all boundary walls according to the outflow direction
 					sumD += (state.hu(ii)*sgn(normalx) + state.hv(ii)*sgn(normaly)) * dom.dx();
@@ -543,7 +535,7 @@ public:
     inflowDischarge = inDischarge; //inflowdischarge local per bc
     outflowDischarge = outDischarge; //outflowdischarge local per bc
     inflowAccumulated += inDischarge*dom.dt; //inflowAccumulated local per bc
-	outflowAccumulated += outDischarge * dom.dt; //outflowaccumulated local per bc
+	 	outflowAccumulated += outDischarge * dom.dt; //outflowaccumulated local per bc
 
     dom.timers.swe += timer.seconds();
 	}

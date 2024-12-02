@@ -1,6 +1,0 @@
-RTinitialMode : 2 //initial concentration
-n_mass : 1
-d_base : 7e-9  //molecular diffusivity
-alpha_L : 3
-alpha_T :0.3
-rt_scheme : 1           // numerical schemes, 1:PCA, 2:Picard

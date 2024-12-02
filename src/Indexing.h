@@ -23,8 +23,9 @@ template <class I1, class I2, class I3> KOKKOS_INLINE_FUNCTION void unpackIndice
   i2 = (iGlob/(n3   )) % n2;
   i3 = (iGlob        ) % n3;
 }
-
 /*
+
+
 // Unpack 4D indices
 template <class I1, class I2, class I3> KOKKOS_INLINE_FUNCTION void unpackIndicesUniformGrid(I1 iGlob, I2 n1, I2 n2, I2 n3, I2 n4, I3 &i1, I3 &i2, I3 &i3, I3 &i4) {
   i1 = (iGlob/(n4*n3*n2))     ;

@@ -7,9 +7,16 @@
 #include "mpi.h"
 #include <Kokkos_Core.hpp>
 
+// SWE boundary conditions
 #define BC_PERIODIC 1
 #define BC_REFLECTIVE 2
 #define BC_TRANSMISSIVE 3
+
+// Subsurface initial mode
+#define IC_SAT 1
+#define IC_H 2
+#define IC_WC 3
+#define IC_WT 4
 
 #define SERGHEI_FLOAT 1
 #define SERGHEI_DOUBLE 2
@@ -68,7 +75,6 @@ typedef unsigned int  uint;
   typedef Kokkos::View<double*     ,Kokkos::LayoutRight> doubleArr;
 #endif
 
-
 #ifdef __NVCC__
 #define _HOSTDEV __host__ __device__
 #else
@@ -85,6 +91,7 @@ KOKKOS_INLINE_FUNCTION double mysqrt( double const x ) { return sqrt (x); }
 KOKKOS_INLINE_FUNCTION float  mysqrt( float  const x ) { return sqrtf(x); }
 KOKKOS_INLINE_FUNCTION double myfabs( double const x ) { return fabs (x); }
 KOKKOS_INLINE_FUNCTION float  myfabs( float  const x ) { return fabsf(x); }
+KOKKOS_INLINE_FUNCTION int  myfabs( int  const x ) { return abs(x); }
 
 /*
 template <class T> KOKKOS_INLINE_FUNCTION T min( T const v1 , T const v2 ) {
@@ -133,9 +140,22 @@ public:
   real sweflux=0;
   real exchange=0;
   real integrate=0;
+  real integrateMPI=0;
   real dt=0;
   real sweBC=0;
-  real solver=0;
+  real halo=0;
+  // timers for the subsurface solver
+  real gw = 0;
+  real gwBC = 0;
+  real gwlinsys = 0;
+  real gwlinsol = 0;
+  real gwUpdateK = 0;
+  real gwUpdateQ = 0;
+  real gwUpdateWC = 0;
+  real gwMPI = 0;
+  real gwIntegrate = 0;
+  //!zzb添加rtm求解时间
+  real rtlinsol = 0;
 };
 
 #endif

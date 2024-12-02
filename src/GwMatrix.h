@@ -13,7 +13,7 @@
 class GwMatrix {
 
 public:
-	int nrow, ncol, nnz, nx, ny, nz;
+	int nrow, ncol, nnz, nx, ny, nz, cg_iter;
 	intArr ptr, ind, ptrT, indT;
 	realArr val, diag, rhs, x, valT, lt, ut;
 	// views for cg solver
@@ -24,8 +24,8 @@ public:
 	void init(GwDomain &gdom)	{
 		int ii, jj, kk, ndom = gdom.nCell;
 		nx = gdom.nx;	ny = gdom.ny;	nz = gdom.nz;
-		nrow = ndom;//矩阵行数是nxhc*nyhc*nzhc
-		ncol = ndom;//矩阵列数是nxhc*nyhc*nzhc
+		nrow = ndom;
+		ncol = ndom;
 		// Number of non-zeros for 1D-z, 2D-xz, 3D-xyz simulations
 		if (nx == 1 & ny == 1 & nz > 1)	{
 			nnz = nrow + (nz-2)*2 + 2;

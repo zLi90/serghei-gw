@@ -19,11 +19,14 @@
 #define ioU 1001
 #define ioV 1002
 
+
 // Some physical constants
 #define GRAV 9.81
 #define SQRTGRAV 3.132091953
 
-#define NVG 7
+//#define GRAV 9.807
+//#define SQRTGRAV 3.13161300291
+
 
 //Some tolerances
 #define TOL4 1e-4
@@ -42,13 +45,46 @@
 
 #define ZERO TOL12
 
+#define NVG 7
+
+//!zzb Reactive transport subsurface initial mode
+#define IC_REACTIVE_TRANSPORT_ZERO 0
+#define IC_REACTIVE_TRANSPORT_CON 1
+//!zzb program options
+#ifndef SERGHEI_SUBSURFACE_MODEL
+#define SERGHEI_SUBSURFACE_MODEL 1
+#endif
+
+// model component defaults
+
+#ifndef SERGHEI_SWE_GW
+#define SERGHEI_SWE_GW 0
+#endif
+
+#ifndef SERGHEI_SUBSURFACE_MODEL
+#define SERGHEI_SUBSURFACE_MODEL 1
+#endif
+
+#ifndef SERGHEI_SUBSURFACE_TRANSPORT
+#define SERGHEI_SUBSURFACE_TRANSPORT 1
+#endif
+
+#ifndef SERGHEI_SWE_MODEL
+#define SERGHEI_SWE_MODEL 0
+#endif
+
+#ifndef SERGHEI_KOKKOSKERNELS_SOLVER
+#define SERGHEI_KOKKOSKERNELS_SOLVER 1
+#endif
+
 //friction model (0-->upwind or 1-->pointwise-centered)
-#define POINTWISE_FRICTION 1
+#ifndef SERGHEI_POINTWISE_FRICTION
+#define SERGHEI_POINTWISE_FRICTION 0
+#endif
 
 #define SERGHEI_FRICTION_MANNING 1
 #define SERGHEI_FRICTION_DARCYWEISBACH 2
 #define SERGHEI_FRICTION_CHEZY 3
-
 #ifndef SERGHEI_FRICTION_MODEL
 #define SERGHEI_FRICTION_MODEL SERGHEI_FRICTION_MANNING
 #endif
@@ -65,32 +101,9 @@
 #define PNETCDF_N_INPUT_VARIABLES 9 // number of variables in an initial input file
 
 //halo cells (overlapping cells between domains for MPI)
-#define haloc 1
 #define hc 1
 
-// Subsurface initial mode
-#define IC_SAT 1
-#define IC_H 2
-#define IC_WC 3
-#define IC_WT 4
-
 //program options
-#ifndef SERGHEI_SUBSURFACE_MODEL
-#define SERGHEI_SUBSURFACE_MODEL 1
-#endif
-
-#ifndef SERGHEI_SWE_MODEL
-#define SERGHEI_SWE_MODEL 0
-#endif
-
-#ifndef SERGHEI_SUBSURFACE_TRANSPORT
-#define SERGHEI_SUBSURFACE_TRANSPORT 1
-#endif
-
-#ifndef SERGHEI_KOKKOSKERNELS_SOLVER
-#define SERGHEI_KOKKOSKERNELS_SOLVER 1
-#endif
-
 #ifndef SERGHEI_DEBUG_PARALLEL_DECOMPOSITION
 #define SERGHEI_DEBUG_PARALLEL_DECOMPOSITION 0 //debug the subdomains ranks and neighbours
 #endif

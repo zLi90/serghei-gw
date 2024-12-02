@@ -25,31 +25,31 @@ public:
 	real dt_init, dt_max, dt, dtOld;
 	// 上游加权系数
 	real Up_Weighting_vplus, Up_Weighting_vminus;
+	realArr Up_Weighting_xp, Up_Weighting_xm, Up_Weighting_yp, Up_Weighting_ym, Up_Weighting_zp, Up_Weighting_zm;
 	// number of substances
 	int n_mass;
 	// molecular diffusivity
 	real diffusion_molecular;
 	// 横向弥散度纵向弥散度
 	real alpha_T, alpha_L;
+	realArr2 q_dispersion;//弥散张量计算所需界面流速q
 	//Peclet
 	real Pe;
 
 	// 反应相关参数
 	real ReactionModule, AdsorptionDesorptionModel; // 反应模块开关，吸附解吸类型
 	real rho_b;										// 多孔介质的密度
-	
-	real k1;                  //first-order reaction rate constant
-	real k2;
-
 	//Equilibrium or nonlinear sorption
+	real Kd;										// 固液分配系数，L/g	
 	real Kf;										// Freundlich等温吸附常数
-	real Nf;										// Nf为常数
-	real alpha_D;									// Langmuir吸附常数
-	real beta_D;									// 固体所能吸附的最大容量
-	real Kd;										// 固液分配系数，L/g
+	real Nf;										// Nf为常数,Freundlich等温吸附模型中的非线性参数
+	// real alpha_D;									// Langmuir吸附常数
+	// real beta_D;									// 固体所能吸附的最大容量,Langmuir
+	real Kl;										// Langmuir吸附常数
+	real eta;										// Langmuir吸附常数
+
 	//Nonequilibrium sorption
 	// real NonequilibriumSorptionModel;				// Nonequilibrium sorption model type
-	real f;                                         //平衡吸附交换点位占总吸附点位的比例
 	real beta;									// Nonequilibrium sorption model parameter,first-order mass transfer coefficient between the dissolved and sorbed phases, T^-1
 	real lambda_1;									// first-order reaction rate for the dissolved phase, T-1
 	real lambda_2;									// first-order reaction rate for the sorbed (solid) phase, T-1
@@ -87,8 +87,12 @@ public:
 	realArr c_difyy;
 	realArr c_difzz;
 	realArr c_difxy;
+	realArr c_difyx;
 	realArr c_difxz;
+	realArr c_difzx;
 	realArr c_difyz;
+	realArr c_difzy;
+	realArr wz;//z方向网格系数
 
 	// Allocate state variables for groundwater
 	inline void
@@ -101,18 +105,19 @@ public:
 		// Note that we ignore d_xy, d_xz, etc. for now,
 		// but they should be implemented later
 		// d = realArr2("d", gdom.nCellMem, 3);
-		dcal = realArr2("dcal", gdom.nCellMem, 6);
+		dcal = realArr2("dcal", gdom.nCellMem, 9);
 
 		// advection = realArr("advection", gdom.nCellMem);
 
 		aveV = realArr2("aveV", gdom.nCellMem, 4);
 		// 边界流速
 		aveVB = realArr2("aveVB", gdom.nCellMem, 4);
+		q_dispersion = realArr2("q_dispersion", gdom.nCellMem, 15);
 		// dispersion = realArr2("dispersion", gdom.nCellMem,4);
 		// residual = realArr("residual", gdom.nCellMem);
 		tau = realArr("tau", gdom.nCellMem);
 
-		RTcoef = realArr2("RTcoef", gdom.nCell, 20);
+		RTcoef = realArr2("RTcoef", gdom.nCell, 30);
 
 		c_advxx = realArr("c_advxx", gdom.nCellMem);
 		c_advyy = realArr("c_advyy", gdom.nCellMem);
@@ -123,8 +128,19 @@ public:
 		c_difxy = realArr("c_difxy", gdom.nCellMem);
 		c_difxz = realArr("c_difxz", gdom.nCellMem);
 		c_difyz = realArr("c_difyz", gdom.nCellMem);
+		c_difyx = realArr("c_difyx", gdom.nCellMem);
+		c_difzx = realArr("c_difzx", gdom.nCellMem);
+		c_difzy = realArr("c_difzy", gdom.nCellMem);
 
 		Rf = realArr("Rf", gdom.nCellMem);
+		wz = realArr("wz", gdom.nCellMem);
+
+		Up_Weighting_xp = realArr("Up_Weighting_xp", gdom.nCellMem);
+		Up_Weighting_xm = realArr("Up_Weighting_xm", gdom.nCellMem);
+		Up_Weighting_yp = realArr("Up_Weighting_yp", gdom.nCellMem);
+		Up_Weighting_ym = realArr("Up_Weighting_ym", gdom.nCellMem);
+		Up_Weighting_zp = realArr("Up_Weighting_zp", gdom.nCellMem);
+		Up_Weighting_zm = realArr("Up_Weighting_zm", gdom.nCellMem);
 	}
 };
 

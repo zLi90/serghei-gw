@@ -14,6 +14,7 @@
 #define INF_HORTON 2
 #define INF_GREENAMPT 3
 
+
 //class State;	// forward declaration
 
 /*
@@ -24,12 +25,18 @@ class TimeSeries{
 public:
 
   int np;     // number of points in time
+  int nc;       // number of grid cells with different time series values
   int nx = 1; // number of partitions in x direction
   int ny = 1; // number of partitions in y direction
 
   realArr time;
   realArr value;
+  realArr2 values;
+  //!zzb添加
+  realArr LAI_values;
+  realArr zm_values;
   int timeIndex = 0;
+
 
 /*
   // WARNING valid only for piece-wise constant time data
@@ -47,6 +54,9 @@ public:
     np = n;
     time = realArr("time",np);
     value = realArr("value",np);
+    //!zzb添加
+    LAI_values = realArr("LAI_values",np);
+    zm_values = realArr("zm_values",np);
   };
 
 };
@@ -74,6 +84,16 @@ KOKKOS_INLINE_FUNCTION real interpolateLinear(TimeSeries &ts, real const &t){
   jj=ii+1;
   if(ii == ts.np - 1) jj = ii;
   real v = ts.value(ii) + (ts.value(jj) - ts.value(ii))/(ts.time(jj)-ts.time(ii))*(t-ts.time(ii));
+  return(v);
+};
+
+KOKKOS_INLINE_FUNCTION real interpolateValues(TimeSeries &ts, real const &t, int icol){
+  int ii,jj;
+  findTimeBlock(ts,t);
+  ii = ts.timeIndex;
+  jj=ii+1;
+  if(ii == ts.np - 1) jj = ii;
+  real v = ts.values(ii,icol) + (ts.values(jj,icol) - ts.values(ii,icol))/(ts.time(jj)-ts.time(ii))*(t-ts.time(ii));
   return(v);
 };
 
@@ -284,6 +304,7 @@ public:
                             inf_p(ii) = fc(id) + (f0(id)-fc(id))*exp(-k(id) * t);
                         });
                         break;
+
                     }
             }
     }
@@ -303,6 +324,7 @@ public:
         if (dom.isEvap) {evapRate  = realArr ("evapRate", dom.nCellMem);}
         if (inf.model)  {inf.allocate(dom);}
     }
+
 
   inline void ComputeRain (const Domain &dom){
     if(dom.isRain){
@@ -444,13 +466,26 @@ public:
     real Qinflow, Qoutflow, Cpipe;
     TimeSeries ts;
     TimeSeries evap, tran;
-
+	
+	// water stress and root distribution function
+    real lai;
+	real h1, h2, h3, h4;
+	real px, py, pz, xs, ys, zs, xm, ym, zm;
+	realArr coef_wat, coef_root;
 
 	MPI_Comm comm;	// communicator for ranks associated to the BC
+//! zzb 20241008修改
+// private:
+//     double* coef_root_h = nullptr;
+//! zzb 20241008修改
 
-    void allodateGW (GwDomain const &gdom)  {
+    void allocateGW (GwDomain const &gdom)  {
         ssdata = realArr ("ssdata", gdom.nCellMem);
         for (int idx = 0; idx < gdom.nCellMem; idx++)   {ssdata(idx) = 0.0;}
+		if (sstype == 0)	{
+			coef_wat = realArr("wat", ncellsIT);
+			coef_root = realArr("root", ncellsIT);
+		}
     }
 
     // find internal cells for applying source/sink conditions
@@ -460,7 +495,7 @@ public:
 		std::vector<int> tmpgcells; //array of indexes of ghost cells
 		std::vector<int> subdomains;	// keeps track of which subdomains are associated to the BC
 		// Loop over the entire domain to find internal source/sink cells
-        int kmax = 0, kmin = gdom.nz;
+        int kmax = 0, kmin = gdom.nz, idx = 0;
 		for (int kk = 0; kk < gdom.nz; kk++) {
 			for (int jj = 0; jj < gdom.ny; jj++) {
 				for (int ii = 0; ii < gdom.nx; ii++) {
@@ -514,23 +549,127 @@ public:
 		}
 		return 1;
 	}
+	
+	// get coefficients for root water uptake declining and root distribution 
+	void rootCoef(const GwState &gw, const GwDomain &gdom)	{
+		Kokkos::parallel_for("root", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
+			real c_wat = 1.0, c_root = 1.0, expo, x, y, z;
+			int iGlob = icells[idx];
+			real h = gw.h(iGlob,1);
+			// get coef_wat
+// real h1 = 0, h2 = -0.01, h3 = -5, h4 = -160;//小麦fedds
+real h1 = -0.01, h2 = -0.25, h3 = -8, h4 = -80;
+
+			if (h <= h1 && h > h2)	{c_wat = (h - h1) / (h2 - h1);}
+			else if (h <= h3 && h > h4)	{c_wat = (h - h4) / (h3 - h4);}
+			else if (h > h1 || h <= h4)	{c_wat = 0.0;}
+// std::cout << "h1: " << h1 << " h2: " << h2 << " h3: " << h3 << " h4: " << h4 << std::endl;      
+// std::cout << "h \n" <<h<< std::endl;    
+// std::cout << "c_wat \n" <<c_wat<< std::endl;
+			// get coordinates x, y, z
+			x = gdom.x(iGlob);	y = gdom.y(iGlob);	z = gdom.depth(iGlob);
+			// get coef_root
+
+//Three-dimensional root water uptake declining function     
+			//expo = px/(xm*myfabs(xs-x)) + py/(ym*myfabs(ys-y)) + pz/(zm*myfabs(zs-z));
+			//c_root = (1.0-x/xm)*(1.0-y/ym)*(1.0-z/zm)*exp(-expo);
+      
+      real zm = 0.3;//!zzb 20240912修改
+      real zs = 0.06;//!zzb 20240912修改,zs取zm的20%
+      real pz = 1.0;//!pz,zs经验系数,pz=1.0
+//one-dimensional root water uptake declining function
+// x*, y*, and z* are indicated as Depth of Maximum Intensity or Radius of Maximum Intensity;
+// px, py, and pz are assumed to be equal to one for x> x*, y> y*, z> z*,
+			expo = (pz/zm)*myfabs(zs-z);
+			c_root = (1.0-z/zm)*exp(-expo);
+
+//!zzb 20241008 归一化根系吸水速率
+real c_root_integral = integrateCRoot(zs, zm, pz);
+// std::cout << "c_root integral: \n" << c_root_integral << std::endl;
+
+      // c_root = 1.0;//!zzb 20240912修改
+			coef_wat(idx) = c_wat;
+			coef_root(idx) = c_root / c_root_integral * (gdom.thickH / gdom.nz_glob);	
+      // coef_root(idx) = c_root;
+// std::cout << "c_root \n" <<c_root<< std::endl;
+
+for (int i = 0; i < ncellsIT; ++i) {
+// std::cout << "idx" << i << "coef_root(idx)"<< coef_root(i) <<std::endl;
+
+        }
+//!根系密度函数 b求和
+        double sum = 0.0;
+        for (int i = 0; i < ncellsIT; ++i) {
+            sum += coef_root(i);
+        } 
+// std::cout << "ncellsIT \n" <<ncellsIT<< std::endl;
+// std::cout << "Sum of coef_root: \n" << sum << std::endl;
+
+    }); 
+
+	}
+
+
+//!zzb 对c_root函数进行积分，数值积分法，梯形法则
+  double integrateCRoot(double zs, double zm, double pz) const {
+      real integral = 0.0;
+      real dz = 0.001; // 积分步长
+      for (real z = 0; z <= zm; z += dz) {
+          real expo = (pz / zm) * myfabs(zs - z);
+          real c_root = (1.0 - z / zm) * exp(-expo);
+          integral += c_root * dz;
+      }
+      return integral;
+  }
 
     inline void applyMatSS(GwState &gw, GwDomain &gdom) {
         if (ncellsIT > 0)   {
         	// ET (Penman-Monteith)
+        
         	if (sstype == 0)	{
+
         		real qt = interpolateLinear(tran, gdom.etime);
-                real qe = interpolateLinear(evap, gdom.etime);
+            // real qe = interpolateLinear(evap, gdom.etime);
+// real qt = -1.157e-8;
+// real qe ;
+real qe = 0;
+				
+        // get root function coefficients 
+				rootCoef(gw, gdom);
                 Kokkos::parallel_for("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx){
                         int ii, jj, kk, ivg, idom, iGlob = icells[idx];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
                         idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-                        gw.coef(idom,7) += gdom.dt * qt;
-                        if (kk == 1)    {
-                            gw.coef(idom,7) += gdom.dt * qe;
-                        }
+                        gw.coef(idom,7) += gdom.dt * qt * coef_wat(idx) * coef_root(idx) / gdom.dz(iGlob);
+
+
+// 假设这是一个全局变量或者在合适的范围内定义的静态变量
+// static double qe_potential = -1.157e-6; // 初始假设 qe 为 -1
+// double qe = 0;
+// //! zzb 三段式蒸发模型
+// // todo thetaf田间持水量0.3455对应饱和含水量0.36 
+// double thetaf =  0.3455;
+// if (kk == 1) {
+// 	if (gw.wc(iGlob,1) >= 0.65*thetaf) {
+// 		qe = qe_potential;
+// 		std::cout << "111qe"<<qe << "\n";
+// 	}
+// 	else if (gw.wc(iGlob,1) < 0.65*thetaf && gw.wc(iGlob,1) >= 0.07) {
+// 		qe = qe_potential*((gw.wc(iGlob,1)-0.07)/(0.65*thetaf-0.07));
+// 		std::cout << "222qe"<<qe << "\n";
+// 	}
+// 	else {
+// 		qe = 0;
+// 		std::cout << "333qe"<<qe << "\n";
+// 	}
+
+// }
+
+
+                  gw.coef(idom,7) += gdom.dt * qe / gdom.dz(iGlob);
                 });
         	}
+
             // Flux Source/Sink
             else if (sstype == 1)    {
                 real qbc = interpolateLinear(ts, gdom.etime);
@@ -538,7 +677,9 @@ public:
                         int ii, jj, kk, ivg, idom, iGlob = icells[idx];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
                         idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+
                         gw.coef(idom,7) += gdom.dt * qbc;
+// std::cout << "idom" << idom <<std::endl;
                 });
             }
             // Internal Drainage with Fixed Head
@@ -616,17 +757,44 @@ public:
     		// ET (Penman-Monteith)
         	if (sstype == 0)	{
         		real qt = interpolateLinear(tran, gdom.etime);
-                real qe = interpolateLinear(evap, gdom.etime);
+
+                // real qe = interpolateLinear(evap, gdom.etime);
+// real qt = -1.157e-8;//!zzb 0.01m/d =1.157e-7m/s
+real qe = 0;
+// real qe;
                 Kokkos::parallel_reduce("gw_et", ncellsIT, KOKKOS_CLASS_LAMBDA (int idx, real &tmp){
                         int ii, jj, kk, ivg, idom, iGlob = icells[idx];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
                         idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-                        gw.wc(iGlob,1) += gdom.dt * qt;
-                        tmp += qt * gdom.dt;
-                        if (kk == 1)    {
-                            gw.wc(iGlob,1) += gdom.dt * qe;
-                            tmp += qe * gdom.dt;
-                        }
+                        gw.wc(iGlob,1) += gdom.dt * qt * coef_wat(idx) * coef_root(idx)  / gdom.dz(iGlob);
+                        tmp += qt * gdom.dt * coef_wat(idx) * coef_root(idx)  / gdom.dz(iGlob);
+
+// 假设这是一个全局变量或者在合适的范围内定义的静态变量
+// static double qe_potential = -1.157e-6; // 初始假设 qe 为 -1
+double qe = 0;
+//! zzb 三段式蒸发模型
+// todo thetaf田间持水量0.3455对应饱和含水量0.36 
+// double thetaf =  0.3455;
+// if (kk == 1) {
+// 	if (gw.wc(iGlob,1) >= 0.65*thetaf) {
+// 		qe = qe_potential;
+// 		// std::cout << "111bcvals(ibc)"<<bcvals(ibc) << "\n";
+// 	}
+// 	else if (gw.wc(iGlob,1) < 0.65*thetaf && gw.wc(iGlob,1) >= 0.07) {
+// 		qe = qe_potential*((gw.wc(iGlob,1)-0.07)/(0.65*thetaf-0.07));
+// 		// std::cout << "222bcvals(ibc)"<<bcvals(ibc) << "\n";
+// 	}
+// 	else {
+// 		qe = 0;
+// 		// std::cout << "333bcvals(ibc)"<<bcvals(ibc) << "\n";
+// 	}
+
+// }
+
+                             gw.wc(iGlob,1) += gdom.dt * qe/ gdom.dz(iGlob);
+                            tmp += qe * gdom.dt/ gdom.dz(iGlob);
+                     
+                      
 				} , Kokkos::Sum<real>(Qoutflow) );
         	}
             // Flux Source/Sink

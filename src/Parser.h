@@ -20,7 +20,6 @@
 #include "SourceSink.h"
 #include "rasterTools.h"
 
-
 class Parser {
 
 class ParserLine{
@@ -103,6 +102,7 @@ public:
   #endif
 
 	return 1;
+
   }
 
   int readInputFiles (std::string fNameIn, Domain &dom, State &state, SourceSinkData &ss,
@@ -115,7 +115,7 @@ public:
 
 		#if SERGHEI_INPUT_NETCDF
 			tempStr = fNameIn + "input.nc";
-			int nvar;
+      if(par.masterproc) std::cout << BDASH << "Reading variables from NetCDF file" << std::endl;
     	if(!io.readNetCDFvariable(par,dom,state,io.ncin,"z")){
         if(par.masterproc) std::cout << RERROR << tempStr << " not found" << std::endl;
         return 0;
@@ -125,47 +125,48 @@ public:
     	ierr[0] = readDEMFile(tempStr,dom,state,par);
 		#endif
 
-    tempStr = fNameIn + "sw.input";
-    ierr[1] = readSWFile(tempStr, dom, par, state, fNameIn, io);
+        #if SERGHEI_SWE_MODEL
+        tempStr = fNameIn + "sw.input";
+        ierr[1] = readSWFile(tempStr, dom, par, state, fNameIn, io);
 
-    tempStr = fNameIn + "rainfall.input";
-    ierr[2] = readRainfallFile(tempStr, dom, ss.rain, par);
+        tempStr = fNameIn + "rainfall.input";
+        ierr[2] = readRainfallFile(tempStr, dom, ss.rain, par);
 
-    #ifdef _DEV_RAIN_
-        if (par.masterproc)
-          {
-    	int dim = ss.rain.nx * ss.rain.ny;
-    	std::cerr << BDASH "rainfall partititioned in x-direction: "  << ss.rain.nx << "\n";
-    	std::cerr << BDASH "rainfall partititioned in y-direction: "  << ss.rain.ny << "\n";
+        #ifdef _DEV_RAIN_
+            if (par.masterproc)
+              {
+        	int dim = ss.rain.nx * ss.rain.ny;
+        	std::cerr << BDASH "rainfall partititioned in x-direction: "  << ss.rain.nx << "\n";
+        	std::cerr << BDASH "rainfall partititioned in y-direction: "  << ss.rain.ny << "\n";
 
-    	int t = 0;
-    	int count = 0;
-    	for (int i = 0; i < dim * ss.rain.np; i ++)
-    	  {
-    	    std::cerr << BDASH "rainfall intensity (" << (t % dim) << ") nr. " << count << ": " << ss.rain.value(i) << "\n";
-    	    t ++;
-    	    if ((t % dim) == 0)
-    	      count ++;
-    	  }
-          }
-    #endif
+        	int t = 0;
+        	int count = 0;
+        	for (int i = 0; i < dim * ss.rain.np; i ++)
+        	  {
+        	    std::cerr << BDASH "rainfall intensity (" << (t % dim) << ") nr. " << count << ": " << ss.rain.value(i) << "\n";
+        	    t ++;
+        	    if ((t % dim) == 0)
+        	      count ++;
+        	  }
+              }
+        #endif
 
-    tempStr = fNameIn + "extbc.input";
-    ierr[3] = readExtBCFile(tempStr, dom, ebc, par, state);
+        tempStr = fNameIn + "extbc.input";
+        ierr[3] = readExtBCFile(tempStr, dom, ebc, par, state);
 
-    tempStr = fNameIn + "infiltration.input";
-    ierr[4] = readInfiltrationFile(tempStr, dom, ss.inf, par);
+        tempStr = fNameIn + "infiltration.input";
+        ierr[4] = readInfiltrationFile(tempStr, dom, ss.inf, par);
 
-    tempStr = fNameIn + "infiltrationMap.input";
-    ierr[5] = readInfiltrationMap(tempStr, dom, ss.inf, par);
+        tempStr = fNameIn + "infiltrationMap.input";
+        ierr[5] = readInfiltrationMap(tempStr, dom, ss.inf, par);
 
-    tempStr = fNameIn + "evaporation.input";
-    ierr[6] = readEvaporationFile(tempStr, dom, ss.evap, par);
+        for (int i = 0; i < Nfiles; i++){
+          if (!ierr[i])	return 0;
+        }
+        #endif
 
-    for (int i = 0; i < Nfiles; i++){
-      if (!ierr[i])	return 0;
-    }
     return 1;
+
   }
 
   int readParamsFile(std::string fNameIn, Domain &dom, Parallel &par, FileIO &io) {
@@ -217,6 +218,10 @@ public:
       return 0;
 		}
     }
+
+    // Test to make sure all values were initialized
+    //
+
     if (dom.simLength == -999) { if (par.masterproc) std::cerr << RERROR "key " << "simLength" << " not set.\n"; exit(-1); }
     if (dom.cfl       == -999) { if (par.masterproc) std::cerr << RERROR "key " << "cfl"       << " not set.\n"; exit(-1); }
     if (par.nproc_x   == -999) { if (par.masterproc) std::cerr << RERROR "key " << "parNx"     << " not set.\n"; exit(-1); }
@@ -338,7 +343,7 @@ public:
 		return 1;
   }
 
-  int readRoughnessFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+  int readRoughnessFile(std::string fNameIn, Domain const &dom, State &state, Parallel &par) {
 
 		int found = readRasterField(fNameIn, dom, par, state.roughness);
 
@@ -374,7 +379,7 @@ public:
 
 
 
-	int readHiniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+	int readHiniFile(std::string fNameIn, Domain const &dom, State &state, Parallel &par) {
 
 		int found = readRasterField(fNameIn, dom, par, state.h);
 
@@ -406,7 +411,7 @@ public:
 	}
 
 
-	int readUiniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+	int readUiniFile(std::string fNameIn, Domain const &dom, State &state, Parallel &par) {
 
 		int found;
 		const real constVel=0.0;
@@ -436,7 +441,7 @@ public:
 
 	}
 
-	int readViniFile(std::string fNameIn, Domain &dom, State &state, Parallel &par) {
+	int readViniFile(std::string fNameIn, Domain const &dom, State &state, Parallel &par) {
 
 		int found;
 		const real constVel=0.0;
@@ -637,6 +642,9 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
   /* Reads rainfall data file */
   inline int readRainfallFile (std::string fNameIn, Domain &dom, TimeSeries &rain, Parallel &par)
   {
+	#if SERGHEI_DEBUG_WORKFLOW
+  	  std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    #endif
 
     // TODO modify this reader to use a parsing strategy
 
@@ -788,91 +796,6 @@ int readInfiltrationFile(std::string fNameIn, Domain &dom, InfiltrationModel &in
 }
 
 
-
-/* Reads evaporation data file */
-inline int readEvaporationFile (std::string fNameIn, Domain &dom, TimeSeries &evap, Parallel &par)  {
-
-    std::ifstream fInStream (fNameIn);
-    std::string line;
-    std::string tunits;
-    std::string runits;
-    real tfactor;
-    real rfactor;
-    int isok = 0; // flag to check if procedure completed as expected
-
-    if (fInStream.is_open ()){
-        dom.isEvap = 1;
-        evap.timeIndex = 0;
-        fInStream.ignore (256, ' ');
-        fInStream >> tunits;
-        fInStream.ignore (256, ' ');
-        fInStream >> runits;
-        fInStream.ignore (256, ' ');
-        fInStream >> evap.np;
-        fInStream.ignore (256, ' ');
-        fInStream >> evap.nx;
-        fInStream.ignore (256, ' ');
-        fInStream >> evap.ny;
-        evap.time  = realArr ("evaptime", evap.np);
-        evap.value = realArr ("evap",     evap.np);
-        // ---------------------------------------------------------------------------
-        // internally, the entire solver uses meters and seconds,
-        // therefore, everything needs to be converted
-        // ---------------------------------------------------------------------------
-        if(!tunits.compare ("h")){
-            tfactor = 3600.0;  // hours to seconds
-            isok = 1;
-        }
-        if(!tunits.compare ("s")){
-            tfactor = 1.0;
-            isok = 1;
-        }
-        if(!isok){
-            if(par.masterproc){
-                std::cerr << RERROR "Invalid time units specified in evaporation file" << std::endl;
-                return 0;
-            }
-        }
-        isok = 0;
-        if (!runits.compare ("mm/h")) {
-            rfactor = 0.001 / 3600.0; // mm/h to m/s
-            isok = 1;
-        }
-        if (!runits.compare ("mm/s")){
-            rfactor = 0.001; // mm/s to m/s
-            isok = 1;
-        }
-        if (!isok){
-            if(par.masterproc){
-                std::cerr << RERROR "Invalid evaporation units specified in rainfall file" << std::endl;
-                return 0;
-            }
-        }
-        for (int i = 0; i < evap.np; i++){
-            if (!fInStream.fail () && !fInStream.eof ()){
-                fInStream >> evap.time (i);
-                evap.time (i) *= tfactor;
-                fInStream >> evap.value (i);
-                evap.value (i) *= rfactor;
-            }
-            else{
-                if(par.masterproc){
-                    std::cerr << RERROR "Error reading evaporation file\n";
-                    return 0;
-                }
-            }
-        }
-        fInStream.close();
-    }
-    else    {
-        dom.isEvap = 0;
-    }
-    if (par.masterproc) std::cerr << GOK "Evaporation set\n";
-    return 1;
-}
-
-
-
   int readExtBCFile(std::string fNameIn, Domain &dom, ExternalBoundaries &ebc, Parallel &par, State &state) {
 		#if SERGHEI_DEBUG_WORKFLOW
   	  std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
@@ -888,17 +811,6 @@ inline int readEvaporationFile (std::string fNameIn, Domain &dom, TimeSeries &ev
 
     int nPoly;
 
-
-	//set domain boundaries
-	dom.iE=0;
-	dom.iW=0;
-	dom.iN=0;
-	dom.iS=0;
-
-	if(par.myrank % par.nproc_x ==0){dom.iW=1;} //west boundary of the full domain
-	if(par.myrank % par.nproc_x ==par.nproc_x-1){dom.iE=1;} //east boundary of the full domain
-	if(par.myrank / par.nproc_x ==0){dom.iN=1;} //north boundary of the full domain
-	if(par.myrank / par.nproc_x ==par.nproc_y-1){dom.iS=1;} //south boundary of the full domain
 
 
     dir = fNameIn.substr(0, fNameIn.length() - 11); // 11 chars equivalent to "extbc.input" to get the dir
@@ -1070,7 +982,6 @@ inline int readEvaporationFile (std::string fNameIn, Domain &dom, TimeSeries &ev
 						if (ndata > 0){
 							ebc.extbc[k].hydrograph.initialise(ndata);
 						}
-                        printf(" number of data = %d\n",ndata);
 						for(int i=0; i<ndata; i++) {
 							if (!fHydro.fail() && !fHydro.eof()) {
 								fHydro >> ebc.extbc[k].hydrograph.time(i) >> ebc.extbc[k].hydrograph.value(i);
@@ -1143,6 +1054,9 @@ inline int readEvaporationFile (std::string fNameIn, Domain &dom, TimeSeries &ev
 
 
   int readSWFile(std::string fNameIn, Domain &dom, Parallel &par, State &state, std::string fDirIn, FileIO &io){
+	#if SERGHEI_DEBUG_WORKFLOW
+  	  std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
+    	#endif
     std::ifstream fInStream(fNameIn);
     std::string line;
     ParserLine pline;
@@ -1235,7 +1149,7 @@ inline int readEvaporationFile (std::string fNameIn, Domain &dom, TimeSeries &ev
 
     if(!checkValidOption(sw.initialMode, sw.initialModes)){
 	 	if(par.masterproc){
-      std::cerr << RERROR "Invalid initial SW mode. Pleese correct sw.input" << std::endl;
+      std::cerr << RERROR "Invalid initial SW mode. Please correct sw.input" << std::endl;
       return 0;
 		}
     }
@@ -1250,9 +1164,35 @@ inline int readEvaporationFile (std::string fNameIn, Domain &dom, TimeSeries &ev
     }
 		#if SERGHEI_INPUT_NETCDF
     else if(!sw.initialMode.compare("netcdf")){
-      if(!io.readNetCDFvariable(par,dom,state,io.ncin,"h")) return 0;
-      if(!io.readNetCDFvariable(par,dom,state,io.ncin,"u")) return 0;
-      if(!io.readNetCDFvariable(par,dom,state,io.ncin,"v")) return 0;
+      int varfound=1;
+      varfound = io.readNetCDFvariable(par,dom,state,io.ncin,"h");
+      // if variable not found, set to zero (nothing needs to be done, as variables are initialised to zero at allocation)
+      if(varfound == NC_ENOTVAR && par.masterproc) std::cout << YEXC << "Water depth not found in NetCDF input file. Domain will be set dry" << std::endl;
+      if(!varfound) return 0;
+
+      varfound = io.readNetCDFvariable(par,dom,state,io.ncin,"u");
+      if(varfound == NC_ENOTVAR && par.masterproc) std::cout << YEXC << "x-velocity (u) not found in NetCDF input file. u will be set to zero" << std::endl;
+      if(!varfound) return 0;
+      
+      varfound = io.readNetCDFvariable(par,dom,state,io.ncin,"v");
+      if(varfound == NC_ENOTVAR && par.masterproc) std::cout << YEXC << "y-velocity (v) not found in NetCDF input file. v will be set to zero" << std::endl;
+      if(!varfound) return 0;
+
+      int err;
+		  Kokkos::parallel_reduce("validate_init", dom.nCell , KOKKOS_LAMBDA (int iGlob, int &hzero) {
+        int ii = dom.getIndex(iGlob);
+        hzero=0;
+        if(state.isnodata(ii)){
+          state.h(ii) = state.hu(ii) = state.hv(ii) = 0.;
+        }
+        else{
+          if(state.h(ii) < 0.) hzero++;  
+        }
+		  }, Kokkos::Sum<int>(err));
+      if(err){
+        std::cerr << RERROR << "There are " << err << " cells with negative depths in initial condition in NetCDF file" << std::endl;
+        return 0;
+      }
     }
 		#endif
     else{
@@ -1302,8 +1242,11 @@ inline int readEvaporationFile (std::string fNameIn, Domain &dom, TimeSeries &ev
 		 		return 0;
 		 }
 	}
+
 	std::cerr << GOK "Output folder created\n";
+
 	return 1;
+
   }
 
 
@@ -1322,8 +1265,9 @@ inline int readEvaporationFile (std::string fNameIn, Domain &dom, TimeSeries &ev
     else if ( !strcmp(strloc.c_str(),"BIN"  ) ) { io.outFormat  = OUT_BIN ; }
     else  {
 	 	if(par.masterproc){
-          std::cerr << RERROR "unrecognized outFormat " << strloc.c_str() << " in file " << fNameIn << "\n";
-          exit(-1);
+
+      std::cerr << RERROR "unrecognized outFormat " << strloc.c_str() << " in file " << fNameIn << "\n";
+      exit(-1);
 		}
     }
   }
@@ -1341,14 +1285,14 @@ inline int readEvaporationFile (std::string fNameIn, Domain &dom, TimeSeries &ev
     else if ( !strcmp(strloc.c_str(),"TRANSMISSIVE"  ) ) { dom.BCtype  = SWE_BC_TRANSMISSIVE ; }
     else  {
 	 	if(par.masterproc){
-          std::cerr << RERROR "unrecognized BCtype " << strloc.c_str() << " in file " << fNameIn << "\n";
-          exit(-1);
+      std::cerr << RERROR "unrecognized BCtype " << strloc.c_str() << " in file " << fNameIn << "\n";
+      exit(-1);
 		}
     }
   }
 
 
-  int readInfiltrationMap(std::string fNameIn, Domain &dom, InfiltrationModel &inf, Parallel &par) {
+  int readInfiltrationMap(std::string fNameIn, Domain const &dom, InfiltrationModel &inf, Parallel &par) {
 		#if SERGHEI_DEBUG_INFILTRATION
 	    std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "inf.Model = " << inf.model << "\tinf.nLabels = " << inf.nLabels << std::endl;
 		#endif

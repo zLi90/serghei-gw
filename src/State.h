@@ -18,46 +18,6 @@ typedef struct{
   real z=0;
 } swState;
 
-// https://stackoverflow.com/questions/14712837/is-mpi-allreduce-on-a-structure-with-fields-of-the-same-type-portable
-// define an MPI structure
-/*
-void defineMPIswState(MPI_Datatype *tstype) {
-    const int count = 4;
-    int          blocklens[count];
-    MPI_Datatype types[count];
-    MPI_Aint     disps[count];
-
-    for (int i=0; i < count; i++) {
-        types[i] = SERGHEI_MPI_REAL;
-        blocklens[i] = 1;
-    }
-
-    disps[0] = offsetof(swState,h);
-    disps[1] = offsetof(swState,hu);
-    disps[2] = offsetof(swState,hv);
-    disps[3] = offsetof(swState,z);
-
-    MPI_Type_create_struct(count, blocklens, disps, types, tstype);
-    MPI_Type_commit(tstype);
-}
-
-// define a reduction operation
-void MPISUM_swState(void *in, void *inout, int *len, MPI_Datatype *type){
-    // ignore type, just trust that it's our struct type
-
-    swState *invals    = (swState*) in;
-    swState *inoutvals = (swState*) inout;
-
-    for (int i=0; i<*len; i++) {
-      inoutvals[i].h  += invals[i].h;
-      inoutvals[i].hu += invals[i].hu;
-      inoutvals[i].hv += invals[i].hv;
-      inoutvals[i].z  += invals[i].hv;
-    }
-    return;
-}
-*/
-
 
 
 class State {
@@ -104,6 +64,7 @@ public:
     dsw0 			= realArr( "dsw0" , 3*dom.nCellMem );
     dsw1 			= realArr( "dsw1" , 3*dom.nCellMem );
     qss 				= realArr( "qss" , dom.nCell );
+
     #if SERGHEI_MAXFLOOD
       hMax = realArr("hMax",dom.nCellMem);
       momentumMax = realArr("momMax",dom.nCellMem);
@@ -116,6 +77,17 @@ public:
         time_hMax(ii)=0;
       });
     #endif
+
+    Kokkos::deep_copy(h, 0);
+    Kokkos::deep_copy(hu, 0);
+    Kokkos::deep_copy(hv, 0);
+    Kokkos::deep_copy(z, 0);
+    Kokkos::deep_copy(roughness, 0);
+    Kokkos::deep_copy(isBound, 0);
+    Kokkos::deep_copy(isnodata, false);
+    Kokkos::deep_copy(dsw0, 0);
+    Kokkos::deep_copy(dsw1, 0);
+	if(dom.id==0) std::cout << GOK << "State allocated and initialised" << std::endl;
   }
 
   inline void filterDomain(const Domain &dom){

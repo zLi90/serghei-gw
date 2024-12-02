@@ -4,8 +4,6 @@
 #include "define.h"
 #include "mpi.h"
 #include "Indexing.h"
-// #include "BC.h"
-// #include "SourceSink.h"
 
 class Exchange {
 
@@ -31,20 +29,32 @@ protected:
   realArr haloRecvBufW;
   realArr haloRecvBufE;
 
+  Kokkos::Timer timerExchange;
+  Kokkos::Timer timerHalo;
+
 public:
-  real MPItime=0;
-  real exchangeTime=0;
 
   inline void allocate(Domain &dom) {
 	// haloSendBuf* and haloRecvBuf* arrays are 1D containers (arrays) which should be able to store all state variables, for the exchanging band
-    haloSendBufS = realArr("haloSendBufS",maxPack*haloc*dom.nx);
-    haloSendBufN = realArr("haloSendBufN",maxPack*haloc*dom.nx);
-    haloSendBufW = realArr("haloSendBufW",maxPack*dom.ny*haloc);
-    haloSendBufE = realArr("haloSendBufE",maxPack*dom.ny*haloc);
-    haloRecvBufS = realArr("haloRecvBufS",maxPack*haloc*dom.nx);
-    haloRecvBufN = realArr("haloRecvBufN",maxPack*haloc*dom.nx);
-    haloRecvBufW = realArr("haloRecvBufW",maxPack*dom.ny*haloc);
-    haloRecvBufE = realArr("haloRecvBufE",maxPack*dom.ny*haloc);
+    haloSendBufS = realArr("haloSendBufS",maxPack*hc*dom.nx);
+    haloSendBufN = realArr("haloSendBufN",maxPack*hc*dom.nx);
+    haloSendBufW = realArr("haloSendBufW",maxPack*dom.ny*hc);
+    haloSendBufE = realArr("haloSendBufE",maxPack*dom.ny*hc);
+    haloRecvBufS = realArr("haloRecvBufS",maxPack*hc*dom.nx);
+    haloRecvBufN = realArr("haloRecvBufN",maxPack*hc*dom.nx);
+    haloRecvBufW = realArr("haloRecvBufW",maxPack*dom.ny*hc);
+    haloRecvBufE = realArr("haloRecvBufE",maxPack*dom.ny*hc);
+    // initialisation is not necessary
+    /*
+    Kokkos::deep_copy(haloSendBufS,0.);
+    Kokkos::deep_copy(haloSendBufN,0.);
+    Kokkos::deep_copy(haloSendBufW,0.);
+    Kokkos::deep_copy(haloSendBufE,0.);
+    Kokkos::deep_copy(haloRecvBufS,0.);
+    Kokkos::deep_copy(haloRecvBufN,0.);
+    Kokkos::deep_copy(haloRecvBufW,0.);
+    Kokkos::deep_copy(haloRecvBufE,0.);
+    */
   }
 
 
@@ -56,11 +66,11 @@ public:
 	// packs state variable a into haloSendBuf arrays
   inline void haloPack_x(Domain &dom, realArr &a) {
     haloPack_x_ext(dom, a, haloSendBufW, haloSendBufE, nPack);
-    nPack = nPack + 1;		// to keep track of how many variable are getting packed
+    nPack = nPack + 1;		// to keep track of how many variable are getting packed 
   }
   inline void haloPack_x_ext(Domain &dom, realArr &a, realArr &haloSendBufW, realArr &haloSendBufE, int const nPack) {
 	// span the x-halo columns
-    Kokkos::parallel_for("haloPack_x_span", dom.ny*haloc , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for("haloPack_x_span", dom.ny*hc , KOKKOS_LAMBDA (int iGlob) {
 		int rx,ry;
 		int nGlob = dom.ny*hc;
 	 	unpackIndicesUniformGrid(iGlob,dom.ny,hc,ry,rx);
@@ -74,11 +84,11 @@ public:
 
   inline void haloPack_y(Domain &dom, realArr &a) {
     haloPack_y_ext(dom, a, haloSendBufS, haloSendBufN, nPack);
-    nPack = nPack + 1;       // to keep track of how many variable are getting packed
+    nPack = nPack + 1;       // to keep track of how many variable are getting packed 
   }
   inline void haloPack_y_ext(Domain &dom, realArr &a, realArr &haloSendBufS, realArr &haloSendBufN, int const nPack) {
 	  	// span the y-halo rows
-    Kokkos::parallel_for("haloPack_y_span", haloc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for("haloPack_y_span", hc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
 	 	int rx,ry;
 		int nGlob = hc*dom.nx;
 		unpackIndicesUniformGrid(iGlob,hc,dom.nx,ry,rx);
@@ -96,7 +106,7 @@ public:
     nUnpack = nUnpack + 1;
   }
   inline void haloUnpack_x_ext(Domain &dom, realArr &a, realArr &haloRecvBufW, realArr &haloRecvBufE, int const nUnpack) {
-    Kokkos::parallel_for("haloUnpack_x_span", dom.ny*haloc , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for("haloUnpack_x_span", dom.ny*hc , KOKKOS_LAMBDA (int iGlob) {
 	 	int rx,ry;
 	 	int nGlob = dom.ny*hc;
 		unpackIndicesUniformGrid(iGlob,dom.ny,hc,ry,rx);
@@ -114,7 +124,7 @@ public:
     nUnpack = nUnpack + 1;
   }
   inline void haloUnpack_y_ext(Domain &dom, realArr &a, realArr &haloRecvBufS, realArr &haloRecvBufN, int const nUnpack) {
-    Kokkos::parallel_for( "haloUnpack_y_span",haloc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
+    Kokkos::parallel_for( "haloUnpack_y_span",hc*dom.nx , KOKKOS_LAMBDA (int iGlob) {
 		int rx,ry;
 		int nGlob = hc*dom.nx;
 		unpackIndicesUniformGrid(iGlob,hc,dom.nx,ry,rx);
@@ -131,6 +141,7 @@ public:
 	#if SERGHEI_DEBUG_MPI
 	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 	#endif
+		timerExchange.reset();
     	int ierr;
 		ierr=1;
 
@@ -138,40 +149,40 @@ public:
     	if (par.nproc_x > 1) {
       	Kokkos::fence();	// ensure no kernels are running, we need everything available in host memory
       	//Pre-post the receives
-      	ierr = MPI_Irecv( haloRecvBufW.data() , nPack*dom.ny*haloc , SERGHEI_MPI_REAL , par.neigh(1,0) , 0 , MPI_COMM_WORLD , &rReq[0] );
-      	ierr = MPI_Irecv( haloRecvBufE.data() , nPack*dom.ny*haloc , SERGHEI_MPI_REAL , par.neigh(1,2) , 1 , MPI_COMM_WORLD , &rReq[1] );
+      	ierr = MPI_Irecv( haloRecvBufW.data() , nPack*dom.ny*hc , SERGHEI_MPI_REAL , par.neigh(1,0) , 0 , MPI_COMM_WORLD , &rReq[0] );
+      	ierr = MPI_Irecv( haloRecvBufE.data() , nPack*dom.ny*hc , SERGHEI_MPI_REAL , par.neigh(1,2) , 1 , MPI_COMM_WORLD , &rReq[1] );
 
      	//Send the data
-      	ierr = MPI_Isend( haloSendBufW.data() , nPack*dom.ny*haloc , SERGHEI_MPI_REAL , par.neigh(1,0) , 1 , MPI_COMM_WORLD , &sReq[0] );
-      	ierr = MPI_Isend( haloSendBufE.data() , nPack*dom.ny*haloc , SERGHEI_MPI_REAL , par.neigh(1,2) , 0 , MPI_COMM_WORLD , &sReq[1] );
+      	ierr = MPI_Isend( haloSendBufW.data() , nPack*dom.ny*hc , SERGHEI_MPI_REAL , par.neigh(1,0) , 1 , MPI_COMM_WORLD , &sReq[0] );
+      	ierr = MPI_Isend( haloSendBufE.data() , nPack*dom.ny*hc , SERGHEI_MPI_REAL , par.neigh(1,2) , 0 , MPI_COMM_WORLD , &sReq[1] );
 
       	//Wait for the sends and receives to finish
       	ierr = MPI_Waitall(2, sReq, sStat);
       	ierr = MPI_Waitall(2, rReq, rStat);
-
+		
     	}
-
+		
 		// the outer boundaries are assumed to be periodic by default in the previous exchange
 		// we now need to manage boundary conditions (halo) for outer domain
-
+				
 		if(dom.BCtype==BC_TRANSMISSIVE){
 			if(dom.iW){
-				haloTransmissive(nPack*dom.ny*haloc, haloSendBufW, haloRecvBufW);
+				haloTransmissive(nPack*dom.ny*hc, haloSendBufW, haloRecvBufW);
 			}
 			if(dom.iE){
-				haloTransmissive(nPack*dom.ny*haloc, haloSendBufE, haloRecvBufE);
+				haloTransmissive(nPack*dom.ny*hc, haloSendBufE, haloRecvBufE);
 			}
 		}
 		if(dom.BCtype==BC_REFLECTIVE){
 			if(dom.iW){
-				haloReflective(nPack*dom.ny*haloc, haloRecvBufW);
+				haloReflective(nPack*dom.ny*hc, haloRecvBufW);
 			}
 			if(dom.iE){
-				haloReflective(nPack*dom.ny*haloc, haloRecvBufE);
+				haloReflective(nPack*dom.ny*hc, haloRecvBufE);
 			}
 		}
 
-
+		dom.timers.exchange += timerExchange.seconds();
 		return ierr;
 
 	}
@@ -181,46 +192,48 @@ public:
 	#if SERGHEI_DEBUG_MPI
 	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 	#endif
+	timerExchange.reset();
    	int ierr;
 		ierr=1;
-
+	 
     	if (par.nproc_y > 1) {
       	Kokkos::fence();
 
 			//Pre-post the receives
-			ierr = MPI_Irecv( haloRecvBufN.data() , nPack*haloc*dom.nx , SERGHEI_MPI_REAL , par.neigh(0,1) , 0 , MPI_COMM_WORLD , &rReq[0] );
-			ierr = MPI_Irecv( haloRecvBufS.data() , nPack*haloc*dom.nx , SERGHEI_MPI_REAL , par.neigh(2,1) , 1 , MPI_COMM_WORLD , &rReq[1] );
+			ierr = MPI_Irecv( haloRecvBufN.data() , nPack*hc*dom.nx , SERGHEI_MPI_REAL , par.neigh(0,1) , 0 , MPI_COMM_WORLD , &rReq[0] );
+			ierr = MPI_Irecv( haloRecvBufS.data() , nPack*hc*dom.nx , SERGHEI_MPI_REAL , par.neigh(2,1) , 1 , MPI_COMM_WORLD , &rReq[1] );
 
 			//Send the data
-			ierr = MPI_Isend( haloSendBufN.data() , nPack*haloc*dom.nx , SERGHEI_MPI_REAL , par.neigh(0,1) , 1 , MPI_COMM_WORLD , &sReq[0] );
-			ierr = MPI_Isend( haloSendBufS.data() , nPack*haloc*dom.nx , SERGHEI_MPI_REAL , par.neigh(2,1) , 0 , MPI_COMM_WORLD , &sReq[1] );
+			ierr = MPI_Isend( haloSendBufN.data() , nPack*hc*dom.nx , SERGHEI_MPI_REAL , par.neigh(0,1) , 1 , MPI_COMM_WORLD , &sReq[0] );
+			ierr = MPI_Isend( haloSendBufS.data() , nPack*hc*dom.nx , SERGHEI_MPI_REAL , par.neigh(2,1) , 0 , MPI_COMM_WORLD , &sReq[1] );
 
 			//Wait for the sends and receives to finish
 			ierr = MPI_Waitall(2, sReq, sStat);
 			ierr = MPI_Waitall(2, rReq, rStat);
-
+		
     	}
 
 		// the outer boundaries are assumed to be periodic by default in the previous exchange
 		// we now need to manage boundary conditions (halo) for outer domain
-
+		
 		if(dom.BCtype==BC_TRANSMISSIVE){
 			if(dom.iN){
-				haloTransmissive(nPack*haloc*dom.nx, haloSendBufN, haloRecvBufN);
+				haloTransmissive(nPack*hc*dom.nx, haloSendBufN, haloRecvBufN);
 			}
 			if(dom.iS){
-				haloTransmissive(nPack*haloc*dom.nx, haloSendBufS, haloRecvBufS);
+				haloTransmissive(nPack*hc*dom.nx, haloSendBufS, haloRecvBufS);
 			}
 		}
 		if(dom.BCtype==BC_REFLECTIVE){
 			if(dom.iN){
-				haloReflective(nPack*haloc*dom.nx, haloRecvBufN);
+				haloReflective(nPack*hc*dom.nx, haloRecvBufN);
 			}
 			if(dom.iS){
-				haloReflective(nPack*haloc*dom.nx, haloRecvBufS);
+				haloReflective(nPack*hc*dom.nx, haloRecvBufS);
 			}
 		}
 
+    	dom.timers.exchange += timerExchange.seconds();
 		return ierr;
 	}
 
@@ -278,7 +291,7 @@ public:
 	#if SERGHEI_DEBUG_MPI
 	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 	#endif
-		Kokkos::Timer timer;	// only to keep track of time
+		timerHalo.reset();	// only to keep track of time
 
 		 // Exchange depth in x-direction
 		 exch.haloInit      ();
@@ -291,7 +304,7 @@ public:
 		 exch.haloPack_y   (dom, state.h);		// re-orders the entries in state.h array which are on the north/south halo regions into data packs which will be sent north and south
 		 exch.haloExchange_y(dom, par);			// MPI send/receives the data packs, and handles boundaries
 		 exch.haloUnpack_y (dom, state.h);		// re-order the updated data packs back into the state.h array
-    dom.timers.exchange += timer.seconds();
+    dom.timers.halo += timerHalo.seconds();
 	}
 
 	// high level wrapper for momentum
@@ -300,7 +313,7 @@ public:
 	std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 	#endif
 
-		Kokkos::Timer timer;
+		timerHalo.reset();
 
 		 // Exchange momentum in x-direction
 		 exch.haloInit      ();
@@ -318,7 +331,7 @@ public:
 		 exch.haloUnpack_y (dom, state.hu);
 		 exch.haloUnpack_y (dom, state.hv);
 
-		 dom.timers.exchange += timer.seconds();
+		 dom.timers.halo += timerHalo.seconds();
 	}
 
 

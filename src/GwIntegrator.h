@@ -12,32 +12,32 @@
 class GwIntegrator	{
 
 	Kokkos::Timer timer;
-	
+
 	public:
 		real Vtot, Vtot_glob;
 		real Vexch, Vexch_glob;
-		
+
 		SourceSink *ss;
 		GwState *gw;
 		GwDomain *gdom;
 		std::vector<GwBC>* gwbc;
 		std::vector<GwSS>* gwss;
-		
+
 		int ncellsBC, ncellsBC_glob, ncellsIT, ncellsIT_glob;
 		real QinBC, QoutBC, QinSS, QoutSS;
 		real QinBC_glob, QoutBC_glob, QinSS_glob, QoutSS_glob;
 
-		
+
 		void initialize(GwState &gw_, GwDomain &gdom_, std::vector<GwBC> &gwbc_, std::vector<GwSS> &gwss_){
 			gw = &gw_;
 			gdom = &gdom_;
 			gwss = &gwss_;
 			gwbc = &gwbc_;
 		}
-		
+
 		void integrate(GwState const &gw, GwDomain const &gdom, std::vector<GwBC> &gwbc, std::vector<GwSS> &gwss)	{
 	 		int ierr=0;
-	 		// get total volume 
+	 		// get total volume
 	 		Vtot = 0;
 	  		Kokkos::parallel_reduce(gdom.nCell , KOKKOS_LAMBDA (int idx, real &tmp) {
 	  			int ii, jj, kk, iGlob;
@@ -49,21 +49,21 @@ class GwIntegrator	{
 			Vtot_glob = 0.0;
 			ierr=MPI_Allreduce(&Vtot, &Vtot_glob, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 			MPI_Barrier(MPI_COMM_WORLD);
-			// get surface-subsurface exchange volume
+			// get surface-subsurface exchange rate [m3/s]
 			Vexch = 0;
 			#if SERGHEI_SWE_MODEL
 			Kokkos::parallel_reduce(gdom.ny*gdom.nx, KOKKOS_LAMBDA (int idx, real &tmp) {
 		        int ii, jj, iGlob;
 		        unpackIndicesUniformGrid(idx, gdom.ny, gdom.nx, jj, ii);
 		        iGlob = jj*gdom.nx + ii;
-		        tmp += gw.qss(iGlob) * gdom.dx * gdom.dx * gdom.dt;
+		        tmp += gw.qss(iGlob) * gdom.dx * gdom.dx;
 			} , Kokkos::Sum<real>(Vexch) );
 			Kokkos::fence();
 			#endif
 			Vexch_glob = 0.0;
 			ierr=MPI_Allreduce(&Vexch, &Vexch_glob, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 			MPI_Barrier(MPI_COMM_WORLD);
-			// boundary flow 
+			// boundary flow
 			QinBC = 0.0;
 			QoutBC = 0.0;
 			for (int k = 0; k < gwbc.size(); k++) {
@@ -97,7 +97,7 @@ class GwIntegrator	{
 			ierr=MPI_Allreduce(&QoutSS, &QoutSS_glob, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 		    ierr=MPI_Allreduce(&ncellsIT, &ncellsIT_glob, 1, MPI_INT , MPI_SUM, MPI_COMM_WORLD);
 			MPI_Barrier(MPI_COMM_WORLD);
-		
+
 		}
 
 

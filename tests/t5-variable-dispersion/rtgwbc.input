@@ -1,0 +1,13 @@
+
+bccount : 2
+id : rttop
+direction : 6
+rtbctype : 2  
+bcvals : 10
+polygon : rtpolygontop.input
+//timeseries : conctime.input
+
+id : rtbottom
+direction : 5
+rtbctype : 9
+polygon : polygontop.input

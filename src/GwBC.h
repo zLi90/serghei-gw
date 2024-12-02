@@ -165,7 +165,9 @@ public:
         if (ncellsBC > 0 && onBoundary == 1) {
             real hbc;
 			// interpolate if time-series boundary value is read
-            if (bctype == SUB_BC_H_T || bctype == SUB_BC_WT_T) {hbc = interpolateLinear(ts, gdom.etime);}
+            if (bctype == SUB_BC_H_T || bctype == SUB_BC_WT_T) {
+				if (ts.nc == 1)	{hbc = interpolateLinear(ts, gdom.etime);}
+			}
             // zero gradient if Q BC is specified
             if (bctype == SUB_BC_Q_CONST || bctype == SUB_BC_Q_T || bctype == SUB_BC_FD)   {
                 Kokkos::parallel_for("gw_bc_h", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
@@ -199,13 +201,26 @@ public:
             }
             // Prescribed water table BC
             else if (bctype == SUB_BC_WT_T)  {
+
+            	findTimeBlock(ts, gdom.etime);
+  				int t_idx = ts.timeIndex;
+  				int t_next = t_idx + 1;
+  				if (t_idx == ts.np - 1) {t_next = t_idx;}
+
+  				//std::cout << t_idx << ", " << ts.np << ", " << ts.nc << "\n";
                 Kokkos::parallel_for("gw_bc_wt", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
                     int ivg, iGlob = bcells[ibc], iGhost = gcells[ibc];
-                    real wcs, wcr, alpha, n;
+                    real wcs, wcr, alpha, n, wtbc;
                     ivg = gw.soilID(iGlob) * gw.nVGparam;
                     wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
                     n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
-					gw.h(iGhost,1) = hbc - gdom.z(iGlob);
+					// interpolate cell-by-cell water table
+					if (ts.nc > 1)	{
+
+  						wtbc = ts.values(t_idx,ibc) + 
+  							(ts.values(t_next,ibc) - ts.values(t_idx,ibc))/(ts.time(t_next)-ts.time(t_idx))*(gdom.etime-ts.time(t_idx));
+					}
+					gw.h(iGhost,1) = wtbc - gdom.z(iGlob);
 					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr);
                 });
             }
@@ -381,8 +396,32 @@ public:
 							// rainfall
 							gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 							iGlobSW = jj*gdom.nxhc + ii;
+//! zzb 三段式蒸发模型
+// todo thetaf田间持水量
+// double thetaf =  0.3455;
+// if (kk == 1) {
+// 	if (gw.wc(iGlob,1) >= 0.65*thetaf) {
+// 		gw.q(iGhost,2) = bcvals(ibc);
+// 	}
+// 	else if (gw.wc(iGlob,1) < 0.65*thetaf && gw.wc(iGlob,1) >= 0.07) {
+// 		gw.q(iGhost,2) = bcvals(ibc)*((gw.wc(iGlob,1)-0.07)/(0.65*thetaf-0.07));
+// 	}
+// 	else {
+// 		gw.q(iGhost,2) = 0;
+// 	}
+
+// }							
 							gw.q(iGhost,2) = bcvals(ibc);
+
 							if (gdom.isRain)    {gw.q(iGhost,2) -= gdom.rainRate(iGlobSW);}
+//! zzb gwbc形式模拟蒸发比例，限制上边界水头为-1000
+// if (kk == 1) {
+// 	if (gw.h(iGlob,1)<-1000){
+// 		gw.h(iGlob,1)=-1000;
+// 	}
+// }	
+
+
 						}
 					});
 					break;
@@ -582,11 +621,38 @@ public:
 							gw.coef(idom,5) = 0.0;
 						}
 						else if (direction == 6)	{
+
+//! zzb 三段式蒸发模型
+// todo thetaf田间持水量0.3455对应饱和含水量0.36 
+// double thetaf =  0.3455;
+// if (kk == 1) {
+// 	if (gw.wc(iGlob,1) >= 0.65*thetaf) {
+// 		bcvals(ibc) = bcvals(ibc);
+// 		// std::cout << "111bcvals(ibc)"<<bcvals(ibc) << "\n";
+// 	}
+// 	else if (gw.wc(iGlob,1) < 0.65*thetaf && gw.wc(iGlob,1) >= 0.07) {
+// 		bcvals(ibc) = bcvals(ibc)*((gw.wc(iGlob,1)-0.07)/(0.65*thetaf-0.07));
+// 		// std::cout << "222bcvals(ibc)"<<bcvals(ibc) << "\n";
+// 	}
+// 	else {
+// 		bcvals(ibc) = 0;
+// 		// std::cout << "333bcvals(ibc)"<<bcvals(ibc) << "\n";
+// 	}
+
+// }								
 							gw.coef(idom,7) -= gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / gdom.dz(iGlob);
 							gw.coef(idom,7) -= gdom.dt * bcvals(ibc) / gdom.dz(iGlob);
 							// if (gdom.isRain)    {gw.coef(idom,7) += gdom.dt * gdom.rainRate(iGlobSW) / gdom.dz(iGlob);}
 							// if (gdom.isEvap)	{gw.coef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);}
 							gw.coef(idom,6) = 0.0;
+//! zzb gwbc形式模拟蒸发比例，限制上边界水头为-1000
+// if (kk == 1) {
+// 	if (gw.h(iGlob,1)<-1000){
+// 		gw.h(iGlob,1)=-1000;
+// 	}
+// }
+
+
 						}
 					});
 					break;

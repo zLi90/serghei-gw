@@ -90,7 +90,7 @@ public:
         }
 
         // 读取溶质物理化学反应相关参数
-        if (rt.ReactionModule == 1 || rt.ReactionModule == 2)
+        if (rt.ReactionModule == 1)
         {
             fNameIn = inFolder + "reaction.input";
             if (!readRTReactionFile(fNameIn, rt, par))
@@ -125,7 +125,7 @@ public:
         }
         Kokkos::parallel_for(
             gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) { 
-                rt.c(iGlob, 0) = rt.c(iGlob, 1);
+                rt.c(iGlob, 0) = rt.c(iGlob, 1); 
                 rt.c_solid(iGlob, 0) = rt.c_solid(iGlob, 1);
                 });
         gmpi.mpi_sendrecv(rt.c, gdom, par);
@@ -348,21 +348,16 @@ public:
     int readRTReactionFile(std::string fNameIn, RTState &rt, Parallel &par)
     {
         // Initialize all read-in values to -999
-        // rt.ReactionModule = -999;
-        rt.Kd = -999;
-        // rt.lambda = -999;
         rt.AdsorptionDesorptionModel = -999;
+        rt.Kd = -999;   
         rt.rho_b = -999;
         rt.Kf = -999;
         rt.Nf = -999;
-        rt.alpha_D = -999;
-        rt.beta_D = -999;
+        rt.Kl = -999;
+        rt.eta = -999;
         rt.beta = -999;
-        rt.f = -999;
         rt.lambda_1 = -999;
         rt.lambda_2 = -999;
-        rt.k1 = -999;
-        rt.k2 = -999;
         std::string strAux;
         // Read in colon-separated key: value file line by line
         std::ifstream fInStream(fNameIn);
@@ -410,22 +405,18 @@ public:
                         // std::cout << "---Nf: " << rt.Nf << std::endl; // 添加打印语句
                     }
 
-                    else if (!strcmp("alpha_D", pline.key.c_str()))
+                    else if (!strcmp("Kl", pline.key.c_str()))
                     {
-                        pline.value >> rt.alpha_D;
+                        pline.value >> rt.Kl;
                     }
 
-                    else if (!strcmp("beta_D", pline.key.c_str()))
+                    else if (!strcmp("eta", pline.key.c_str()))
                     {
-                        pline.value >> rt.beta_D;
+                        pline.value >> rt.eta;
                     }
                     else if (!strcmp("beta", pline.key.c_str()))
                     {
                         pline.value >> rt.beta;
-                    }
-                    else if (!strcmp("f", pline.key.c_str()))
-                    {
-                        pline.value >> rt.f;
                     }
                     else if (!strcmp("lambda_1", pline.key.c_str()))
                     {
@@ -434,15 +425,7 @@ public:
                     else if (!strcmp("lambda_2", pline.key.c_str()))
                     {
                         pline.value >> rt.lambda_2;
-                    }
-                    else if (!strcmp("k1", pline.key.c_str()))
-                    {
-                        pline.value >> rt.k1;
-                    }
-                    else if (!strcmp("k2", pline.key.c_str()))
-                    {
-                        pline.value >> rt.k2;
-                    }                     
+                    }                    
                 }
             }
         }
@@ -496,18 +479,18 @@ public:
                         {
                             std::cout << GOK "RTM AdsorptionDesorptionModel: Langmuir isothermal adsorption \n";
 
-                                if (rt.alpha_D == -999){
+                                if (rt.Kl == -999){
                                     if (par.masterproc)
                                         std::cerr << RERROR "key"
-                                                  << " alpha_D"
+                                                  << " Kl"
                                                   << " not set."
                                                   << std::endl;
                                     exit(-1);
                                 }                                   
-                                else if (rt.beta_D == -999){
+                                else if (rt.eta == -999){
                                     if (par.masterproc)
                                         std::cerr << RERROR "key"
-                                                  << "beta_D"
+                                                  << "eta"
                                                   << " not set."
                                                   << std::endl;
                                     exit(-1);
@@ -527,14 +510,6 @@ public:
                                                   << std::endl;
                                     exit(-1);
                                 }
-                                else if (rt.f == -999){
-                                    if (par.masterproc)
-                                        std::cerr << RERROR "key"
-                                                  << "f"
-                                                  << " not set."
-                                                  << std::endl;
-                                    exit(-1);
-                                } 
                                 else if (rt.rho_b == -999){
                                     if (par.masterproc)
                                         std::cerr << RERROR "key"
@@ -574,28 +549,9 @@ public:
                                                   << " not set."
                                                   << std::endl;
                                     exit(-1);
-                                }
-                                    
+                                }    
 
-                        } 
-                        if (rt.k1 == -999)
-                        {
-                                    if (par.masterproc)
-                                        std::cerr << RERROR "key"
-                                                  << "k1"
-                                                  << " not set."
-                                                  << std::endl;
-                                    exit(-1);
-                                }
-                        if (rt.k2 == -999)
-                        {
-                                    if (par.masterproc)
-                                        std::cerr << RERROR "key"
-                                                  << "k2"
-                                                  << " not set."
-                                                  << std::endl;
-                                    exit(-1);
-                                }                         
+                        }                        
                     // }
 
                     // if (!strcmp("Bd", pline.key.c_str()))
@@ -647,11 +603,12 @@ public:
         std::vector<std::string> polygonFile;
         std::vector<std::string> fullPathPoly;
         std::vector<std::string> tsFile, bcFile;
+        std::vector<int> hasbcfile;
         std::string line;
         PsLn pline;
         int nPoly, nPoly3D;
         dir = fNameIn.substr(0, fNameIn.length() - 12); // 12 chars equivalent to "rtgwbc.input" to get the dir
-        int bccount = 0, bccountFound = 0, ibc = -2, ndata = 0, hasbcfile;
+        int bccount = 0, bccountFound = 0, ibc = -2, ndata = 0; //hasbcfile;
         real val;
         // Read the gwbc.input file
         if (fInStream.is_open())
@@ -679,12 +636,13 @@ public:
                         fullPathPoly.resize(bccount);
                         tsFile.resize(bccount);
                         bcFile.resize(bccount);
+                        hasbcfile.resize(bccount);
                         ibc++; // ibc should be set to -1
                     }
                     else if (!strcmp("id", pline.key.c_str()))
                     {
                         ibc++; // 变为0,利用ibc作为边界添加不同id的索引，第一个id关键词为索引0，下一个id关键词为索引1
-                        hasbcfile = 0;
+                        hasbcfile[ibc] = 0;
                         if (bccount > 0 && ibc >= 0)
                         {
                             pline.value >> rtgbc.id[ibc];
@@ -746,8 +704,12 @@ public:
                     }
                     else if (!strcmp("bcfile", pline.key.c_str()) && ibc >= 0)
                     {
+
                         pline.value >> bcFile[ibc];
-                        hasbcfile = 1;
+
+
+                        hasbcfile[ibc] = 1;
+
                         if (bccount > 0)
                         {
                             if (ndata <= 0)
@@ -842,7 +804,6 @@ public:
             fPoly.close();
 
         } // end for read in of the kth polygon
-
         // Read time series boundary conditions
         for (int k = 0; k < tsFile.size(); k++)
         {
@@ -919,11 +880,16 @@ public:
                 case SUB_RT_BC_Cauchy_CONST:
                     readbc = 1;
                     break;
+                // case SUB_RT_BC_FD:
+                //     readbc = 0;
+                //     break;
                 }
             }
             // struct stat buffer;
-            if (hasbcfile && readbc && fbc.good())
+
+            if (hasbcfile[k] && readbc && fbc.good())
             {
+
                 // get total data size should be read
                 if (fbc.is_open())
                 {
@@ -949,6 +915,7 @@ public:
                                     {
                                         fbc >> rtgbc.rtgwbc[k].bcvals(idx);
                                         idx += 1;
+
                                     }
                                     else
                                     {
@@ -958,6 +925,7 @@ public:
                                             return 0;
                                         }
                                     }
+
                                 }
                             }
                         }
@@ -1122,7 +1090,7 @@ public:
             exit(-1);
         }     
 
-        if (rt.ReactionModule == 1 || rt.ReactionModule == 2) {
+        if (rt.ReactionModule == 1) {
                     if (rt.RT_Solid_initialMode == IC_REACTIVE_TRANSPORT_CON){
                             tempStr = "concen_solid.input";
                             readRt_Solid_ICFile(tempStr, inFolder, rt, gdom, par);
@@ -1217,7 +1185,7 @@ public:
                 iGlob = (hc + kk) * gdom.nxhc * gdom.nyhc + (hc + jj) * gdom.nxhc + ii + hc;
                 // get concentration
                 ii2 = kk * gdom.nx_glob * gdom.ny_glob + (par.j_beg + jj) * (gdom.nx_glob) + par.i_beg + ii;
-                rt.c(iGlob, 1) = tmpVar(ii2);               
+                rt.c(iGlob, 1) = tmpVar(ii2);
 
                 rt.c(iGlob, 0) = rt.c(iGlob, 1);
             }

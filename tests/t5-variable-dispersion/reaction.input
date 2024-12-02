@@ -1,0 +1,11 @@
+AdsorptionDesorptionModel : 3    // 1:Equilibrium-Linear sorption;2:Equilibrium-Nonlinear sorption,Freundlich;3:Equilibrium-Nonlinear sorption,Langmuir;4:Nonequilibrium
+rho_b : 1.5                    //Bulk density,[g/cm^3]
+Kd : 0.1                       //Distribution coefficient[L/g]
+Kf :  0.1                        //Freundlich equilibrium constant,[(μg/g)/(L/mg)^a]
+Nf :  1.1                        //Freundlich sorption exponent,Linear adsorption model when Nf=1,The bigger the value, the better the adsorption performance
+Kl : 0.1                    //Langmuir equilibrium constant,[L/mgL]
+eta : 2.3                   //Langmuir sorption capacity,[μg/g]
+lambda :  0                       //Radioactive decay coefficient
+beta : 	0		         //Nonequilibrium sorption model parameter,first-order mass transfer coefficient between the dissolved and sorbed phases, T^-1
+lambda_1 : 0		             //First-order reaction rate for the dissolved phase, T-1
+lambda_2 : 0    	             //First-order reaction rate for the sorbed (solid) phase, T-1

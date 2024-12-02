@@ -1,0 +1,12 @@
+bccount : 2
+
+id : bottom
+direction : 5
+bctype : 9
+polygon : polygontop.input
+
+id : rainfall
+direction : 6
+bctype : 6
+polygon : polygontop.input
+timeseries : rain.input

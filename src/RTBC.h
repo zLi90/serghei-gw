@@ -154,7 +154,7 @@ public:
 		}
 		else{
 			if(par.masterproc){
-				std::cerr << RERROR << "No boundary cells found for subsurface boundary with id '" << rtid << "'" << std::endl;
+				std::cerr << RERROR << "No boundary cells found for subsurface reaction_transport boundary with id '" << rtid << "'" << std::endl;
 			}
 			return 0;
 		}
@@ -177,14 +177,16 @@ public:
 			// interpolate if time-series boundary value is read
             if (rtbctype == SUB_RT_BC_Dirichlet_T ) {Conbc = interpolateLinear(ts, gdom.etime);}
             // zero gradient if Q BC is specified
-          //   if (bctype == SUB_RT_BC_Q_CONST || bctype == SUB_RT_BC_Q_T || bctype == SUB_RT_BC_FD)   {
-          //       Kokkos::parallel_for("gw_bc_h", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
-          //           int iGlob = bcells[ibc], iGhost = gcells[ibc];
-		// 			gw.h(iGhost,1) = gw.h(iGlob,1);
-          //       });
-          //   }
-			//一类边界 CONST or 二类边界 CONST or 三类边界CONST
-          else if (rtbctype == SUB_RT_BC_Dirichlet_CONST || rtbctype == SUB_RT_BC_Neumann_CONST || rtbctype == SUB_RT_BC_Cauchy_CONST){
+		  //20240617
+            if (rtbctype == SUB_RT_BC_Cauchy_CONST || rtbctype == SUB_RT_BC_Cauchy_T || rtbctype == SUB_RT_BC_FD)   {
+                Kokkos::parallel_for("rt_bc_c", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+                    int iGlob = bcells[ibc], iGhost = gcells[ibc], rtiGhost = rtgwcells[ibc];
+					rt.c(iGhost,1) = rt.c(iGlob,1);
+                });
+            }
+		//   20240617
+			//一类边界 CONST or 三类边界CONST
+          else if (rtbctype == SUB_RT_BC_Dirichlet_CONST ){
 				Kokkos::parallel_for("rt_bc_c", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
                     int iGlob = bcells[ibc], iGhost = gcells[ibc], rtiGhost = rtgwcells[ibc]; //20240510
                          rt.c(rtiGhost,1) = bcvals(ibc);
@@ -255,41 +257,65 @@ public:
 		else if (direction == 5 || direction == 6)	{onBoundary = 1;}
 
         if (ncellsBC > 0 && onBoundary == 1) {
-            real Neumannbc;
-            if (rtbctype == SUB_RT_BC_Neumann_T) {Neumannbc = interpolateLinear(ts, gdom.etime);}
+            real Cauchybc;
+            if (rtbctype == SUB_RT_BC_Cauchy_T) {Cauchybc = interpolateLinear(ts, gdom.etime);}
 	  	    switch (rtbctype) {
                 case SUB_RT_BC_Dirichlet_CONST:    
-                case SUB_RT_BC_Cauchy_CONST:   
+               //  case SUB_RT_BC_Cauchy_CONST:   
                 case SUB_RT_BC_Dirichlet_T:    
-                case SUB_RT_BC_Cauchy_T:
+               //  case SUB_RT_BC_Cauchy_T:
                     Kokkos::parallel_for("rt_bc_Dirichlet_const", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
                         int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc], iGhost = gcells[ibc], rtiGhost = rtgwcells[ibc]; //20240510
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
                         idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
 						iGlobSW = jj*gdom.nxhc + ii;
 						if (direction == 1)	{
-							// rt.RTcoef(idom,1) = rt.RTcoef(idom,1) * 2.0;//为什么要乘以2？
-							rt.RTcoef(idom,7) -= rt.RTcoef(idom,1) * rt.c(iGlob+1,1);
+							// rt.RTcoef(idom,1) = rt.RTcoef(idom,1) * 2.0;
+							// rt.RTcoef(idom,7) -= rt.RTcoef(idom,1) * rt.c(iGlob+1,1);
+							// rt.RTcoef(idom,1) = 0;
+
+							rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,0) * rt.c(iGlob+1,1);
+							rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
 						}
 						else if (direction == 2)	{
 							// rt.RTcoef(idom,2) = rt.RTcoef(idom,2) * 2.0;
-							rt.RTcoef(idom,7) -= rt.RTcoef(idom,2) * rt.c(iGlob-1,1);
+							// rt.RTcoef(idom,7) -= rt.RTcoef(idom,2) * rt.c(iGlob-1,1);
+							// rt.RTcoef(idom,2) = 0;
+
+							rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,0) * rt.c(iGlob-1,1);
+							rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
 						}
 						else if (direction == 3)	{
 							// rt.RTcoef(idom,3) = rt.RTcoef(idom,3) * 2.0;
-							rt.RTcoef(idom,7) -= rt.RTcoef(idom,3) * rt.c(iGlob-gdom.nxhc,1);
+							// rt.RTcoef(idom,7) -= rt.RTcoef(idom,3) * rt.c(iGlob-gdom.nxhc,1);
+							// rt.RTcoef(idom,3) = 0;
+
+							rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,0) * rt.c(iGlob-gdom.nxhc,1);
+							rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
 						}
 						else if (direction == 4)	{
 							// rt.RTcoef(idom,4) = rt.RTcoef(idom,4) * 2.0;
-							rt.RTcoef(idom,7) -= rt.RTcoef(idom,4) * rt.c(iGlob-gdom.nxhc,1);
+							// rt.RTcoef(idom,7) -= rt.RTcoef(idom,4) * rt.c(iGlob-gdom.nxhc,1);
+							// rt.RTcoef(idom,4) = 0;
+
+							rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,07) * rt.c(iGlob-gdom.nxhc,1);
+							rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
 						}
 						else if (direction == 5)	{
 							// rt.RTcoef(idom,5) = rt.RTcoef(idom,5) * 2.0;
-							rt.RTcoef(idom,7) -= rt.RTcoef(idom,5) * rt.c(iGlob+gdom.nxhc*gdom.nyhc,1);
+							// rt.RTcoef(idom,7) -= rt.RTcoef(idom,5) * rt.c(iGlob+gdom.nxhc*gdom.nyhc,1);
+							// rt.RTcoef(idom,5) = 0;
+
+							rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,0) * rt.c(iGlob+gdom.nxhc*gdom.nyhc,1);
+							rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
 						}
 						else if (direction == 6)	{
 							// rt.RTcoef(idom,6) = rt.RTcoef(idom,6) * 2.0;
-							rt.RTcoef(idom,7) -= rt.RTcoef(idom,6) * rt.c(iGlob-gdom.nxhc*gdom.nyhc,1);
+							// rt.RTcoef(idom,7) -= rt.RTcoef(idom,6) * rt.c(iGlob-gdom.nxhc*gdom.nyhc,1);
+							// rt.RTcoef(idom,6) = 0;
+
+							rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,0) * rt.c(iGlob-gdom.nxhc*gdom.nyhc,1);
+							rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
 							// if (gdom.isEvap)	{
 							// 	rt.RTcoef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);
 							// }
@@ -329,76 +355,180 @@ public:
 			// 		}
                //      #endif
                //      break;
-				case SUB_RT_BC_Neumann_CONST:
-					Kokkos::parallel_for("rt_bc_Neumann", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+				case SUB_RT_BC_Cauchy_CONST:
+					Kokkos::parallel_for("rt_bc_Cauchy_const", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
 						int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc];
 						gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 						idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
 						iGlobSW = jj*gdom.nxhc + ii;
 						if (direction == 1)	{
-							rt.RTcoef(idom,7) += gdom.dt * bcvals(ibc);
+							rt.RTcoef(idom,7) += gdom.dt * bcvals(ibc) / gdom.dx;
 							rt.RTcoef(idom,1) = 0.0;
 						}
 						else if (direction == 2)	{
-							rt.RTcoef(idom,7) -= gdom.dt * bcvals(ibc) ;
+							rt.RTcoef(idom,7) -= gdom.dt * bcvals(ibc) / gdom.dx ;
 							rt.RTcoef(idom,2) = 0.0;
 						}
 						else if (direction == 3)	{
-							rt.RTcoef(idom,7) += gdom.dt * bcvals(ibc) ;
+							rt.RTcoef(idom,7) += gdom.dt * bcvals(ibc) / gdom.dx ;
 							rt.RTcoef(idom,3) = 0.0;
 						}
 						else if (direction == 4)	{
-							rt.RTcoef(idom,7) -= gdom.dt * bcvals(ibc);
+							rt.RTcoef(idom,7) -= gdom.dt * bcvals(ibc) / gdom.dx;
 							rt.RTcoef(idom,4) = 0.0;
 						}
 						else if (direction == 5)	{
 							rt.RTcoef(idom,5) = 0.0;
 						}
 						else if (direction == 6)	{
-							rt.RTcoef(idom,7) -= gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) ;
-							rt.RTcoef(idom,7) -= gdom.dt * bcvals(ibc) ;
+							// rt.RTcoef(idom,7) -= gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) ;
+							rt.RTcoef(idom,7) -= gdom.dt * bcvals(ibc) / gdom.dz(iGlob);//20240617上边界不理解？
 							// if (gdom.isRain)    {rt.RTcoef(idom,7) += gdom.dt * gdom.rainRate(iGlobSW) / gdom.dz(iGlob);}
 							// if (gdom.isEvap)	{rt.RTcoef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);}
 							rt.RTcoef(idom,6) = 0.0;
 						}
 					});
 					break;
-               //  case SUB_RT_BC_Q_T:    case SUB_RT_BC_FD:
-               //      Kokkos::parallel_for("gw_bc_q_fd", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
-			// 		// for (int ibc = 0; ibc < ncellsBC; ibc++)	{
-               //          int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc];
-               //          gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-               //          idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-			// 			iGlobSW = jj*gdom.nxhc + ii;
-			// 			if (direction == 1)	{
-			// 				rt.RTcoef(idom,7) += gdom.dt * qbc / gdom.dx;
-			// 				rt.RTcoef(idom,1) = 0.0;
-			// 			}
-			// 			else if (direction == 2)	{
-			// 				rt.RTcoef(idom,7) -= gdom.dt * qbc / gdom.dx;
-			// 				rt.RTcoef(idom,2) = 0.0;
-			// 			}
-			// 			else if (direction == 3)	{
-			// 				rt.RTcoef(idom,7) += gdom.dt * qbc / gdom.dx;
-			// 				rt.RTcoef(idom,3) = 0.0;
-			// 			}
-			// 			else if (direction == 4)	{
-			// 				rt.RTcoef(idom,7) -= gdom.dt * qbc / gdom.dx;
-			// 				rt.RTcoef(idom,4) = 0.0;
-			// 			}
-			// 			else if (direction == 5)	{
-			// 				rt.RTcoef(idom,5) = 0.0;
-			// 			}
-			// 			else if (direction == 6)	{
-			// 				rt.RTcoef(idom,7) -= gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / gdom.dz(iGlob);
-			// 				rt.RTcoef(idom,7) -= gdom.dt * qbc / gdom.dz(iGlob);
-			// 				// if (gdom.isRain)    {rt.RTcoef(idom,7) += gdom.dt * gdom.rainRate(iGlobSW) / gdom.dz(iGlob);}
-			// 				// if (gdom.isEvap)	{rt.RTcoef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);}
-			// 				rt.RTcoef(idom,6) = 0.0;
-			// 			}
-               //      });
-			// 		// }
-               //      break;
+                case SUB_RT_BC_Cauchy_T:   
+                    Kokkos::parallel_for("rt_bc_Cauchy_t", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+					// for (int ibc = 0; ibc < ncellsBC; ibc++)	{
+                        int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc];
+                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+						iGlobSW = jj*gdom.nxhc + ii;
+						if (direction == 1)	{
+							rt.RTcoef(idom,7) += gdom.dt * Cauchybc / gdom.dx;
+							rt.RTcoef(idom,1) = 0.0;
+						}
+						else if (direction == 2)	{
+							rt.RTcoef(idom,7) -= gdom.dt * Cauchybc / gdom.dx;
+							rt.RTcoef(idom,2) = 0.0;
+						}
+						else if (direction == 3)	{
+							rt.RTcoef(idom,7) += gdom.dt * Cauchybc / gdom.dx;
+							rt.RTcoef(idom,3) = 0.0;
+						}
+						else if (direction == 4)	{
+							rt.RTcoef(idom,7) -= gdom.dt * Cauchybc / gdom.dx;
+							rt.RTcoef(idom,4) = 0.0;
+						}
+						else if (direction == 5)	{
+							//20240617
+							rt.RTcoef(idom,7) -= gdom.dt * Cauchybc / gdom.dz(iGlob);
+							rt.RTcoef(idom,5) = 0;
+
+						}
+						else if (direction == 6)	{
+							// rt.RTcoef(idom,7) -= gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / gdom.dz(iGlob);//20240217注释掉
+							rt.RTcoef(idom,7) -= gdom.dt * Cauchybc / gdom.dz(iGlob);
+							// if (gdom.isRain)    {rt.RTcoef(idom,7) += gdom.dt * gdom.rainRate(iGlobSW) / gdom.dz(iGlob);}
+							// if (gdom.isEvap)	{rt.RTcoef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);}
+							rt.RTcoef(idom,6) = 0.0;
+						}
+                    });
+					// }
+                    break;
+				case SUB_RT_BC_FD:
+					Kokkos::parallel_for("rt_bc_fd", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+					// for (int ibc = 0; ibc < ncellsBC; ibc++)	{
+				    int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc];
+				    gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+				    idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+				    		iGlobSW = jj*gdom.nxhc + ii;
+					double Up_Weighting_x,Up_Weighting_y,Up_Weighting_z;
+							if (rt.aveVB(iGlob, 0) > 0)
+							{
+								Up_Weighting_x = rt.Up_Weighting_vplus;
+							}
+							else
+							{
+								Up_Weighting_x = rt.Up_Weighting_vminus;
+							}
+
+					//y方向速度方向判断
+							if (rt.aveVB(iGlob, 1) > 0)
+							{
+								Up_Weighting_y = rt.Up_Weighting_vplus;
+							}
+							else
+							{
+								Up_Weighting_y = rt.Up_Weighting_vminus;
+							}
+					//z方向速度方向判断
+							if (rt.aveVB(iGlob, 2) > 0)
+							{
+								Up_Weighting_z = rt.Up_Weighting_vplus;
+							}
+							else
+							{
+								Up_Weighting_z = rt.Up_Weighting_vminus;
+							}
+						
+
+						if (direction == 1) {
+							for (int i = 0; i < 30; i++) {
+								rt.RTcoef(idom, i) = 0.0;
+							}							
+							rt.RTcoef(idom, 0) = 1.0;		
+							// rt.RTcoef(idom, 1) = 0;//Ci+1
+							rt.RTcoef(idom, 2) = -1; // # Ci-1
+							// rt.RTcoef(idom, 3) = 0;
+							// rt.RTcoef(idom, 4) = 0;
+							// rt.RTcoef(idom, 5) = 0;
+							// rt.RTcoef(idom, 6) = 0;
+							// rt.RTcoef(idom, 7) = 0;
+
+						}
+						else if (direction == 2) {
+							for (int i = 0; i < 30; i++) {
+								rt.RTcoef(idom, i) = 0.0;
+							}
+							rt.RTcoef(idom, 0) = 1.0;		
+							rt.RTcoef(idom, 1) = -1;//Ci+1
+							// rt.RTcoef(idom, 2) = 0; // # Ci-1
+							// rt.RTcoef(idom, 3) = 0;//Cj+1
+							// rt.RTcoef(idom, 4) = 0;//Cj-1
+							// rt.RTcoef(idom, 5) = 0;// Ck+1 
+							// rt.RTcoef(idom, 6) = 0;// Ck-1 
+							// rt.RTcoef(idom, 7) = 0;							
+						}
+						else if (direction == 3) {
+							rt.RTcoef(idom, 3) = 0.0;
+						}
+						else if (direction == 4) {
+							// rt.RTcoef(idom, 0) = 1.0;		
+							// rt.RTcoef(idom, 1) = 0;//Ci+1
+							// rt.RTcoef(idom, 2) = 0; // # Ci-1
+							// rt.RTcoef(idom, 3) = 0;//Cj+1
+							// rt.RTcoef(idom, 4) = 0;//Cj-1
+							// rt.RTcoef(idom, 5) = 0;// Ck+1 
+							// rt.RTcoef(idom, 6) = -1;// Ck-1 
+							// rt.RTcoef(idom, 7) = 0;
+						}
+						else if (direction == 5) {
+							for (int i = 0; i < 30; i++) {
+								rt.RTcoef(idom, i) = 0.0;
+							}							
+							rt.RTcoef(idom, 0) = 1.0;		
+							// rt.RTcoef(idom, 1) = 0;//Ci+1
+							// rt.RTcoef(idom, 2) = 0; // # Ci-1
+							// rt.RTcoef(idom, 3) = 0;//Cj+1
+							// rt.RTcoef(idom, 4) = 0;//Cj-1
+							// rt.RTcoef(idom, 5) = 0;// Ck+1 
+							rt.RTcoef(idom, 6) = -1;// Ck-1 
+							// rt.RTcoef(idom, 7) = 0;
+						}
+						else if (direction == 6) {
+							rt.RTcoef(idom, 6) = 0.0;
+							for (int i = 0; i < 30; i++) {
+								rt.RTcoef(idom, i) = 0.0;
+							}
+							rt.RTcoef(idom, 0) = 1.0;
+							rt.RTcoef(idom, 5) = -1;
+
+						}
+					});
+					break;
             }
         }
     }

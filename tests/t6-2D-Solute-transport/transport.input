@@ -1,0 +1,10 @@
+RT_Aquifer_initialMode : 0        //Initial aquifer phase concentration,0:all zero,1:read initial concentration from file;
+RT_Solid_initialMode : 0   //Initial solid phase concentration,0:all zero,1:read initial concentration from file;
+ReactionModule : 0      //ReactionModule on(1),ReactionModule off(0)
+n_mass : 1               //number of species 
+diffusion_molecular: 0           //molecular diffusivity
+alpha_L : 0.5           //longitudinal dispersion
+alpha_T : 0.2          //transverse dispersion
+rt_scheme : 4            // numerical schemes, 1:PCA, 2:Picard,3:eigen3
+Up_Weighting_vplus : 1   //Upstream weighting coefficients,[0.5,1]
+Up_Weighting_vminus : 0  //Upstream weighting coefficients,[0,0.5]

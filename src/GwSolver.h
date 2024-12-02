@@ -38,10 +38,10 @@ public:
 
 	inline void init(GwMatrix &A, GwDomain &gdom)	{
 		nrow = A.nrow;	nnz = A.nnz;
-		iter_max = 40;
+		iter_max = gdom.cg_iter;
 		gsteps = 20;
 		iter_max = iter_max * gsteps;
-		eps_min = 1e-7;
+		eps_min = gdom.cg_tol;
 		#if SERGHEI_KOKKOSKERNELS_SOLVER
 		ptr = lno_view_t("ptr", A.nrow+1);
 		ind = lno_nnz_view_t("ind", A.nnz);
@@ -64,18 +64,14 @@ public:
 	/*
 		PCG from KokkosKernels
 	*/
-	// Top-level PCG solver 预处理共轭梯度法
+	// Top-level PCG solver
 	void kkpcg(GwMatrix &A)
 	{
 		bool usePreconditioner = 1;
-		//usePreconditioner 变量标志是否使用预条件器，默认为使用
-		const unsigned cg_iteration_limit = 1000000;
-		//cg_iteration_limit 定义了PCG算法的最大迭代次数。
-		const double   cg_iteration_tolerance     = 1e-8 ;
-		//cg_iteration_tolerance 定义了PCG算法的收敛容限。
+		const unsigned cg_iteration_limit = iter_max;
+		const double   cg_iteration_tolerance     = eps_min ;
 
 		decompose(A);
-		// decompose(A) 对矩阵进行分解，
 		Kokkos::deep_copy (ind, A.ind);
 		Kokkos::deep_copy (val, A.val);
 		Kokkos::deep_copy (rhs, A.rhs);
@@ -93,16 +89,12 @@ public:
 		KokkosKernels::Experimental::Example::pcgsolve(kh, matA, rhs, vecx, diag
 		    , cg_iteration_limit, cg_iteration_tolerance, &cg_result, usePreconditioner);
 		Kokkos::fence();
-		// 调用 pcgsolve 函数进行PCG求解，传入了求解句柄 kh、矩阵 matA、右侧向量 rhs、
-		// 解向量 vecx、对角元素 diag、迭代次数限制、迭代收敛容限等参数，
-		// 并将求解结果保存在 cg_result 中。
+		A.cg_iter = cg_result.iteration;
 		//solve_time = timer1.seconds();
 		//std::cout  << "DEFAULT SOLVE: " << "(P)CG_NUM_ITER = [" << cg_result.iteration << "], " << "RESIDUAL = [" << cg_result.norm_res << "]"<< std::endl ;
 		kh.destroy_gs_handle();
-		// 调用 destroy_gs_handle() 方法销毁求解句柄
 
 		Kokkos::deep_copy (A.x, vecx);
-		// 将解向量 vecx 复制回 A 中
 	}
 
 	/*

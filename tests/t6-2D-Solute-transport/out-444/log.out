@@ -1,0 +1,109 @@
+DomainArea [m2]: 2.5
+nCell(SW) : 40
+nCellValid(SW) : 40
+runTime : 185.702 : 1
+simTime : 185.601 : 0.999456
+initTime : 0.101053 : 0.000544166
+outputTime : 0.11684 : 0.000629179
+sweFluxTime : 0 : 0
+rainInfTime : 0.0122326 : 6.58723e-05
+sweNotFluxTime : 0 : 0
+exchangeTime : 3.5292e-05 : 1.90046e-07
+haloTime : 2.5863e-05 : 1.39271e-07
+integrateTime : 0.950254 : 0.00511708
+integrateMPITime : 0.0237606 : 0.00012795
+dtComputeTime : 0 : 0
+sweBCtime : 0 : 0
+ -------- GW Times --------
+gwTime : 99.9427 : 0.538187
+gwLinSysTime : 7.82033 : 0.0421122
+gwLinSolTime : 42.7557 : 0.230237
+gwUpdateKTime : 22.745 : 0.122481
+gwUpdateQTime : 2.21525 : 0.011929
+gwUpdateWCTime : 3.4637 : 0.0186519
+gwBCTime : 10.3178 : 0.0555611
+gwIntegrateTime : 0.860754 : 0.00463512
+gwExchangeTime : 0.080102 : 0.000431346
+TIMERS PER RANK
+runTime		 :	185.702
+runTime_lb		 :	1
+simTime		 :	185.601
+simTime_lb		 :	1
+initTime		 :	0.101053
+initTime_lb		 :	1
+outputTime		 :	0.11684
+outputTime_lb		 :	1
+sweFluxTime		 :	0
+sweFluxTime_lb		 :	-nan
+rainInfTime		 :	0.0122326
+rainInfTime_lb		 :	1
+sweNotFluxTime		 :	0
+sweNotFluxTime_lb		 :	-nan
+exchangeTime		 :	3.5292e-05
+exchangeTime_lb		 :	1
+haloTime		 :	2.5863e-05
+haloTime_lb		 :	1
+integrateTime		 :	0.950254
+integrateTime_lb		 :	1
+integrateMPITime		 :	0.0237606
+integrateMPITime_lb		 :	1
+dtComputeTime		 :	0
+dtComputeTime_lb		 :	-nan
+sweBCtime		 :	0
+sweBCtime_lb		 :	-nan
+gwTime		 :	99.9427
+gwTime_lb		 :	1
+gwLinSysTime		 :	7.82033
+gwLinSysTime_lb		 :	1
+gwLinSolTime		 :	42.7557
+gwLinSolTime_lb		 :	1
+gwLinSolIter		 :	139181
+gwLinSolIter_lb		 :	1
+gwUpdateKTime		 :	22.745
+gwUpdateKTime_lb		 :	1
+gwUpdateQTime		 :	2.21525
+gwUpdateQTime_lb		 :	1
+gwUpdateWCTime		 :	3.4637
+gwUpdateWCTime_lb		 :	1
+gwBCTime		 :	10.3178
+gwBCTime_lb		 :	1
+gwIntegrateTime		 :	0.860754
+gwIntegrateTime_lb		 :	1
+gwExchangeTime		 :	0.080102
+gwExchangeTime_lb		 :	1
+
+DateTime : Fri Nov 29 15:57:18 2024
+
+Machine : zhangzhibo-virtual-machine
+CPU : 13th Gen Intel(R) Core(TM) i9-13900K
+nTasks : 1
+
+SERGHEI_GIT_VERSION : 
+
+-------------------------
+MODEL COMPONENT SETUP
+SERGHEI_TOOLS : 1
+SERGHEI_SUBSURFACE_MODEL : 1
+SERGHEI_PARTICLE_TRACKING : 0
+SERGHEI_VEGETATION_MODEL : 0
+SERGHEI_FRICTION_MODEL : 1
+SERGHEI_POINTWISE_FRICTION : 0
+SERGHEI_MAXFLOOD : 0
+SERGHEI_REAL : 2
+SERGHEI_NC_MODE : 0
+SERGHEI_NC_REAL : NC_DOUBLE
+SERGHEI_WRITE_HZ : 1
+SERGHEI_WRITE_SUBDOMS : 0
+
+-------------------------
+DEBUG FLAGS
+SERGHEI_DEBUG_PARALLEL_DECOMPOSITION : 0
+SERGHEI_DEBUG_WORKFLOW : 0
+SERGHEI_DEBUG_KOKKOS_SETUP : 0
+SERGHEI_DEBUG_BOUNDARY : 0
+SERGHEI_DEBUG_DT : 0
+SERGHEI_DEBUG_TOOLS : 0
+SERGHEI_DEBUG_MASS_CONS : 0
+SERGHEI_DEBUG_INFILTRATION : 0
+SERGHEI_DEBUG_MPI : 0
+SERGHEI_DEBUG_OUTPUT : 0

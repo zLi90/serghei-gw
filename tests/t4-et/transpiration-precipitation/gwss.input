@@ -1,0 +1,8 @@
+
+sscount : 1
+
+id : root
+sstype : 0
+ssvals : 0.0
+polygon : polygonroot.input
+timeseries : et.input

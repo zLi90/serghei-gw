@@ -8,19 +8,24 @@ class GwDomain : public Domain {
 
 public:
     // Time stepping options
-    real dt_init, dt_max, dt, dtOld;
+    real dt_init, dt_max, dtOld;
+    real dt;//!zzb20241127
     // Subsurface domain dimensions
-    real thickH, topZ, zll, dx, dy, dz_multiplier;
+    real thickH, topZ, zll, dx, dy, dz_multiplier, dz_base;
     int nz, nz_glob, nhalo, nxhc, nyhc, nzhc;
     int nCellSw, nCellSwMem;
     // Domain properties
     int nSoilID, aev, hmin;
     int hasRoot, hasET;
+    // Baseline VG parameters;
+    real wcs, wcr, Ks, alpha, n;
+    real wc_ic;
     // Numerical scheme
-    int gw_scheme;
+    int gw_scheme, cg_iter = 1000000;
+	real cg_tol = 1e-8;
     bool async;
     // Kokkos views
-    realArr z, dz, sinx, cosx, siny, cosy, rainRate, evapRate, etpmRate;
+    realArr x, y, z, dz, depth, sinx, cosx, siny, cosy, rainRate, evapRate, etpmRate;
     intArr isnodata;
 
     // other variables

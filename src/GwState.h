@@ -35,6 +35,11 @@ class GwState   {
 public:
     // GW variables
     realArr2 h, q, wc, k;
+    //!zzb20240829修改
+    realArr2 q_new;//n+1时刻水流量
+    realArr wc_new;//n+1时刻含水量
+    realArr wc_old;//n时刻含水量
+    //!zzb20240829修改
     // matrix system
     realArr2 resi, coef;
     realArr qss, hs;
@@ -51,16 +56,12 @@ public:
     // std::string initialMode;
     int initialMode;
     real initialValue;
-
-    
-	
 	#if SERGHEI_SUBSURFACE_TRANSPORT
     // scalar concentration
     realArr2 c;
     // dispersion tensor
     realArr2 dcal;
 	#endif
-
     // Allocate state variables for groundwater
     inline void allocate (GwDomain &gdom) {
         nVGparam = NVG;
@@ -77,18 +78,18 @@ public:
 		ssflow(0) = 0.0;
         qss = realArr("qss", gdom.nCellSw);
         hs = realArr("hs", gdom.nCellSwMem);
+        q_new = realArr2("q_new", gdom.nCellMem, 3);//!zzb20240829修改
+        wc_new = realArr("wc_new", gdom.nCellMem);//!zzb20240904修改
+        wc_old = realArr("wc_old", gdom.nCellMem);//!zzb20240904修改
+		// #if SERGHEI_SUBSURFACE_TRANSPORT
+		// // concentration is (n by 2): c_now, c_old
+        // c = realArr2("c", gdom.nCellMem, 2);
+		// // dispersion is (n by 3): d_xx, d_yy, d_zz
+		// // Note that we ignore d_xy, d_xz, etc. for now,
+		// // but they should be implemented later
+        // dcal = realArr2("dcal", gdom.nCellMem, 3);
+		// #endif
 
-
-       
-
-		#if SERGHEI_SUBSURFACE_TRANSPORT
-		// concentration is (n by 2): c_now, c_old
-        c = realArr2("c", gdom.nCellMem, 2);
-		// dispersion is (n by 3): d_xx, d_yy, d_zz
-		// Note that we ignore d_xy, d_xz, etc. for now,
-		// but they should be implemented later
-        dcal = realArr2("dcal", gdom.nCellMem, 3);
-		#endif
     }
 
 };

@@ -19,7 +19,7 @@ namespace geometry{
   typedef SArray<real,N_SPATIAL_DIM> point;
 
 
-  inline real distance(const point &p, const point &q){
+  KOKKOS_INLINE_FUNCTION real distance(const point &p, const point &q){
     point d;
     real ss=0.;
     for(int i=0; i<N_SPATIAL_DIM; i++){

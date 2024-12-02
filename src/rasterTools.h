@@ -6,7 +6,7 @@
 #include "Domain.h"
 #include "Parallel.h"
 
-int readRasterField(const std::string fNameIn, Domain &dom, const Parallel &par, realArr &data) {
+int readRasterField(const std::string fNameIn, const Domain &dom, const Parallel &par, realArr &data) {
   if(par.masterproc) std::cout << BDASH << "Reading raster file " << fNameIn << std::endl;
 
   std::ifstream fInStream(fNameIn);
@@ -92,10 +92,8 @@ int readRasterField(const std::string fNameIn, Domain &dom, const Parallel &par,
 		fInStream.close();
 	}
 	else{
-		if (par.masterproc) {
-			std::cerr << RERROR "Unable to open " << fNameIn << std::endl;
-			return 0;
-		}
+		if (par.masterproc) std::cerr << YEXC "Unable to open " << fNameIn << std::endl;
+		return 0;
 	}
 
 /*

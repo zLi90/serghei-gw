@@ -30,13 +30,17 @@ public:
   int nCellMem = 0;   // physical cells + halo cells
   int nCell = 0;    // physical cells
   int nCellValid = 0; // cells which have data
-  double xll; // southwest corner x-coordinate
-  double yll; // southwest corner y-coordinate
+  double xll = 0; // southwest corner x-coordinate
+  double yll = 0; // southwest corner y-coordinate
   #if SERGHEI_MESH_UNIFORM
   real dxConst;  // resolution
   #endif
 
-  int iE,iW,iS,iN; //flag to see if the subdomain touch with either a East, West, South or North boundaries
+  //flags to see if the subdomain touch with either a East, West, South or North boundaries
+  int iE=0;
+  int iW=0;
+  int iS=0;
+  int iN=0;
 
   // global (reduced) variables
   real areaGlobal;
@@ -50,6 +54,7 @@ public:
 
   int nIter;
   int countIterDt;
+  int cg_iter;
 
   real area;
   int id;  // subdomain ID
@@ -76,15 +81,15 @@ public:
 
   // this is purposely programmed to fail at compilation time if !SERGHEI_MESH_UNIFORM because the alternative is not implemented
   #if SERGHEI_MESH_UNIFORM
-  KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int i, int j){
+  KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int i, int j) const{
     geometry::point p;
-    p(_X) = i*dxConst + extent[0](_X);
-    p(_Y) = j*dxConst + extent[0](_Y);
+    p(_X) = extent[0](_X) + i*dxConst ;
+    p(_Y) = extent[1](_Y) - j*dxConst ;
     return(p);
   #endif
   }
 
-  KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int iGlob){
+  KOKKOS_INLINE_FUNCTION geometry::point getCellCenter(int iGlob) const{
     int i,j;
     unpackIndices(iGlob,j,i);
     return(getCellCenter(i,j));
@@ -153,15 +158,14 @@ void initialise() {
     endTime = startTime + simLength;
 
 
-    // physical cells onlys
     #if SERGHEI_MESH_UNIFORM
-      nCell = nx*ny;
-      nCellMem = (ny+2*hc)*(nx+2*hc);
-      nCellGlobal = nx_glob * ny_glob;
+      nCell = nx*ny;                    // physical cells in this subdomain
+      nCellMem = (ny+2*hc)*(nx+2*hc);   // size of arrays (including halos)
+      nCellGlobal = nx_glob * ny_glob;  // physical number of cells across all subdomains
     #endif
 
     globalBuffer = realArr("globalBuffer", nCellGlobal);
-
+    if(id == 0) std::cout << GOK << "Domain initialised" << std::endl;
   };
 
 void getStatistics(){
@@ -206,7 +210,6 @@ void getStatistics(){
     extent[1](_X) = xll + (par.i_end+1)*dxConst;
     extent[1](_Y) = yll + ny_glob*dxConst - (par.j_beg)*dxConst;
 
-
     for (int j = 0; j < 3; j++) {
       for (int i = 0; i < 3; i++) {
         int pxloc = par.px+i-1;
@@ -218,6 +221,12 @@ void getStatistics(){
         par.neigh(j,i) = pyloc * par.nproc_x + pxloc;
       }
     }
+
+  	//set topological boundaries
+  	if(par.myrank % par.nproc_x ==0) iW=1; //west boundary of the full domain
+	  if(par.myrank % par.nproc_x ==par.nproc_x-1) iE=1; //east boundary of the full domain
+	  if(par.myrank / par.nproc_x ==0) iN=1; //north boundary of the full domain
+	if(par.myrank / par.nproc_x ==par.nproc_y-1) iS=1; //south boundary of the full domain
 
     // Debug output for the parallel decomposition
     #if SERGHEI_DEBUG_PARALLEL_DECOMPOSITION
@@ -250,7 +259,7 @@ void getStatistics(){
 
 
 
-void fetchFieldFromGlobalBuffer(const Parallel &par, realArr &data){
+void fetchFieldFromGlobalBuffer(const Parallel &par, realArr &data) const {
   Kokkos::parallel_for("fetch_from_global_buffer", nCell , KOKKOS_CLASS_LAMBDA (int iGlob) {
  	  int i,j;
 		unpackIndices(iGlob,j,i);

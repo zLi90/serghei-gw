@@ -6,6 +6,48 @@
 #include "Domain.h"
 #include "Indexing.h"
 
+/*
+// potential solution for custom reductions
+namespace sample {  // namespace helps with name resolution in reduction identity 
+  // template< class ScalarType, int N>
+   template< class ScalarType>
+   struct mass_type {
+     ScalarType h;
+     ScalarType inf;
+     ScalarType rain;
+  
+     KOKKOS_INLINE_FUNCTION   // Default constructor - Initialize to 0's
+     mass_type() { 
+       h=0.;
+			 inf=0.;
+			 rain=0.;
+     }
+     KOKKOS_INLINE_FUNCTION   // Copy Constructor
+     mass_type(const mass_type & rhs) { 
+			h = rhs.h;
+			inf = rhs.inf;
+			rain = rhs.rain;
+     }
+     KOKKOS_INLINE_FUNCTION   // add operator
+     mass_type& operator += (const mass_type& src) {
+			h += src.h;
+			inf += src.inf;
+			rain += src.rain;
+       return *this;
+     }
+   };
+   typedef mass_type<real> MassType;  // used to simplify code below
+}
+namespace Kokkos { //reduction identity must be defined in Kokkos namespace
+   template<>
+   struct reduction_identity< sample::MassType > {
+      KOKKOS_FORCEINLINE_FUNCTION static sample::MassType sum() {
+         return sample::MassType();
+      }
+   };
+}
+*/
+
 class surfaceIntegrator {
 
   Kokkos::Timer timer;
@@ -40,69 +82,50 @@ class surfaceIntegrator {
   void integrate(State const &state, Domain const &dom, SourceSinkData &ss){
     timer.reset();
 
-	 int ierr=0;
-
     surfaceVolume = 0;
-	  Kokkos::parallel_reduce( dom.nCell , KOKKOS_LAMBDA (int iGlob, real &valUpdate) {
-      int ii = dom.getIndex(iGlob);
-		  bool nodata=state.isnodata(ii);
-		  if(!nodata)
-        valUpdate +=  state.h(ii) * dom.cellArea();
-    } , Kokkos::Sum<real>(surfaceVolume) );
-		Kokkos::fence();
-
+	rainFlux=0.0;
+	infFlux=0.0;
 	if(dom.etime<TOL12){ //change by initial time when hotstart is implemented
-
-	 	rainFlux=0.0;
 	 	rainAccum=0.0;
-	 	infFlux=0.0;
 	 	infAccum=0.0;
-
-	}else{
-
-		 rainFlux = 0.0;
-		 if(dom.isRain){
-			Kokkos::parallel_reduce( dom.nCell , KOKKOS_LAMBDA (int iGlob, real &valUpdate) {
-			  int ii = dom.getIndex(iGlob);
-			  bool nodata=state.isnodata(ii);
-			  if(!nodata)
-			  valUpdate += ss.rainRate(ii) * dom.cellArea();
-			} , Kokkos::Sum<real>(rainFlux) );
-			  Kokkos::fence();
-		    rainAccum += rainFlux * dom.dt;
-		 }
-
-		 infFlux = 0.0;
-		 if(ss.inf.model){
-			Kokkos::parallel_reduce( dom.nCell , KOKKOS_LAMBDA (int iGlob, real &valUpdate) {
-			  real inffluxlocal;
-			  int ii = dom.getIndex(iGlob);
-			  bool nodata=state.isnodata(ii);
-			  if(!nodata)
-			  inffluxlocal = ss.inf.rate(ii)*dom.cellArea();
-			  valUpdate += inffluxlocal;
-			  ss.inf.infVol(ii) += inffluxlocal * dom.dt;
-			} , Kokkos::Sum<real>(infFlux) );
-			  Kokkos::fence();
-		 }
-		 infAccum += infFlux * dom.dt;
-
 	}
+
+	//sample::MassType mass;
+	Kokkos::parallel_reduce( dom.nCell , KOKKOS_LAMBDA (int iGlob, real & hSum, real &rainSum, real& infSum) {
+    	int ii = dom.getIndex(iGlob);
+		if(!state.isnodata(ii)){
+			real area = dom.cellArea();
+        	hSum +=  state.h(ii) * area;
+			if(dom.isRain) rainSum += ss.rainRate(ii) * area;
+			if(ss.inf.model){
+				real inffluxlocal = ss.inf.rate(ii) * area;
+				infSum += inffluxlocal;
+				ss.inf.infVol(ii) += inffluxlocal * dom.dt;
+			}
+		}
+    } , Kokkos::Sum<real>(surfaceVolume) , Kokkos::Sum<real>(rainFlux), Kokkos::Sum<real>(infFlux));
+	rainAccum += rainFlux * dom.dt;
+	infAccum += infFlux * dom.dt;
+
+	Kokkos::fence();
+
+	dom.timers.integrate += timer.seconds();
+	timer.reset();
 
 	surfaceVolumeG=0.0;
 	rainFluxG=0.0;
 	rainAccumG=0.0;
 	infFluxG=0.0;
 	infAccumG=0.0;
-	ierr=MPI_Allreduce(&surfaceVolume, &surfaceVolumeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-	ierr=MPI_Allreduce(&rainFlux, &rainFluxG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-	ierr=MPI_Allreduce(&rainAccum, &rainAccumG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-	ierr=MPI_Allreduce(&infFlux, &infFluxG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-	ierr=MPI_Allreduce(&infAccum, &infAccumG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+	MPI_Allreduce(&surfaceVolume, &surfaceVolumeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+	MPI_Allreduce(&rainFlux, &rainFluxG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+	MPI_Allreduce(&rainAccum, &rainAccumG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+	MPI_Allreduce(&infFlux, &infFluxG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+	MPI_Allreduce(&infAccum, &infAccumG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 
 	MPI_Barrier(MPI_COMM_WORLD);
 
-  dom.timers.integrate += timer.seconds();
+  dom.timers.integrateMPI += timer.seconds();
   }
 };
 
@@ -113,7 +136,7 @@ Kokkos::Timer timer;
 
 public:
 
-  int ncellsBC, ncellsBCG;
+  int ncellsBC;
 
   real adjustedVolume ;  // boundary water volume in domain [L^3] adjusted (e.g. impose water depth) (local)
   real outflowDischarge; // boundary outflow discharge in domain [L^3/T] (local)
@@ -138,7 +161,6 @@ public:
   void integrate (std::vector<ExtBC> &extbc, Domain const &dom, int mode){
     timer.reset();
 
-	 int ierr=0;
 
 	 //mode is a flag to integrate extra mass or boundary flows
 
@@ -149,7 +171,7 @@ public:
 			adjustedVolume += extbc[i].adjustedVolume;
 		}
 	 	adjustedVolumeG = 0.0;
-		ierr=MPI_Allreduce(&adjustedVolume, &adjustedVolumeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(&adjustedVolume, &adjustedVolumeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 		MPI_Barrier(MPI_COMM_WORLD);
 
 	 }else{
@@ -183,13 +205,12 @@ public:
 		outflowDischargeG=0.0;
 		inflowAccumulatedG=0.0;
 		outflowAccumulatedG=0.0;
-        ncellsBCG = 0;
-		ierr=MPI_Allreduce(&inflowDischarge, &inflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-		ierr=MPI_Allreduce(&outflowDischarge, &outflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-		ierr=MPI_Allreduce(&inflowAccumulated, &inflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-		ierr=MPI_Allreduce(&outflowAccumulated, &outflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
-        ierr=MPI_Allreduce(&ncellsBC, &ncellsBCG, 1, MPI_INT , MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(&inflowDischarge, &inflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(&outflowDischarge, &outflowDischargeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(&inflowAccumulated, &inflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(&outflowAccumulated, &outflowAccumulatedG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 		MPI_Barrier(MPI_COMM_WORLD);
+
 	}
 
   dom.timers.integrate += timer.seconds();

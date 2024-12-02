@@ -14,6 +14,13 @@
 #include <set>
 #include <limits>
 
+// Type of adsorption reaction
+#define Equilibrium_Linear_Model 1
+#define Equilibrium_Freundlich_Model 2
+#define Equilibrium_Langmuir_Model 3
+#define Nonequilibrium_Model 4
+
+
 class RTFunction
 {
 
@@ -42,8 +49,14 @@ public:
 
 		timer.reset();
 
-		rtsolver.Gauss_Seidel(rtA);//求解含水层浓度
-		gdom.timers.solver += timer.seconds();
+		//选择求解方法
+		if (rt.rt_scheme == 3){
+				rtsolver.Eigen(rtA);
+				}
+		else if (rt.rt_scheme == 4){
+				rtsolver.Gauss_Seidel(rtA);
+				}		
+		gdom.timers.rtlinsol += timer.seconds();
 
 		// Update concentration
 		Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
@@ -53,12 +66,16 @@ public:
             rt.c(iGlob,1) = rtA.rt_x(idom); //0为n+1时刻，1为n时刻
 			
 			//20240814添加,固相浓度更新
-			if (rt.AdsorptionDesorptionModel == 4){			
-				//rt.c_solid(iGlob,0) = (rt.beta * rtA.rt_x(idom) + rt.rho_b * rt.c_solid(iGlob, 1) / rt.dt ) / (rt.rho_b / rt.dt + rt.beta / rt.Kd + rt.lambda_2 * rt.rho_b) ;
-				rt.c_solid(iGlob,0) = (rt.beta * rt.dt * rt.Kd * (1-rt.f) * rtA.rt_x(idom) + rt.c_solid(iGlob, 1) ) / (1 + rt.beta * rt.dt) ;
+			//2:Equilibrium-Nonlinear sorption,Freundlich;
+			if (rt.AdsorptionDesorptionModel == Equilibrium_Freundlich_Model){			
+				// rt.c_solid(iGlob,0) = (rt.beta * rtA.rt_x(idom) + rt.rho_b * rt.c_solid(iGlob, 1) / rt.dt ) / (rt.rho_b / rt.dt + rt.beta / rt.Kd + rt.lambda_2 * rt.rho_b) ;
+				rt.c_solid(iGlob,0) = rt.Kf * pow(rtA.rt_x(idom), rt.Nf);
 				rt.c_solid(iGlob,1) = rt.c_solid(iGlob,0);
 			}
-			//20240814添加
+			if (rt.AdsorptionDesorptionModel == Nonequilibrium_Model){			
+				rt.c_solid(iGlob,0) = (rt.beta * rtA.rt_x(idom) + rt.rho_b * rt.c_solid(iGlob, 1) / rt.dt ) / (rt.rho_b / rt.dt + rt.beta / rt.Kd + rt.lambda_2 * rt.rho_b) ;
+				rt.c_solid(iGlob,1) = rt.c_solid(iGlob,0);
+			}			
 			
 			});						
 		gmpi.mpi_sendrecv(rt.c, gdom, par);
@@ -107,7 +124,7 @@ public:
 #else
 		iter = rtsolver.cg(rtA, gdom);
 #endif
-		gdom.timers.solver += timer.seconds();
+		gdom.timers.rtlinsol += timer.seconds();
 
 		// Update concentration
 		Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
@@ -195,7 +212,7 @@ public:
 #else
 			iter = rtsolver.cg(rtA, gdom);
 #endif
-			gdom.timers.solver += timer.seconds();
+			gdom.timers.rtlinsol += timer.seconds();
 			Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob;
                 gdom.unpackIndices(idom, kk, jj, ii);
@@ -242,6 +259,9 @@ public:
 			std::cout << "对应的索引: " << aveV_index << std::endl;
 			 */
 	}
+
+
+
 
 	// 寻找 rt.c(iGlob, 1) 中的最大值及其索引
 	std::pair<real, int> find_max_value(const RTState &rt)
@@ -294,6 +314,9 @@ public:
 		return std::make_pair(max_value, max_index);
 	}
 
+
+// 计算n+1时刻q值
+
 	// Calculation of the hydrodynamic dispersion coefficient tensor
 	inline void dispersion_tensor(RTState &rt, GwState &gw, GwDomain &gdom)
 	{
@@ -301,19 +324,19 @@ public:
 			gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
 				// rt.c(iGlob, 0) 表示下一时间步长的浓度值
 				// rt.c(iGlob, 1) 表示当前步长的浓度值
-
-				// 平均孔隙流速计算，平均孔隙流速计算,x,y,z和平均流速方向
-				//  int ii, jj, kk, ivg;
-				//  real  wcs;
-				//  gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-				//  ivg = gw.soilID(iGlob) * NVG;
-				//  wcs = gw.vgTable(ivg+2);
 				// aveVB为边界流速
-				rt.aveVB(iGlob, 0) = -(gw.q(iGlob, 0));
-				rt.aveVB(iGlob, 1) = (gw.q(iGlob, 1));
-				rt.aveVB(iGlob, 2) = -(gw.q(iGlob, 2));
-				// rt.aveVB(iGlob, 2) = 5.787e-7;
+				// rt.aveVB(iGlob, 0) = -(gw.q(iGlob, 0));
+				// rt.aveVB(iGlob, 1) = (gw.q(iGlob, 1));
+				// rt.aveVB(iGlob, 2) = -(gw.q(iGlob, 2));
+				// rt.aveVB(iGlob, 3) = sqrt(pow(rt.aveVB(iGlob, 0), 2) + pow(rt.aveVB(iGlob, 1), 2) + pow(rt.aveVB(iGlob, 2), 2));
 
+				//!gw.q_new的计算中采用的水头h时间为0时刻的水头（n+1)时刻的水头
+				rt.aveVB(iGlob, 0) = -(gw.q_new(iGlob, 0));
+				rt.aveVB(iGlob, 1) = (gw.q_new(iGlob, 1));
+				rt.aveVB(iGlob, 2) = -(gw.q_new(iGlob, 2));	
+				// rt.aveVB(iGlob, 0) = -(gw.q(iGlob, 0));
+				// rt.aveVB(iGlob, 1) = (gw.q(iGlob, 1));
+				// rt.aveVB(iGlob, 2) = -(gw.q(iGlob, 2));		
 				rt.aveVB(iGlob, 3) = sqrt(pow(rt.aveVB(iGlob, 0), 2) + pow(rt.aveVB(iGlob, 1), 2) + pow(rt.aveVB(iGlob, 2), 2));
 
 				// aveV为节点流速
@@ -321,59 +344,158 @@ public:
 				rt.aveV(iGlob, 1) = (rt.aveVB(iGlob, 1) + rt.aveVB(iGlob - gdom.nxhc, 1)) / 2;
 				rt.aveV(iGlob, 2) = (rt.aveVB(iGlob, 2) + rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2)) / 2;
 				rt.aveV(iGlob, 3) = sqrt(pow(rt.aveV(iGlob, 0), 2) + pow(rt.aveV(iGlob, 1), 2) + pow(rt.aveV(iGlob, 2), 2));
+				
+				
+// 机械弥散系数计算
+				// // Dxx
+				// rt.dcal(iGlob, 0) = (rt.alpha_T * (pow(rt.aveVB(iGlob, 1), 2) + pow(rt.aveVB(iGlob, 2), 2)) + rt.alpha_L * pow(rt.aveVB(iGlob, 0), 2)) / rt.aveVB(iGlob, 3);
 
-				// 机械弥散系数计算
+				// // DYY
+				// rt.dcal(iGlob, 1) = (rt.alpha_T * (pow(rt.aveVB(iGlob, 0), 2) + pow(rt.aveVB(iGlob, 2), 2)) + rt.alpha_L * pow(rt.aveVB(iGlob, 1), 2)) / rt.aveVB(iGlob, 3);
+				// // DZZ
+				// rt.dcal(iGlob, 2) = (rt.alpha_T * (pow(rt.aveVB(iGlob, 0), 2) + pow(rt.aveVB(iGlob, 1), 2)) + rt.alpha_L * pow(rt.aveVB(iGlob, 2), 2)) / rt.aveVB(iGlob, 3);
 
-				// Dxx
-				rt.dcal(iGlob, 0) = (rt.alpha_T * (pow(rt.aveVB(iGlob, 1), 2) + pow(rt.aveVB(iGlob, 2), 2)) + rt.alpha_L * pow(rt.aveVB(iGlob, 0), 2)) / rt.aveVB(iGlob, 3);
-				// DYY
-				rt.dcal(iGlob, 1) = (rt.alpha_T * (pow(rt.aveVB(iGlob, 0), 2) + pow(rt.aveVB(iGlob, 2), 2)) + rt.alpha_L * pow(rt.aveVB(iGlob, 1), 2)) / rt.aveVB(iGlob, 3);
-				// DZZ
-				rt.dcal(iGlob, 2) = (rt.alpha_T * (pow(rt.aveVB(iGlob, 0), 2) + pow(rt.aveVB(iGlob, 1), 2)) + rt.alpha_L * pow(rt.aveVB(iGlob, 2), 2)) / rt.aveVB(iGlob, 3);
-				// Dxy
-				rt.dcal(iGlob, 3) = fabs((rt.alpha_L - rt.alpha_T) * rt.aveVB(iGlob, 0) * rt.aveVB(iGlob, 1) / rt.aveVB(iGlob, 3));
-				// Dxz
-				rt.dcal(iGlob, 4) = fabs((rt.alpha_L - rt.alpha_T) * rt.aveVB(iGlob, 0) * rt.aveVB(iGlob, 2) / rt.aveVB(iGlob, 3));
-				// Dyz
-				rt.dcal(iGlob, 5) = fabs((rt.alpha_L - rt.alpha_T) * rt.aveV(iGlob, 1) * rt.aveV(iGlob, 2) / rt.aveV(iGlob, 3));
+				// // Dxy
+				// rt.dcal(iGlob, 3) = (rt.alpha_L - rt.alpha_T) * rt.aveVB(iGlob, 0) * rt.aveVB(iGlob, 1) / rt.aveVB(iGlob, 3);
+				// // Dxz
+				// rt.dcal(iGlob, 4) = (rt.alpha_L - rt.alpha_T) * rt.aveVB(iGlob, 0) * rt.aveVB(iGlob, 2) / rt.aveVB(iGlob, 3);
+				// // Dyz
+				// rt.dcal(iGlob, 5) = (rt.alpha_L - rt.alpha_T) * rt.aveVB(iGlob, 1) * rt.aveVB(iGlob, 2) / rt.aveVB(iGlob, 3);
+//机械弥散系数计算20240921
+//! Dxx
+				//qx,i+1/2,j,k
+				rt.q_dispersion(iGlob, 0) = rt.aveVB(iGlob, 0);
+				//qy,i+1/2,j,k
+				rt.q_dispersion(iGlob, 1) = 0.5*((rt.aveVB(iGlob-gdom.nxhc,1)+rt.aveVB(iGlob,1))*0.5+(rt.aveVB(iGlob+1-gdom.nxhc,1)+rt.aveVB(iGlob+1,1))*0.5);
+				//!qz,i+1/2,j,k
+				rt.q_dispersion(iGlob, 2) = 0.5*((rt.aveVB(iGlob-gdom.nxhc*gdom.nyhc,2)+rt.aveVB(iGlob,2))*0.5+(rt.aveVB(iGlob+1-gdom.nxhc*gdom.nyhc,2)+rt.aveVB(iGlob+1,2))*0.5);
+											
 
-				// rt.dcal(iGlob,0) = 1*1e-7;
-				// rt.dcal(iGlob,1) = 0;
-				// rt.dcal(iGlob,2) = 0.5*1e-7;
+				//q,i+1/2,j,k
+				rt.q_dispersion(iGlob, 3) = sqrt(pow(rt.q_dispersion(iGlob, 0), 2) + pow(rt.q_dispersion(iGlob, 1), 2) + pow(rt.q_dispersion(iGlob, 2), 2));
+				// Dxxi+1/2,j,k
+				rt.dcal(iGlob, 0) = (rt.alpha_T * (pow(rt.q_dispersion(iGlob, 1), 2) + pow(rt.q_dispersion(iGlob, 2), 2)) + rt.alpha_L * pow(rt.q_dispersion(iGlob, 0), 2)) / rt.q_dispersion(iGlob, 3);
+				
+				//Dxyi+1/2,j,k
+				rt.dcal(iGlob, 3) = (rt.alpha_L - rt.alpha_T) * rt.q_dispersion(iGlob, 0) * rt.q_dispersion(iGlob, 1) / rt.q_dispersion(iGlob, 3);
+				//!Dxzi+1/2,j,k
+				rt.dcal(iGlob, 4) = (rt.alpha_L - rt.alpha_T) * rt.q_dispersion(iGlob, 0) * rt.q_dispersion(iGlob, 2) / rt.q_dispersion(iGlob, 3);
+
+//! DYY
+				//qx,i,j+1/2,k
+				rt.q_dispersion(iGlob, 4) = 0.5*((rt.aveVB(iGlob,1)+rt.aveVB(iGlob-1,1))*0.5+(rt.aveVB(iGlob+gdom.nxhc,1)+rt.aveVB(iGlob+gdom.nxhc-1,1))*0.5);
+				//qy,i,j+1/2,k
+				rt.q_dispersion(iGlob, 5) = rt.aveVB(iGlob, 1);
+				//qz,i,j+1/2,k
+				rt.q_dispersion(iGlob, 6) = 0.5*((rt.aveVB(iGlob-gdom.nxhc*gdom.nyhc,2)+rt.aveVB(iGlob,2))*0.5+(rt.aveVB(iGlob+gdom.nxhc-gdom.nxhc*gdom.nyhc,2)+rt.aveVB(iGlob+gdom.nxhc,2))*0.5);
+				//q,i,j+1/2,k
+				rt.q_dispersion(iGlob, 7) = sqrt(pow(rt.q_dispersion(iGlob, 4), 2) + pow(rt.q_dispersion(iGlob, 5), 2) + pow(rt.q_dispersion(iGlob, 6), 2));
+				// DYYi,j+1/2,k
+				rt.dcal(iGlob, 1) = (rt.alpha_T * (pow(rt.q_dispersion(iGlob, 4), 2) + pow(rt.q_dispersion(iGlob, 6), 2)) + rt.alpha_L * pow(rt.q_dispersion(iGlob, 5), 2)) / rt.q_dispersion(iGlob, 7);
+				//Dyx,i,j+1/2,k
+				rt.dcal(iGlob, 5) = (rt.alpha_L - rt.alpha_T) * rt.q_dispersion(iGlob, 5) * rt.q_dispersion(iGlob, 4) / rt.q_dispersion(iGlob, 7);
+				//Dyzi,j+1/2,k
+				rt.dcal(iGlob, 6) = (rt.alpha_L - rt.alpha_T) * rt.q_dispersion(iGlob, 5) * rt.q_dispersion(iGlob, 6) / rt.q_dispersion(iGlob, 7);
+//! DZZ	
+				//qx,i,j,k+1/2
+				rt.q_dispersion(iGlob, 8) = 0.5*((rt.aveVB(iGlob,0)+rt.aveVB(iGlob+gdom.nxhc*gdom.nyhc,0))*0.5+(rt.aveVB(iGlob-1,0)+rt.aveVB(iGlob+gdom.nxhc*gdom.nyhc-1,0))*0.5);
+				//qy,i,j,k+1/2
+				rt.q_dispersion(iGlob, 9) = 0.5*((rt.aveVB(iGlob,1)+rt.aveVB(iGlob-gdom.nxhc,1))*0.5+(rt.aveVB(iGlob-gdom.nxhc+gdom.nxhc*gdom.nyhc,1)+rt.aveVB(iGlob+gdom.nxhc*gdom.nyhc,1))*0.5);
+				//qz,i,j,k+1/2
+				rt.q_dispersion(iGlob, 10) = rt.aveVB(iGlob, 2);
+				//q,i,j,k+1/2
+				rt.q_dispersion(iGlob, 11) = sqrt(pow(rt.q_dispersion(iGlob, 8), 2) + pow(rt.q_dispersion(iGlob, 9), 2) + pow(rt.q_dispersion(iGlob, 10), 2));
+				// Dzz,i,j,k+1/2											
+				rt.dcal(iGlob, 2) = (rt.alpha_T * (pow(rt.q_dispersion(iGlob, 8), 2) + pow(rt.q_dispersion(iGlob, 9), 2)) + rt.alpha_L * pow(rt.q_dispersion(iGlob, 10), 2)) / rt.q_dispersion(iGlob, 11);
+				//!Dzx,i,j,k+1/2
+				rt.dcal(iGlob, 7) = (rt.alpha_L - rt.alpha_T) * rt.q_dispersion(iGlob, 10) * rt.q_dispersion(iGlob, 8) / rt.q_dispersion(iGlob, 11);
+				// rt.dcal(iGlob, 7) = rt.dcal(iGlob, 4);
+				// rt.dcal(iGlob, 4) = -rt.dcal(iGlob, 7);
+				
+				// rt.dcal(iGlob, 7) = 0;
+				// rt.dcal(iGlob, 4) = 0;
+
+				//Dzy,i,j,k+1/2
+				rt.dcal(iGlob, 8) = (rt.alpha_L - rt.alpha_T) * rt.q_dispersion(iGlob, 10) * rt.q_dispersion(iGlob, 9) / rt.q_dispersion(iGlob, 11);
+				
+				//!如果网格qz速度为0，则Dzz=0，即当底边界为水动力无通量边界时
+				//todo 后续考虑是不是要结合边界条件对弥散系数张量进行修改
+				
+				if (rt.q_dispersion(iGlob, 10)== 0)//qz,i,j,k+1/2
+				{
+					rt.dcal(iGlob, 2) = 0;									
+				}
+
+//!调试	
+				// if (iGlob ==1320)
+				// {
+				
+				// std::cout<<"222rt.q_dispersion(iGlob, 8)\n"<<rt.q_dispersion(iGlob, 8)<<std::endl;	
+				// // // std::cout<<"333rt.q_dispersion(iGlob, 9)\n"<<rt.q_dispersion(iGlob, 9)<<std::endl;
+				// std::cout<<"222rt.q_dispersion(iGlob, 10)\n"<<rt.q_dispersion(iGlob, 10)<<std::endl;
+				// std::cout<<"222rt.q_dispersion(iGlob, 11)\n"<<rt.q_dispersion(iGlob, 11)<<std::endl;
+				// std::cout<<"222rt.dcal(iGlob, 7)\n"<<rt.dcal(iGlob, 7)<<std::endl;
+				// std::cout<<"2222--------------------------------------------\n"<<std::endl;
+
+				// std::cout<<"333rt.dcal(iGlob, 4)\n"<<rt.dcal(iGlob, 4)<<std::endl;
+				// std::cout<<"333rt.q_dispersion(iGlob, 0)\n"<<rt.q_dispersion(iGlob, 0)<<std::endl;
+				// std::cout<<"333rt.q_dispersion(iGlob, 2)\n"<<rt.q_dispersion(iGlob, 2)<<std::endl;
+				// std::cout<<"333rt.q_dispersion(iGlob, 3)\n"<<rt.q_dispersion(iGlob, 3)<<std::endl;
+				// // // std::cout<<"2222--------------------------------------------\n"<<std::endl;				
+				// std::cout<<"333rt.aveVB(iGlob, 0)\n"<<rt.aveVB(iGlob, 0)<<std::endl;
+				// std::cout<<"333rt.aveVB(iGlob, 2)\n"<<rt.aveVB(iGlob, 2)<<std::endl;
+				// std::cout<<"333gw.q_new(iGlob, 2)\n"<<gw.q_new(iGlob, 2)<<std::endl;
+				// std::cout<<"333gw.q(iGlob, 2)\n"<<gw.q(iGlob, 2)<<std::endl;
+				// }
+//!调试					
+
+
+
 				// 将rt.d中nan值替换
-				for (int i = 0; i < 6; ++i)
+				for (int i = 0; i < 9; ++i)
 				{
 					if (std::isnan(rt.dcal(iGlob, i)))
 					{
 						rt.dcal(iGlob, i) = 0;
 					}
 				};
-
+				// std::cout<<"Dxxi+1/2,j,k Dxxi+1/2,j,k rt.dcal(iGlob, 0)\n"<<rt.dcal(iGlob, 0)<<std::endl;
+				// std::cout<<"DZZ,i,j,k+1/2 rt.dcal(iGlob, 2)\n"<<rt.dcal(iGlob, 2)<<std::endl;
 				/*------弥散系数=机械弥散+分子弥散----------*/
 
 				rt.dcal(iGlob, 0) += gw.wc(iGlob, 0) * rt.diffusion_molecular;
 				rt.dcal(iGlob, 1) += gw.wc(iGlob, 0) * rt.diffusion_molecular;
 				rt.dcal(iGlob, 2) += gw.wc(iGlob, 0) * rt.diffusion_molecular;
 
+
 				// 根据研究区域维数对水动力弥散系数进行调整
-				if (gdom.nx == 1)
+				if (gdom.nx == 1)//yz纬度，qx=0，Dxx=0,Dxy=DYX=DXZ=DZX=0
 				{
 					rt.dcal(iGlob, 0) = 0;
+					rt.dcal(iGlob, 3) = 0;
 					rt.dcal(iGlob, 4) = 0;
 					rt.dcal(iGlob, 5) = 0;
+					rt.dcal(iGlob, 7) = 0;
 				}
 				else if (gdom.ny == 1)
 				{
 					rt.dcal(iGlob, 1) = 0;
 					rt.dcal(iGlob, 3) = 0;
 					rt.dcal(iGlob, 5) = 0;
+					rt.dcal(iGlob, 6) = 0;
+					rt.dcal(iGlob, 8) = 0;
 				}
 				else if (gdom.nz == 1)
 				{
 					rt.dcal(iGlob, 2) = 0;
-					rt.dcal(iGlob, 3) = 0;
 					rt.dcal(iGlob, 4) = 0;
+					rt.dcal(iGlob, 6) = 0;
+					rt.dcal(iGlob, 7) = 0;
+					rt.dcal(iGlob, 8) = 0;
 				}
+
+
+
 			});
 	}
 	/* --------------------------------------------------
@@ -388,99 +510,192 @@ public:
 			iGlob = (hc + kk) * gdom.nxhc * gdom.nyhc + (hc + jj) * gdom.nxhc + ii + hc;
 			iGlobSW = (hc + jj) * gdom.nxhc + ii + hc;
 
-			// 添加判断条件，判断速度方向，如果速度方向为正，则取上游加权，否则取下游加权
-			// x方向速度方向判断
-			double Up_Weighting_x, Up_Weighting_y, Up_Weighting_z;
-			if (rt.aveV(iGlob, 0) > 0)
-			{
-				Up_Weighting_x = rt.Up_Weighting_vplus;
-			}
-			else
-			{
-				Up_Weighting_x = rt.Up_Weighting_vminus;
-			}
+			// 添加判断条件，判断速度方向，如果速度方向为正，则取上游加权，否则取下游加权					
+			//对流项加权系数
+			// double Up_Weighting_xp = (rt.aveVB(iGlob, 0) > 0) ? rt.Up_Weighting_vplus : 
+			// 						(rt.aveVB(iGlob, 0) < 0) ? rt.Up_Weighting_vminus : 0.5;
+			// double Up_Weighting_xm = (rt.aveVB(iGlob - 1, 0) > 0) ? rt.Up_Weighting_vplus : 
+			// 						(rt.aveVB(iGlob - 1, 0) < 0) ? rt.Up_Weighting_vminus : 0.5;
+			// double Up_Weighting_yp = (rt.aveVB(iGlob, 1) > 0) ? rt.Up_Weighting_vplus : 
+			// 						(rt.aveVB(iGlob, 1) < 0) ? rt.Up_Weighting_vminus : 0.5;
+			// double Up_Weighting_ym = (rt.aveVB(iGlob - gdom.nxhc, 1) > 0) ? rt.Up_Weighting_vplus : 
+			// 						(rt.aveVB(iGlob - gdom.nxhc, 1) < 0) ? rt.Up_Weighting_vminus : 0.5;
+			// double Up_Weighting_zp = (rt.aveVB(iGlob, 2) > 0) ? rt.Up_Weighting_vplus : 
+			// 						(rt.aveVB(iGlob, 2) < 0) ? rt.Up_Weighting_vminus : 0.5;
+			// double Up_Weighting_zm = (rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2) > 0) ? rt.Up_Weighting_vplus : 
+			// 						(rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2) < 0) ? rt.Up_Weighting_vminus : 0.5;
 
-			// y方向速度方向判断
-			if (rt.aveV(iGlob, 1) > 0)
-			{
-				Up_Weighting_y = rt.Up_Weighting_vplus;
-			}
-			else
-			{
-				Up_Weighting_y = rt.Up_Weighting_vminus;
-			}
-			// z方向速度方向判断
-			if (rt.aveV(iGlob, 2) > 0)
-			{
-				Up_Weighting_z = rt.Up_Weighting_vplus;
-			}
-			else
-			{
-				Up_Weighting_z = rt.Up_Weighting_vminus;
-			}
+			rt.Up_Weighting_xp(iGlob) = (rt.aveVB(iGlob, 0) > 0) ? rt.Up_Weighting_vplus : 
+									(rt.aveVB(iGlob, 0) < 0) ? rt.Up_Weighting_vminus : 0.5;
+			rt.Up_Weighting_xm(iGlob) = (rt.aveVB(iGlob - 1, 0) > 0) ? rt.Up_Weighting_vplus : 
+									(rt.aveVB(iGlob - 1, 0) < 0) ? rt.Up_Weighting_vminus : 0.5;
+			rt.Up_Weighting_yp(iGlob) = (rt.aveVB(iGlob, 1) > 0) ? rt.Up_Weighting_vplus : 
+									(rt.aveVB(iGlob, 1) < 0) ? rt.Up_Weighting_vminus : 0.5;
+			rt.Up_Weighting_ym(iGlob) = (rt.aveVB(iGlob - gdom.nxhc, 1) > 0) ? rt.Up_Weighting_vplus : 
+									(rt.aveVB(iGlob - gdom.nxhc, 1) < 0) ? rt.Up_Weighting_vminus : 0.5;
+			rt.Up_Weighting_zp(iGlob) = (rt.aveVB(iGlob, 2) > 0) ? rt.Up_Weighting_vplus : 
+									(rt.aveVB(iGlob, 2) < 0) ? rt.Up_Weighting_vminus : 0.5;
+			rt.Up_Weighting_zm(iGlob) = (rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2) > 0) ? rt.Up_Weighting_vplus : 
+									(rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2) < 0) ? rt.Up_Weighting_vminus : 0.5;
+			
+			//弥散项加权系数
+			// rt.wz(iGlob) = gdom.dz(iGlob + gdom.nxhc*gdom.nyhc) 
+			// 				/ (gdom.dz(iGlob) + gdom.dz(iGlob + gdom.nxhc*gdom.nyhc));
+			
 
-			// 弥散项和对流项系数，不考虑含水率
-			// rt.c_advxx(iGlob) = rt.aveV(iGlob,0) * rt.dt / gdom.dx;
-			// rt.c_advyy(iGlob) = rt.aveV(iGlob,1) * rt.dt / gdom.dy;
-			// // rt.c_advyy(iGlob) = 0;
-			// rt.c_advzz(iGlob) = rt.aveV(iGlob,2) * rt.dt / gdom.dz(iGlob);
-			// rt.c_difxx(iGlob) = rt.dcal(iGlob,0) * rt.dt / gdom.dx / gdom.dx;
-			// rt.c_difyy(iGlob) = rt.dcal(iGlob,1) * rt.dt / gdom.dy / gdom.dy;
-			// // rt.c_difyy(iGlob) = 0;
-			// rt.c_difzz(iGlob) = rt.dcal(iGlob,2) * rt.dt / gdom.dz(iGlob) / gdom.dz(iGlob);
 
-			// std::cout << "-------rt.c_advyy(iGlob)----- " <<rt.c_advyy(iGlob) << std::endl;
-			// std::cout << "-------rt.c_difyy(iGlob)----- " <<rt.c_difyy(iGlob) << std::endl;
-
-			// 弥散项和对流项系数，考虑含水率
-
+//!20240821修改
+			// 弥散项和对流项系数
 			rt.c_advxx(iGlob) = rt.aveVB(iGlob, 0) * rt.dt / gdom.dx;
 			rt.c_advyy(iGlob) = rt.aveVB(iGlob, 1) * rt.dt / gdom.dy;
-			rt.c_advzz(iGlob) = rt.aveVB(iGlob, 2) * rt.dt / gdom.dz(iGlob);
+			rt.c_advzz(iGlob) = rt.aveVB(iGlob, 2) * rt.dt ;
 			rt.c_difxx(iGlob) = rt.dcal(iGlob, 0) * rt.dt / gdom.dx / gdom.dx;
+			// rt.c_difxx(iGlob) = 0;
 			rt.c_difyy(iGlob) = rt.dcal(iGlob, 1) * rt.dt / gdom.dy / gdom.dy;
-			rt.c_difzz(iGlob) = rt.dcal(iGlob, 2) * rt.dt / gdom.dz(iGlob) / gdom.dz(iGlob);
+			// rt.c_difyy(iGlob) = 0;
+			rt.c_difzz(iGlob) = rt.dcal(iGlob, 2) * rt.dt / (0.5*gdom.dz(iGlob) + 0.5*gdom.dz(iGlob + gdom.nxhc * gdom.nyhc));
+			// rt.c_difzz(iGlob) = 0;
+			rt.c_difxy(iGlob) = rt.dcal(iGlob, 3) * rt.dt / (2 * gdom.dx * gdom.dy);
+			// rt.c_difxy(iGlob) = 0;
+			rt.c_difxz(iGlob) = rt.dcal(iGlob, 4) * rt.dt ;
+			// rt.c_difxz(iGlob) = 0;
+			rt.c_difyx(iGlob) = rt.dcal(iGlob, 5) * rt.dt / (2 * gdom.dx * gdom.dy);
+			// rt.c_difyx(iGlob) = 0;
+			rt.c_difyz(iGlob) = rt.dcal(iGlob, 6) * rt.dt ;		
+			// rt.c_difyz(iGlob) = 0;	
+			rt.c_difzx(iGlob) = rt.dcal(iGlob, 7) * rt.dt ;
+			// rt.c_difzx(iGlob) = 0;
+			rt.c_difzy(iGlob) = rt.dcal(iGlob, 8) * rt.dt ;
+			// rt.c_difzy(iGlob) = 0;
+			
 
+//todo
+//*
+//!-----------	输出结果显示，gw.wc(iGlob, 0)-gw.wc(iGlob, 1)为0-----------------//		
+//! std::cout<<"gw.wc_new(iGlob)-gw.wc_old(iGlob)\n"<<gw.wc_new(iGlob)-gw.wc_old(iGlob)<<std::endl;
+//!-----------	输出结果显示，gw.wc(iGlob, 0)-gw.wc(iGlob, 1)为0-----------------//
+        // if (iGlob == 315){
+        //     std::cout << "-------gw.wc_new(iGlob)----- " <<gw.wc_new(iGlob) << std::endl;
+        //     std::cout << "-------gw.wc_old(iGlob)----- " <<gw.wc_old(iGlob) << std::endl;
+        //     std::cout << "-------gw.wc_new(iGlob)-gw.wc_old(iGlob)------ " <<gw.wc_new(iGlob)-gw.wc_old(iGlob) << std::endl;  
+		// 	std::cout << "-------gw.wc(iGlob, 0)----- " <<gw.wc(iGlob, 0) << std::endl;  
+		// 	std::cout << "-------gw.wc(iGlob, 1)----- " <<gw.wc(iGlob, 1) << std::endl;        
+        // }  
 
-			// A矩阵系数，不考虑交叉项弥散系数，考虑不同节点D和u
-			rt.RTcoef(idom, 0) = 1.0 * gw.wc(iGlob, 0) + rt.c_difxx(iGlob) + rt.c_difxx(iGlob - 1) + Up_Weighting_x * rt.c_advxx(iGlob) - (1 - Up_Weighting_x) * rt.c_advxx(iGlob - 1) 
-			+ rt.c_difyy(iGlob) + rt.c_difyy(iGlob - gdom.nxhc) + Up_Weighting_y * rt.c_advyy(iGlob) - (1 - Up_Weighting_y) * rt.c_advyy(iGlob - gdom.nxhc) 
-			+ rt.c_difzz(iGlob) + rt.c_difzz(iGlob - gdom.nxhc * gdom.nyhc) + Up_Weighting_z * rt.c_advzz(iGlob) - (1 - Up_Weighting_z) * rt.c_advzz(iGlob - gdom.nxhc * gdom.nyhc)
-			+ (gw.wc(iGlob, 0) - gw.wc(iGlob, 1));
+//!矩阵系数（修改使用new和old）
+// gw.wc_new(iGlob) = gw.wc(iGlob, 1);
+// gw.wc_old(iGlob) = gw.wc(iGlob, 0);
+			rt.RTcoef(idom, 0) = 1.0 * gw.wc_new(iGlob) + rt.c_difxx(iGlob) + rt.c_difxx(iGlob - 1) + rt.Up_Weighting_xp(iGlob) * rt.c_advxx(iGlob) - (1 - rt.Up_Weighting_xm(iGlob)) * rt.c_advxx(iGlob - 1) 
+			+ rt.c_difyy(iGlob) + rt.c_difyy(iGlob - gdom.nxhc) + rt.Up_Weighting_yp(iGlob) * rt.c_advyy(iGlob) - (1 - rt.Up_Weighting_ym(iGlob)) * rt.c_advyy(iGlob - gdom.nxhc) 
+			+ rt.c_difzz(iGlob) /gdom.dz(iGlob) + rt.c_difzz(iGlob - gdom.nxhc * gdom.nyhc)/gdom.dz(iGlob) + rt.Up_Weighting_zp(iGlob) * rt.c_advzz(iGlob)/gdom.dz(iGlob) - (1 - rt.Up_Weighting_zm(iGlob)) * rt.c_advzz(iGlob - gdom.nxhc * gdom.nyhc)/gdom.dz(iGlob);
+			// + (gw.wc_new(iGlob) - gw.wc_old(iGlob));
+			// Ci+1
+			rt.RTcoef(idom, 1) = -(rt.c_difxx(iGlob) - (1 - rt.Up_Weighting_xp(iGlob)) * rt.c_advxx(iGlob)); // Ci+1
+			//  Ci-1
+			rt.RTcoef(idom, 2) = -(rt.Up_Weighting_xm(iGlob) * rt.c_advxx(iGlob - 1) + rt.c_difxx(iGlob - 1)); // # Ci-1
+			// Cj+1
+			rt.RTcoef(idom, 3) = -(rt.c_difyy(iGlob) - (1 - rt.Up_Weighting_yp(iGlob)) * rt.c_advyy(iGlob)); // Cj+1
+			// Cj-1
+			rt.RTcoef(idom, 4) = -(rt.Up_Weighting_ym(iGlob) * rt.c_advyy(iGlob - gdom.nxhc) + rt.c_difyy(iGlob - gdom.nxhc)); // Cj-1
+			// Ck+1
+			rt.RTcoef(idom, 5) = -(rt.c_difzz(iGlob)/gdom.dz(iGlob) - (1 - rt.Up_Weighting_zp(iGlob)) * rt.c_advzz(iGlob)/gdom.dz(iGlob)); // Ck+1
+			// Ck-1
+			rt.RTcoef(idom, 6) = -(rt.Up_Weighting_zm(iGlob) * rt.c_advzz(iGlob - gdom.nxhc * gdom.nyhc)/gdom.dz(iGlob) + rt.c_difzz(iGlob - gdom.nxhc * gdom.nyhc)/gdom.dz(iGlob)); // Ck-1
+			//rhs
+			rt.RTcoef(idom, 7) = rt.c(iGlob, 1) * gw.wc_old(iGlob);
 
-			rt.RTcoef(idom, 1) = -(rt.c_difxx(iGlob) - (1 - Up_Weighting_x) * rt.c_advxx(iGlob)); // Ci+1
+			rt.wz(iGlob) = 0.5;
 
-			rt.RTcoef(idom, 2) = -(Up_Weighting_x * rt.c_advxx(iGlob - 1) + rt.c_difxx(iGlob - 1)); // # Ci-1
+//!矩阵系数，print矩阵模拟用
+			// //矩阵系数（修改使用new和old）
+			// rt.RTcoef(idom, 0) = 100;
+			// // Ci+1
+			// rt.RTcoef(idom, 1) = 1; // Ci+1
+			// //  Ci-1
+			// rt.RTcoef(idom, 2) = 2; // # Ci-1
+			// // Cj+1
+			// rt.RTcoef(idom, 3) = 3; // Cj+1
+			// // Cj-1
+			// rt.RTcoef(idom, 4) = 4; // Cj-1
+			// // Ck+1
+			// rt.RTcoef(idom, 5) = 5; // Ck+1
+			// rt.RTcoef(idom, 6) = 6; // Ck-1
+			// //rhs
+			// rt.RTcoef(idom, 7) = 7;
+//! A矩阵系数，交叉弥散项
+			//ci,j+1//添加到上面
+			rt.RTcoef(idom, 8) = -0.5*rt.c_difxy(iGlob) + 0.5*rt.c_difxy(iGlob-1)-rt.wz(iGlob)*rt.c_difzy(iGlob)/ (2 * gdom.dy *  gdom.dz(iGlob))+(1-rt.wz(iGlob-gdom.nxhc*gdom.nyhc))*rt.c_difzy(iGlob- gdom.nxhc * gdom.nyhc)/(2 * gdom.dy *  gdom.dz(iGlob)); // Ci,j+1
+			rt.RTcoef(idom, 3) += rt.RTcoef(idom, 8); 
 
-			rt.RTcoef(idom, 3) = -(rt.c_difyy(iGlob) - (1 - Up_Weighting_y) * rt.c_advyy(iGlob)); // Cj+1
+			//Ci+1,j+1
+			rt.RTcoef(idom, 9) = -0.5*rt.c_difxy(iGlob) - 0.5*rt.c_difyx(iGlob); // Ci+1,j+1
+			
+			//Cj-1//添加到上面
+			rt.RTcoef(idom, 10) = 0.5*rt.c_difxy(iGlob) - 0.5*rt.c_difxy(iGlob-1) + rt.wz(iGlob)*rt.c_difzy(iGlob) / (2 * gdom.dy *  gdom.dz(iGlob))- (1-rt.wz(iGlob-gdom.nxhc*gdom.nyhc))*rt.c_difzy(iGlob-gdom.nxhc * gdom.nyhc)/(2 * gdom.dy *  gdom.dz(iGlob)); // Cj-1
+			
+			rt.RTcoef(idom, 4) += rt.RTcoef(idom, 10);
+			//Ci+1,j-1
+			rt.RTcoef(idom, 11) = 0.5*rt.c_difxy(iGlob) + 0.5*rt.c_difyx(iGlob-gdom.nxhc); // Ci+1,j-1
+			//Ci-1,j+1
+			rt.RTcoef(idom, 12) = 0.5*rt.c_difxy(iGlob-1) + 0.5*rt.c_difyx(iGlob); // Ci-1,j+1
+			//Ci-1,j-1
+			rt.RTcoef(idom, 13) = -0.5*rt.c_difxy(iGlob-1) - 0.5*rt.c_difyx(iGlob-1); // Ci-1,j-1
+			//Ck+1//添加到上面
+			rt.RTcoef(idom, 14) = -0.5*rt.c_difxz(iGlob)/ (gdom.dx * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc))) + 0.5*rt.c_difxz(iGlob-1) / (gdom.dx * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc))) - 0.5*rt.c_difyz(iGlob) / (gdom.dy * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc)))+ 0.5 *rt.c_difyz(iGlob-gdom.nxhc)/ (gdom.dy * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc))); // Ck+1
+			rt.RTcoef(idom, 5) += rt.RTcoef(idom, 14);
+			//!Ci+1,k+1
+			rt.RTcoef(idom, 15) = -0.5*rt.c_difxz(iGlob)/ (gdom.dx * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc))) - (1-rt.wz(iGlob))*rt.c_difzx(iGlob)/ (2 * gdom.dx *  gdom.dz(iGlob)); // Ci+1,k+1
+			//Ck-1//添加到上面
+			rt.RTcoef(idom, 16) = 0.5*rt.c_difxz(iGlob)/ (gdom.dx * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc)))  - 0.5*rt.c_difxz(iGlob-1) / (gdom.dx * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc))) + 0.5*rt.c_difyz(iGlob) / (gdom.dy * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc)))- 0.5*rt.c_difyz(iGlob-gdom.nxhc)/ (gdom.dy * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc))); // Ck-1
+			rt.RTcoef(idom, 6) += rt.RTcoef(idom, 16);
+			//!Ci+1,k-1
+			rt.RTcoef(idom, 17) = 0.5*rt.c_difxz(iGlob) / (gdom.dx * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc))) + rt.wz(iGlob-gdom.nxhc*gdom.nyhc) * rt.c_difzx(iGlob-gdom.nxhc*gdom.nyhc)/ (2 * gdom.dx *  gdom.dz(iGlob)); // Ci+1,k-1
+			//Ci-1,k+1
+			rt.RTcoef(idom, 18) = 0.5*rt.c_difxz(iGlob-1) / (gdom.dx * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc))) + (1-rt.wz(iGlob))*rt.c_difzx(iGlob)/ (2 * gdom.dx *  gdom.dz(iGlob)); // Ci-1,k+1
+			//!Ci-1,k-1
+			rt.RTcoef(idom, 19) = -0.5*rt.c_difxz(iGlob-1) / (gdom.dx * (0.5 * gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc))) - rt.wz(iGlob-gdom.nxhc*gdom.nyhc)*rt.c_difzx(iGlob-gdom.nxhc*gdom.nyhc)/ (2 * gdom.dx *  gdom.dz(iGlob)); // Ci-1,k-1
+			//Ci+1///添加到上面
+			rt.RTcoef(idom, 20) = -0.5*rt.c_difyx(iGlob) + 0.5*rt.c_difyx(iGlob-gdom.nxhc) - rt.wz(iGlob)*rt.c_difzx(iGlob) / (2 * gdom.dx *  gdom.dz(iGlob))+ (1-rt.wz(iGlob-gdom.nxhc*gdom.nyhc))*rt.c_difzx(iGlob-gdom.nxhc*gdom.nyhc)/ (2 * gdom.dx *  gdom.dz(iGlob)); // Ci+1
+			rt.RTcoef(idom, 1) += rt.RTcoef(idom, 20);
+			//Ci-1//添加到上面
+			rt.RTcoef(idom, 21) = 0.5*rt.c_difyx(iGlob) - 0.5*rt.c_difyx(iGlob-gdom.nxhc) + rt.wz(iGlob)*rt.c_difzx(iGlob) / (2 * gdom.dx *  gdom.dz(iGlob))- (1-rt.wz(iGlob-gdom.nxhc*gdom.nyhc))*rt.c_difzx(iGlob-gdom.nxhc*gdom.nyhc)/ (2 * gdom.dx *  gdom.dz(iGlob)); // Ci-1
+			rt.RTcoef(idom, 2) += rt.RTcoef(idom, 21);
+			//Cj+1,k+1
+			rt.RTcoef(idom, 22) = -0.5*rt.c_difyz(iGlob) / ( gdom.dy * (0.5*gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc)))- (1-rt.wz(iGlob))*rt.c_difzy(iGlob)/ (2 * gdom.dy *  gdom.dz(iGlob)); // Cj+1,k+1
+			//Cj+1,k-1
+			rt.RTcoef(idom, 23) = 0.5*rt.c_difyz(iGlob) / (gdom.dy * (0.5*gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc)))+ rt.wz(iGlob-gdom.nxhc*gdom.nyhc)*rt.c_difzy(iGlob-gdom.nxhc*gdom.nyhc)/ (2 * gdom.dy *  gdom.dz(iGlob)); // Cj+1,k-1
+			//Cj-1,k+1
+			rt.RTcoef(idom, 24) = 0.5*rt.c_difyz(iGlob-gdom.nxhc) / (gdom.dy * (0.5*gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc)))+ (1-rt.wz(iGlob))*rt.c_difzy(iGlob)/ (2 * gdom.dy *  gdom.dz(iGlob)); // Cj-1,k+1
+			//Cj-1,k-1
+			rt.RTcoef(idom, 25) = -0.5*rt.c_difyz(iGlob-gdom.nxhc) / ( gdom.dy * (0.5*gdom.dz(iGlob-gdom.nxhc*gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob+gdom.nxhc*gdom.nyhc))) - rt.wz(iGlob-gdom.nxhc*gdom.nyhc)*rt.c_difzy(iGlob-gdom.nxhc*gdom.nyhc)/ (2 * gdom.dy *  gdom.dz(iGlob)); // Cj-1,k-1
+//!交叉弥散项模拟值，print矩阵用
 
-			rt.RTcoef(idom, 4) = -(Up_Weighting_y * rt.c_advyy(iGlob - gdom.nxhc) + rt.c_difyy(iGlob - gdom.nxhc)); // Cj-1
+// !考虑反应源汇项
 
-			rt.RTcoef(idom, 5) = -(rt.c_difzz(iGlob) - (1 - Up_Weighting_z) * rt.c_advzz(iGlob)); // Ck+1
-
-			rt.RTcoef(idom, 6) = -(Up_Weighting_z * rt.c_advzz(iGlob - gdom.nxhc * gdom.nyhc) + rt.c_difzz(iGlob - gdom.nxhc * gdom.nyhc)); // Ck-1
-
-			rt.RTcoef(idom, 7) = rt.c(iGlob, 1) * gw.wc(iGlob, 1) ;
-
-			// 考虑反应源汇项
-
-			double intermediate_variable;//定义非平衡吸附中间变量
+			double intermediate_variable = 0;//定义非平衡吸附中间变量
+			double min_conc = 1e-6;//定义最小浓度值
 
 
 			if (rt.ReactionModule == 1)
 			{
-				// 阻滞因子计算
-				if (rt.AdsorptionDesorptionModel == 1) // 表面平衡-线性吸附模式;
+				// 阻滞因子计算,根据前一次迭代计算浓度进行更新
+				if (rt.AdsorptionDesorptionModel == Equilibrium_Linear_Model) // 表面平衡-线性吸附模式;
 				{
-					rt.Rf(iGlob) = 1 + rt.rho_b * rt.Kd / gw.wc(iGlob, 0);
+					rt.Rf(iGlob) = 1 + rt.rho_b * rt.Kd / gw.wc_old(iGlob);
 				}
-				else if (rt.AdsorptionDesorptionModel == 2) // 2:Freundlich等温吸附模式;
+				else if (rt.AdsorptionDesorptionModel == Equilibrium_Freundlich_Model) // 2:Freundlich等温吸附模式;
 				{
-					rt.Rf(iGlob) = 1 + (rt.rho_b * rt.Kf * rt.Nf * pow(rt.c(iGlob, 0), (rt.Nf - 1))) / gw.wc(iGlob, 0);
+					
+					rt.Rf(iGlob) = 1 + (rt.rho_b * rt.Kf * rt.Nf * pow(rt.c(iGlob, 1), (rt.Nf - 1))) / gw.wc_old(iGlob);
+					//如果浓度值低于1e-6，则Rf=1，防止Rf值过大影响矩阵求解
+					if (rt.c(iGlob, 1) < min_conc){
+						rt.Rf(iGlob) = 1;
+					}
 				}
-				else if (rt.AdsorptionDesorptionModel == 3) // 3:Langmuir等温吸附模式（固体表面吸附位有限
+				else if (rt.AdsorptionDesorptionModel == Equilibrium_Langmuir_Model) // 3:Langmuir等温吸附模式（固体表面吸附位有限
 				{
-					rt.Rf(iGlob) = (rt.alpha_D * rt.beta_D) * pow((1 + rt.alpha_D * rt.c(iGlob, 0)), 2);
+					rt.Rf(iGlob) = 1 + (rt.rho_b  / gw.wc_old(iGlob)) * ((rt.Kl ) / (pow((1 + rt.eta * rt.c(iGlob, 1)), 2)) );
+
 				}
 				// else
 				// {
@@ -488,58 +703,34 @@ public:
 				// 	exit(-1);
 				// }
 				
-				else if (rt.AdsorptionDesorptionModel == 4)//4:非平衡吸附模式
+				else if (rt.AdsorptionDesorptionModel == Nonequilibrium_Model)//4:非平衡吸附模式
 				{					
-					//intermediate_variable = rt.beta / (rt.Kd * (rt.rho_b / rt.dt + rt.beta / rt.Kd + rt.lambda_2 * rt.rho_b) );
-					intermediate_variable = rt.beta / (1 + rt.beta * rt.dt);
-					rt.Rf(iGlob) = 1 + rt.rho_b * rt.f * rt.Kd / gw.wc(iGlob,0);
+					intermediate_variable = rt.beta / (rt.Kd * (rt.rho_b / rt.dt + rt.beta / rt.Kd + rt.lambda_2 * rt.rho_b) );
+					rt.Rf(iGlob) = 1;
 				}
-				else if (rt.AdsorptionDesorptionModel != 1 && rt.AdsorptionDesorptionModel != 2 && rt.AdsorptionDesorptionModel != 3)
+				else if (rt.AdsorptionDesorptionModel != 1 && rt.AdsorptionDesorptionModel != 2 && rt.AdsorptionDesorptionModel != 3 && rt.AdsorptionDesorptionModel != 4)
 				{
-					std::cout << "parameter AdsorptionDesorptionModel must be 1 or 2 or 3" << std::endl;
+					std::cout << "parameter AdsorptionDesorptionModel must be 1 or 2 or 3 or 4" << std::endl;
 				}
-				// std::cout << "rt.lambda " << rt.lambda << std::endl;
-				// std::cout << "rt.Rf(iGlob) " << rt.Rf(iGlob) << std::endl;
-				// std::cout << "intermediate_variable " << intermediate_variable << std::endl;
-				
-			 /*	rt.RTcoef(idom, 0) = rt.lambda * gw.wc(iGlob, 0) + rt.Rf(iGlob) * gw.wc(iGlob, 0) 
-				+ rt.c_difxx(iGlob) + rt.c_difxx(iGlob - 1) + Up_Weighting_x * rt.c_advxx(iGlob) - (1 - Up_Weighting_x) * rt.c_advxx(iGlob - 1) 
-				+ rt.c_difyy(iGlob) + rt.c_difyy(iGlob - gdom.nxhc) + Up_Weighting_y * rt.c_advyy(iGlob) - (1 - Up_Weighting_y) * rt.c_advyy(iGlob - gdom.nxhc) 
-				+ rt.c_difzz(iGlob) + rt.c_difzz(iGlob - gdom.nxhc * gdom.nyhc) + Up_Weighting_z * rt.c_advzz(iGlob) - (1 - Up_Weighting_z) * rt.c_advzz(iGlob - gdom.nxhc * gdom.nyhc)
-				+ (gw.wc(iGlob, 0) - gw.wc(iGlob, 1))
-				+ rt.dt * (rt.beta + (rt.lambda_1 * gw.wc(iGlob, 0)) - (intermediate_variable * pow (rt.beta,2)));
-				
-				rt.RTcoef(idom, 7) = rt.c(iGlob, 1) * gw.wc(iGlob, 1) * rt.Rf(iGlob) 
-				+ intermediate_variable * rt.rho_b * rt.c_solid(iGlob,1);  */
+//更新吸附反应后的矩阵系数
+				rt.RTcoef(idom, 0) = rt.Rf(iGlob) * gw.wc_new(iGlob) + rt.lambda * gw.wc_new(iGlob) 
+				+ rt.c_difxx(iGlob) + rt.c_difxx(iGlob - 1) + rt.Up_Weighting_xp(iGlob) * rt.c_advxx(iGlob) - (1 - rt.Up_Weighting_xm(iGlob)) * rt.c_advxx(iGlob - 1) 
+				+ rt.c_difyy(iGlob) + rt.c_difyy(iGlob - gdom.nxhc) + rt.Up_Weighting_yp(iGlob) * rt.c_advyy(iGlob) - (1 - rt.Up_Weighting_ym(iGlob)) * rt.c_advyy(iGlob - gdom.nxhc) 
+				+ rt.c_difzz(iGlob) /gdom.dz(iGlob) + rt.c_difzz(iGlob - gdom.nxhc * gdom.nyhc)/gdom.dz(iGlob) + rt.Up_Weighting_zp(iGlob) * rt.c_advzz(iGlob)/gdom.dz(iGlob) - (1 - rt.Up_Weighting_zm(iGlob)) * rt.c_advzz(iGlob - gdom.nxhc * gdom.nyhc)/gdom.dz(iGlob)
+				+ (gw.wc_new(iGlob) - gw.wc_old(iGlob))
+				+ rt.dt * (rt.beta + (rt.lambda_1 * gw.wc_new(iGlob)) - (intermediate_variable * pow (rt.beta,2)));
+			
 
-				rt.RTcoef(idom, 0) = rt.lambda * gw.wc(iGlob, 0) + rt.Rf(iGlob) * gw.wc(iGlob, 0) + rt.dt * rt.k2 * gw.wc(iGlob,0)
-				+ rt.c_difxx(iGlob) + rt.c_difxx(iGlob - 1) + Up_Weighting_x * rt.c_advxx(iGlob) - (1 - Up_Weighting_x) * rt.c_advxx(iGlob - 1) 
-				+ rt.c_difyy(iGlob) + rt.c_difyy(iGlob - gdom.nxhc) + Up_Weighting_y * rt.c_advyy(iGlob) - (1 - Up_Weighting_y) * rt.c_advyy(iGlob - gdom.nxhc) 
-				+ rt.c_difzz(iGlob) + rt.c_difzz(iGlob - gdom.nxhc * gdom.nyhc) + Up_Weighting_z * rt.c_advzz(iGlob) - (1 - Up_Weighting_z) * rt.c_advzz(iGlob - gdom.nxhc * gdom.nyhc)
-				+ (gw.wc(iGlob, 0) - gw.wc(iGlob, 1))
-				+ rt.dt * intermediate_variable * (1 - rt.f) * rt.Kd * rt.rho_b;
-				
-				rt.RTcoef(idom, 7) = rt.c(iGlob, 1) * gw.wc(iGlob, 1) * rt.Rf(iGlob) 
-				+ rt.dt * intermediate_variable * rt.rho_b * rt.c_solid(iGlob,1);
-
+				rt.RTcoef(idom, 7) = rt.c(iGlob, 1) * gw.wc_old(iGlob)* rt.Rf(iGlob)
+				+ intermediate_variable * rt.rho_b * rt.c_solid(iGlob,1);
 
 			}
-			if (rt.ReactionModule == 2)
+			if (rt.ReactionModule != 1 && rt.ReactionModule != 0)
 			{
-				rt.RTcoef(idom, 0) = 1.0 * gw.wc(iGlob, 0) + rt.dt * rt.k1 * gw.wc(iGlob,0) + rt.c_difxx(iGlob) + rt.c_difxx(iGlob - 1) + Up_Weighting_x * rt.c_advxx(iGlob) - (1 - Up_Weighting_x) * rt.c_advxx(iGlob - 1) 
-			    + rt.c_difyy(iGlob) + rt.c_difyy(iGlob - gdom.nxhc) + Up_Weighting_y * rt.c_advyy(iGlob) - (1 - Up_Weighting_y) * rt.c_advyy(iGlob - gdom.nxhc) 
-			    + rt.c_difzz(iGlob) + rt.c_difzz(iGlob - gdom.nxhc * gdom.nyhc) + Up_Weighting_z * rt.c_advzz(iGlob) - (1 - Up_Weighting_z) * rt.c_advzz(iGlob - gdom.nxhc * gdom.nyhc)
-			    + (gw.wc(iGlob, 0) - gw.wc(iGlob, 1));
-
-				rt.RTcoef(idom, 7) = rt.c(iGlob, 1) * gw.wc(iGlob, 1) + rt.dt * rt.k2 * gw.wc(iGlob, 1) ;
-
-			}
-			if (rt.ReactionModule != 2 && rt.ReactionModule != 1 && rt.ReactionModule != 0)
-			{
-				std::cout << "parameter ReactionModule must be 0 , 1 or 2 " << std::endl;
+				std::cout << "parameter ReactionModule must be 0 or 1" << std::endl;
 			}
 
-			// // std::cout << "-------* rt.Up_Weighting----- " <<rt.Up_Weighting << std::endl;
+			
 
 			if (rt.rt_scheme == 2) // picard迭代
 			{
@@ -573,101 +764,75 @@ public:
 			
 			int ii, jj, kk;
 			// idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-
-			int irow = rtA.rt_ptr(idom); 
 			
-			
-			gdom.unpackIndices(idom, kk, jj, ii);
+			//获取当前单元格idom在rtA矩阵中的行起始位置
+			//rtA.rt_ptr数组，存储稀疏矩阵中每一行非零元素的起始索引
+			//irow指向当前处理的单元格在rtA.rt_ind和rtA.rt_val数组中的起始位置
+			int irow = rtA.rt_ptr(idom); 				
+			gdom.unpackIndices(idom, kk, jj, ii);//将idom转换为三维坐标
+/*
+!重新填充，矩阵系数填充矩阵考虑Dxy修改后
+*/ 
+//ci-1,k-1
+			if (ii > 0 && kk > 0){
+				rtA.rt_ind(irow) = idom -1 - gdom.nx*gdom.ny;
+				rtA.rt_val(irow) = rt.RTcoef(idom, 19);
+				// rtA.rt_val(irow) = 19;				
+				irow++;				
+			}
+//Ck-1
+		    if (kk > 0)	{
+			rtA.rt_ind(irow) = idom - gdom.nx*gdom.ny;// rtA.rt_ind非零元素的列索引
+			rtA.rt_val(irow) = rt.RTcoef(idom,6); // rtA.rt_val非零元素的值 
+			irow++;
+			}	
+//ci+1,k-1
+			if (ii < gdom.nx-1 && kk > 0){
+				rtA.rt_ind(irow) = idom + 1 -gdom.nx*gdom.ny;
+				rtA.rt_val(irow) = rt.RTcoef(idom, 17); 
+				// rtA.rt_val(irow) = 17;				
+				irow++;				
+			}	
+//ci-1
+			if (ii > 0)	{
+				rtA.rt_ind(irow) = idom - 1;		        
+				rtA.rt_val(irow) = rt.RTcoef(idom,2);  
+				irow++;
+				}	
+//Ci,j,k
+			rtA.rt_ind(irow) = idom;	
+			rtA.rt_val(irow) = rt.RTcoef(idom,0);	
+			irow++;
+//Ci+1
+			if (ii < gdom.nx-1)	{
+				rtA.rt_ind(irow) = idom + 1;		        
+				rtA.rt_val(irow) = rt.RTcoef(idom,1);  
+				irow++;			
+				}			
+//ci-1,k+1
+			if (ii > 0 && kk < gdom.nz-1){
+				rtA.rt_ind(irow) = idom -1 + gdom.nx*gdom.ny;
+				rtA.rt_val(irow) = rt.RTcoef(idom, 18);
+				// rtA.rt_val(irow) = 18;				 
+				irow++;				
+			}				
 
-		     if (kk > 0)	{rtA.rt_ind(irow) = idom - gdom.nx*gdom.ny;	rtA.rt_val(irow) = rt.RTcoef(idom,6);  irow++;}
-        		if (jj > 0)	{rtA.rt_ind(irow) = idom - gdom.nx;	        rtA.rt_val(irow) = rt.RTcoef(idom,4);  irow++;}
-			if (ii > 0)	{rtA.rt_ind(irow) = idom - 1;		        rtA.rt_val(irow) = rt.RTcoef(idom,2);  irow++;}
-			rtA.rt_ind(irow) = idom;	rtA.rt_val(irow) = rt.RTcoef(idom,0);	irow++;
-			if (ii < gdom.nx-1)	{rtA.rt_ind(irow) = idom + 1;		        rtA.rt_val(irow) = rt.RTcoef(idom,1);  irow++;}
-			if (jj < gdom.ny-1)	{rtA.rt_ind(irow) = idom + gdom.nx;	        rtA.rt_val(irow) = rt.RTcoef(idom,3);  irow++;}
-			if (kk < gdom.nz-1)	{rtA.rt_ind(irow) = idom + gdom.nx*gdom.ny;	rtA.rt_val(irow) = rt.RTcoef(idom,5);  irow++;}
-//弥散项中心差分
-			// //Ci+1,j+1
-			// if (ii < gdom.nx-1 && jj< gdom.ny-1){
-			// 	rtA.rt_ind(irow) = idom + gdom.nx + 1;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,8);  
-			// 	irow++;
-			// }
-			// //Ci+1,j-1
-			// if (ii < gdom.nx-1 && jj > 0){
-			// 	rtA.rt_ind(irow) = idom + 1 - gdom.nx;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,9);  
-			// 	irow++;				
-			// }
-			// //ci-1,j+1
-			// if (ii > 0 && jj < gdom.ny - 1){
-			// 	rtA.rt_ind(irow) = idom -1+gdom.nx;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,10);  
-			// 	irow++;				
-			// }
-			// //ci-1,j-1
-			// if (ii > 0 && jj > 0){
-			// 	rtA.rt_ind(irow) = idom - gdom.nx - 1;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,11);  
-			// 	irow++;				
-			// }
-			// //ci+1,k+1
-			// if (ii < gdom.nx-1 && kk < gdom.nz-1){
-			// 	rtA.rt_ind(irow) = idom + 1 + gdom.nx * gdom.ny;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,12);  
-			// 	irow++;				
-			// }
-			// //ci+1,k-1
-			// if (ii < gdom.nx-1 && kk > 0){
-			// 	rtA.rt_ind(irow) = idom + 1 -gdom.nx*gdom.ny;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,13);  
-			// 	irow++;				
-			// }
-			// //ci-1,k+1
-			// if (ii > 0 && kk < gdom.nz-1){
-			// 	rtA.rt_ind(irow) = idom -1 + gdom.nx*gdom.ny;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,14);  
-			// 	irow++;				
-			// }
-			// //ci-1,k-1
-			// if (ii > 0 && kk > 0){
-			// 	rtA.rt_ind(irow) = idom -1 - gdom.nx*gdom.ny;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,15);  
-			// 	irow++;				
-			// }
-			// //cj+1,k+1
-			// if (jj < gdom.ny - 1 && kk < gdom.nz - 1){
-			// 	rtA.rt_ind(irow) = idom + 1 + gdom.nx*gdom.ny;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,16);  
-			// 	irow++;				
-			// }
-			// //cj+1,k-1
-			// if (jj < gdom.ny -1 && kk > 0){
-			// 	rtA.rt_ind(irow) = idom + gdom.nx - gdom.nx*gdom.ny;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,17);  
-			// 	irow++;				
-			// }
-			// //cj-1,k+1
-			// if (jj > 0 && kk < gdom.nz -1){
-			// 	rtA.rt_ind(irow) = idom -gdom.nx + gdom.nx*gdom.ny;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,18);  
-			// 	irow++;				
-			// }
-			// //cj-1,k-1
-			// if (jj > 0 && kk > 0){
-			// 	rtA.rt_ind(irow) = idom -gdom.nx - gdom.nx*gdom.ny;
-			// 	rtA.rt_val(irow) = rt.RTcoef(idom,19);  
-			// 	irow++;				
-			// }
-//弥散项中心差分
+//Ck+1
+			if (kk < gdom.nz-1)	{
+				rtA.rt_ind(irow) = idom + gdom.nx*gdom.ny;	
+				rtA.rt_val(irow) = rt.RTcoef(idom,5);  
+				irow++;
+				}
+//ci+1,k+1
+			if (ii < gdom.nx-1 && kk < gdom.nz-1){
+				rtA.rt_ind(irow) = idom + 1 + gdom.nx * gdom.ny;
+				rtA.rt_val(irow) = rt.RTcoef(idom, 15); 
+				// rtA.rt_val(irow) = 15;				
+				irow++;				
+			}	
 
-			// //添加Ci+1,j+1等
-			// if (ii < gdom.nx-1 && jj < gdom.ny-1)	{rtA.rt_ind(irow) = idom + gdom.nx + 1;		        rtA.rt_val(irow) = rt.RTcoef(idom,8);  irow++;}
-			// //Ci+1,k+1
-			// if (ii < gdom.nx-1 && kk < gdom.nz-1)	{rtA.rt_ind(irow) = idom + gdom.nx*gdom.ny +1;	        rtA.rt_val(irow) = rt.RTcoef(idom,9);  irow++;}
-			// //Cj+1,k+1
-			// if (jj < gdom.ny-1 && kk < gdom.nz-1)	{rtA.rt_ind(irow) = idom + gdom.nx + gdom.nx*gdom.ny;	rtA.rt_val(irow) = rt.RTcoef(idom,10);  irow++;}
-			rtA.rt_rhs(idom) = rt.RTcoef(idom,7); });
+			rtA.rt_rhs(idom) = rt.RTcoef(idom,7); 
+			});
 	}
 
 	/*----------------20240426修改-----------*/ // 非迭代方法时间步长控制
