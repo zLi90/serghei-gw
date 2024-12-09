@@ -6,19 +6,20 @@
 cmake_minimum_required (VERSION 3.14)
 
 #   If needed, specify the CXX compiler here, otherwise comment out these lines
-set(CMAKE_C_COMPILER /usr/local/bin/gcc-11)
-set(CMAKE_CXX_COMPILER /usr/local/bin/g++-11)
-
+set(CMAKE_C_COMPILER /usr/bin/gcc-11)
+set(CMAKE_CXX_COMPILER /usr/bin/g++-11)
+set(EIGEN3_INCLUDE_DIR "/usr/include/eigen3")
+include_directories(${EIGEN3_INCLUDE_DIR})
 # Name the project
 project (serghei LANGUAGES CXX)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 #   Specify the path to PnetCDF
-set(PNETCDF_ROOT "/Users/zli/Codes/PnetCDF")
+set(PNETCDF_ROOT "/home/zhangzhibo/PnetCDF")
 
 #   Specify the path where KokkosKernels is built
-set(KokkosKernels_ROOT "/Users/zli/Codes/kokkoskernels4-omp")
+set(KokkosKernels_ROOT "/home/zhangzhibo/kokkos-kernels-4.2.00-dir")
 
 #   Specify if using GPU or not
 set(Enable_GPU "OFF")
@@ -56,3 +57,4 @@ endforeach()
 
 #   Add the subdirectory where the source codes are stored
 add_subdirectory(src)
+

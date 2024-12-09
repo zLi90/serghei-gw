@@ -1,0 +1,64 @@
+DomainArea [m2]: 0.0001
+nCell(SW) : 1
+nCellValid(SW) : 1
+runTime : 227.415 : 1
+simTime : 227.274 : 0.999379
+initTime : 0.14131 : 0.000621377
+outputTime : 0.0117518 : 5.16757e-05
+sweFluxTime : 0 : 0
+rainInfTime : 0.025237 : 0.000110973
+sweNotFluxTime : 0 : 0
+exchangeTime : 3.8737e-05 : 1.70336e-07
+integrateTime : 2.81772 : 0.0123902
+dtComputeTime : 0 : 0
+LinearSolverTime : 31.8345 : 0.139984
+TIMERS PER RANK
+runTime		 :	227.415
+runTime_lb		 :	1
+simTime		 :	227.274
+simTime_lb		 :	1
+initTime		 :	0.14131
+initTime_lb		 :	1
+outputTime		 :	0.0117518
+outputTime_lb		 :	1
+sweFluxTime		 :	0
+sweFluxTime_lb		 :	-nan
+rainInfTime		 :	0.025237
+rainInfTime_lb		 :	1
+sweNotFluxTime		 :	0
+sweNotFluxTime_lb		 :	-nan
+exchangeTime		 :	3.8737e-05
+exchangeTime_lb		 :	1
+dtComputeTime		 :	0
+dtComputeTime_lb		 :	-nan
+
+DateTime : Fri Nov 22 13:06:25 2024
+
+Machine : zhangzhibo-virtual-machine
+CPU: 13th Gen Intel(R) Core(TM) i9-13900K
+nTasks : 1
+
+-------------------------
+MODEL COMPONENT SETUP
+SERGHEI_TOOLS 1
+SERGHEI_SUBSURFACE_MODEL 1
+SERGHEI_PARTICLE_TRACKING 0
+SERGHEI_VEGETATION_MODEL 0
+SERGHEI_FRICTION_MODEL 1
+SERGHEI_MAXFLOOD 0
+SERGHEI_REAL 2
+SERGHEI_NC_MODE 0
+SERGHEI_NC_REAL NC_DOUBLE
+SERGHEI_WRITE_HZ 1
+
+-------------------------
+DEBUG FLAGS
+SERGHEI_DEBUG_PARALLEL_DECOMPOSITION 0
+SERGHEI_DEBUG_WORKFLOW 0
+SERGHEI_DEBUG_KOKKOS_SETUP 0
+SERGHEI_DEBUG_BOUNDARY 0
+SERGHEI_DEBUG_DT 0
+SERGHEI_DEBUG_TOOLS 0
+SERGHEI_DEBUG_MASS_CONS 0
+SERGHEI_DEBUG_INFILTRATION 0
+SERGHEI_DEBUG_MPI 0

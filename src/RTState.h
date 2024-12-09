@@ -73,7 +73,7 @@ public:
 	int RT_Aquifer_initialMode, RT_Solid_initialMode, rt_scheme; // 地下水浓度初始值模式，固相初始值模式，反应传输计算方案
 
 	real total_mass;
-	realArr2 aveV;
+	// realArr2 aveV;
 	realArr2 aveVB;
 	realArr2 RTcoef;
 	// real phizzb;
@@ -109,10 +109,10 @@ public:
 
 		// advection = realArr("advection", gdom.nCellMem);
 
-		aveV = realArr2("aveV", gdom.nCellMem, 4);
+		// aveV = realArr2("aveV", gdom.nCellMem, 4);
 		// 边界流速
 		aveVB = realArr2("aveVB", gdom.nCellMem, 4);
-		q_dispersion = realArr2("q_dispersion", gdom.nCellMem, 15);
+		q_dispersion = realArr2("q_dispersion", gdom.nCellMem, 12);
 		// dispersion = realArr2("dispersion", gdom.nCellMem,4);
 		// residual = realArr("residual", gdom.nCellMem);
 		tau = realArr("tau", gdom.nCellMem);

@@ -193,16 +193,21 @@ public:
 //!zzb20241127
 	#if SERGHEI_SUBSURFACE_TRANSPORT
     void outputIniRT(const RTState &rt, GwDomain const &gdom, Parallel const &par, std::string dir){
-		numOut=0;
+		// numOut=0;
+    nOut = floor(gdom.simLength / outFreq);
 		outputInitNETCDFRT(rt, gdom, par, dir);
-		numOut++;
+		// numOut++;
     
 	}
 
     void outputTransport(const RTState &rt, GwDomain const &gdom, Parallel const &par, std::string dir){
+        timer.reset();
+        // #if SERGHEI_SWE_MODEL
         numOut--;
+        // #endif
         outputNETCDFTransport(rt, gdom, par, dir);
         numOut++;
+        gdom.timers.out += timer.seconds();
 	}
 	#endif
 //!zzb20241127  

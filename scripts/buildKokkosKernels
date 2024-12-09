@@ -1,0 +1,19 @@
+#!/bin/bash
+
+kokkoskernels_src_dir=$(pwd)/kokkos-kernels
+kokkoskernels_build_dir=$kokkoskernels_src_dir/build
+kokkoskernels_install_dir=$kokkoskernels_src_dir/install
+kokkos_install_dir=$(pwd)/kokkos/install
+
+
+if [ ! -d ${kokkoskernels_install_dir} ]; then
+    rm -rf ${kokkoskernels_build_dir}
+    cmake -S ${kokkoskernels_src_dir} -B ${kokkoskernels_build_dir} \
+    -DCMAKE_INSTALL_PREFIX=${kokkoskernels_install_dir} \
+	-DKokkos_ROOT=${kokkos_install_dir} \
+	#-DCMAKE_CXX_COMPILER=g++
+    
+    cd ${kokkoskernels_build_dir}
+    make -j4
+    make install
+fi

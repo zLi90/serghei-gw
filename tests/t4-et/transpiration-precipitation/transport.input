@@ -5,6 +5,6 @@ n_mass : 1               //number of species
 diffusion_molecular: 0           //molecular diffusivity
 alpha_L : 0.01            //longitudinal dispersion
 alpha_T : 0            //transverse dispersion
-rt_scheme : 4            // numerical schemes, 1:PCA, 2:Picard, 3:Eigen3, 4:Gauss_Seidel
+rt_scheme : 2            // numerical schemes, 1:gs,2:kokkos-BICGSTAB
 Up_Weighting_vplus : 0.5   //Upstream weighting coefficients,[0.5,1]
 Up_Weighting_vminus : 0.5  //Upstream weighting coefficients,[0,0.5]

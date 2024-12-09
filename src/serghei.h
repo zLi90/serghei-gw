@@ -160,6 +160,7 @@ public:
 					<< "\n";
 			return 0;
 		};
+		
 		rtA.init(gdom);
 		rtsolver.init(rtA, gdom);
 #endif
@@ -229,6 +230,7 @@ public:
 		rt.dt = gdom.dt_init;
 		rt.dtOld = gdom.dt_init;
 		dom.dt = rt.dt;	
+		
 #endif
 //!zzb	
 
@@ -312,31 +314,13 @@ public:
 			{
 				gdom.etime += gdom.dt;
 #ifdef __NVCC__
-					if (rt.rt_scheme == 1)
-					{
-						rtf.rt_pca_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc,  gmpi, par, rtsolver);
-					}
-					if (rt.rt_scheme == 2)
-					{
-						rtf.rt_picard_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
-					}
-					else
-					{
-						rtf.rt_Gauss_Seidel_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);	
-					}
+					
+						rtf.rt_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);	
+					
 #else
-					if (rt.rt_scheme == 1)
-					{
-						rtf.rt_pca_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc,  gmpi, par, rtsolver);
-					}
-					if (rt.rt_scheme == 2)
-					{
-						rtf.rt_picard_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
-					}
-					else
-					{
-						rtf.rt_Gauss_Seidel_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);	
-					}
+				
+						rtf.rt_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);	
+					
 
 #endif
 					 		 
@@ -344,41 +328,20 @@ public:
 		}
 			else
 			{
+				
 				gdom.etime = dom.etime;
 #ifdef __NVCC__
-					if (rt.rt_scheme == 1)
-					{
-						
-						rtf.rt_pca_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc,  gmpi, par, rtsolver);
-					}
-					if (rt.rt_scheme == 2)
-					{
-						rtf.rt_picard_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
-					}
-					else
-					{
-						rtf.rt_Gauss_Seidel_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);	
-					}
+				
+						rtf.rt_solve<Kokkos::Cuda>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);	
+					
 
-#else
-					if (rt.rt_scheme == 1)
-					{
-						// std::cout << "rt_scheme1: " << rt.rt_scheme << std::endl;
-						rtf.rt_pca_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);
-					}
-					if (rt.rt_scheme == 2)
-					{
-						// std::cout << "rt_scheme2: " << rt.rt_scheme << std::endl;
-						rtf.rt_picard_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, rtsolver,  gmpi, gint, par);
-					}
-					else
-					{
-						// std::cout << "rt_scheme2: " << rt.rt_scheme << std::endl;
-						rtf.rt_Gauss_Seidel_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);	
-					}
+#else										
+						rtf.rt_solve<Kokkos::OpenMP>(rt, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtsolver);	
+					
+					
 
 #endif
-			// std::cout << "dom.etime: "<< dom.etime << std::endl;
+			
 			}
 #endif
 //!zzb

@@ -56,12 +56,7 @@ public:
     // std::string initialMode;
     int initialMode;
     real initialValue;
-	#if SERGHEI_SUBSURFACE_TRANSPORT
-    // scalar concentration
-    realArr2 c;
-    // dispersion tensor
-    realArr2 dcal;
-	#endif
+
     // Allocate state variables for groundwater
     inline void allocate (GwDomain &gdom) {
         nVGparam = NVG;

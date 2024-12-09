@@ -1,0 +1,13 @@
+bccount : 2
+id : top
+direction : 6
+bctype : 3//6  //3
+bcvals : -1.157e-7//0  //-1e-8
+polygon : polygontop.input
+//timeseries : irrigation.input
+
+id : bottom
+direction : 5
+bctype : 9
+polygon : polygontop.input
+
