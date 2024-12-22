@@ -25,7 +25,7 @@ public:
     bool async;
     // Kokkos views
     realArr x, y, z, dz, depth, sinx, cosx, siny, cosy, rainRate, evapRate, etpmRate;
-    intArr isnodata;
+    intArr isnodata, onboundary;
 
     // other variables
     int BCtype;

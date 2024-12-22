@@ -51,6 +51,8 @@ public:
 		std::vector<int> tmpgcells; //array of indexes of ghost cells
 		std::vector<int> subdomains;	// keeps track of which subdomains are associated to the BC
 		// Loop over the entire domain to find bc cells
+		int onBoundary;
+
 		for (int kk = 0; kk < gdom.nz; kk++) {
 			for (int jj = 0; jj < gdom.ny; jj++) {
 				for (int ii = 0; ii < gdom.nx; ii++) {
@@ -58,7 +60,25 @@ public:
 					foundInSubdom = -1;
 		            real xCoord = gdom.xll + ( par.i_beg + ii + 0.5) * gdom.dx;
 		            real yCoord = gdom.yll + gdom.ny_glob*gdom.dx - ( par.j_beg + jj + 0.5) * gdom.dx;
-		            if (geometry::isInsidePoly(nPoly, xPoly, yPoly, xCoord, yCoord)){
+		            
+		            // Check if the cell is on the boundary 
+		            onBoundary = 0;
+		            if (direction == ZMINUS || direction == ZPLUS)	{
+						onBoundary = 1;
+		            }
+		            else {
+		            	if (gdom.isnodata(iGlob) == 0)	{
+		            		if (ii == 0 || ii == gdom.nx-1 || jj == 0 || jj == gdom.ny-1)	{onBoundary = 1;}
+		            		else {
+		            			if (gdom.isnodata(iGlob+1) == 1 && direction == XPLUS) {onBoundary = 1;}
+		            			else if (gdom.isnodata(iGlob-1) == 1 && direction == XMINUS) {onBoundary = 1;}
+		            			else if (gdom.isnodata(iGlob+gdom.nxhc) == 1 && direction == YPLUS) {onBoundary = 1;}
+		            			else if (gdom.isnodata(iGlob-gdom.nxhc) == 1 && direction == YMINUS) {onBoundary = 1;}
+		            		}
+		            	}
+		            }
+		       		// only keep cells on the boundary
+		            if (geometry::isInsidePoly(nPoly, xPoly, yPoly, xCoord, yCoord) && onBoundary == 1){
 		                // If on top/bottom boundary, only the top/bottom layer counts
 		                if (direction == ZPLUS) {
 							if (kk == gdom.nz-1) {
@@ -80,14 +100,19 @@ public:
 							else if (direction == XMINUS)	{tmpgcells.push_back(iGlob-1);}
 							else if (direction == YPLUS)	{tmpgcells.push_back(iGlob+gdom.nxhc);}
 							else if (direction == YMINUS)	{tmpgcells.push_back(iGlob-gdom.nxhc);}
+							
+							// save on boundary info
+		            		gdom.onboundary(iGlob) = 1;
+							
 						}
-		            }
+		            }		            
 				}
 			}
 		}
 
 		ncellsBC=int(tmpbcells.size());
 		if(ncellsBC > 0) foundInSubdom = par.myrank; // if at least one cell in this subdomain (rank) is in the BC, tag as found
+		
 
 		int ncells_all;
         MPI_Allreduce(&ncellsBC, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
@@ -148,6 +173,8 @@ public:
 	}
 
 
+    
+    
 
 
 
@@ -310,7 +337,8 @@ public:
 				}
 				else if (direction == 6)	{
 					if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGhost,2) = ks;}
-					else {gw.k(iGhost,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
+					else {gw.k(iGhost,2) = 0.0;}
+					//else {gw.k(iGhost,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
 				}
             });
         }

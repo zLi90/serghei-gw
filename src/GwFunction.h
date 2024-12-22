@@ -103,6 +103,7 @@ public:
 		gdom.timers.gwIntegrate += timer.seconds();
 
 		gdom.timers.gw += timer2.seconds();
+		
     }
 
     /* --------------------------------------------------
@@ -210,6 +211,8 @@ public:
             if (gw.k(iGlob,3) > 1.0 | gw.h(iGlob,1) >= gdom.aev)	{gw.k(iGlob,3) = 1.0;}
             // set no data cells impermeable
             if (gdom.isnodata(iGlob) == 1)  {gw.k(iGlob,3) = 0.0;}
+            // set top layer of a dry cell impermeable (only works for Lake Taihu!)
+            //if (kk < 2 && gw.h(iGlob,1) <= 0.0)	{gw.k(iGlob,3) = 0.0;}
         });
         // Get K on interior cell faces
         Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
@@ -377,17 +380,33 @@ public:
             else if (ii == gdom.nx-1 && par.px < par.nproc_x-1)   {gw.coef(idom,7) -= gw.coef(idom,1) * gw.h(iGlob+1,1);}
             if (jj == 0 && par.py > 0)    {gw.coef(idom,7) -= gw.coef(idom,4) * gw.h(iGlob-gdom.nxhc,1);}
             else if (jj == gdom.ny-1 && par.py < par.nproc_y-1)   {gw.coef(idom,7) -= gw.coef(idom,3) * gw.h(iGlob+gdom.nxhc,1);}
-            // no data cells 
-            if (gdom.isnodata(iGlob) == 1)  {gw.coef(idom,0) = 1e10; gw.coef(idom,7) = 1e10;}
+            
         });
         // Apply outer boundary conditions
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyMatBC(gw, gdom, par);
         }
 
-
         Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
             gw.coef(idom,0) -= (gw.coef(idom,1)+gw.coef(idom,2)+gw.coef(idom,3)+gw.coef(idom,4)+gw.coef(idom,5)+gw.coef(idom,6));
+        });
+        
+        // Remove dependencies on internal NODATA cells
+        Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
+            int ii, jj, kk, iGlob;
+            gdom.unpackIndices(idom, kk, jj, ii);
+            iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+            // no data cells 
+            if (gdom.isnodata(iGlob) == 1)  {
+            	gw.coef(idom,0) = 1e12; gw.coef(idom,7) = 1e12; gw.coef(idom,5) = 0.0;	gw.coef(idom,6) = 0.0;
+            	gw.coef(idom,1) = 0.0; gw.coef(idom,2) = 0.0; gw.coef(idom,3) = 0.0; gw.coef(idom,4) = 0.0;	
+            }
+            else {
+            	if (gdom.isnodata(iGlob+1) == 1)	{gw.coef(idom,1) = 0.0;}
+            	if (gdom.isnodata(iGlob-1) == 1)	{gw.coef(idom,2) = 0.0;}
+            	if (gdom.isnodata(iGlob+gdom.nxhc) == 1)	{gw.coef(idom,3) = 0.0;}
+            	if (gdom.isnodata(iGlob-gdom.nxhc) == 1)	{gw.coef(idom,4) = 0.0;}
+            }
         });
 
         // Apply internal source/sink terms
@@ -397,14 +416,23 @@ public:
 
         // Insert coefficients into Matrix A
         Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
-            int ii, jj, kk, irow = A.ptr(idom);
+            int ii, jj, kk, iGlob, irow = A.ptr(idom);
 			gdom.unpackIndices(idom, kk, jj, ii);
+			iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
         	if (kk > 0)	{A.ind(irow) = idom - gdom.nx*gdom.ny;	A.val(irow) = gw.coef(idom,6);  irow++;}
-        	if (jj > 0)	{A.ind(irow) = idom - gdom.nx;	        A.val(irow) = gw.coef(idom,4);  irow++;}
-        	if (ii > 0)	{A.ind(irow) = idom - 1;		        A.val(irow) = gw.coef(idom,2);  irow++;}
+        	if (jj > 0)	{
+        		A.ind(irow) = idom - gdom.nx;	        A.val(irow) = gw.coef(idom,4);  irow++;
+        	}
+        	if (ii > 0)	{
+        		A.ind(irow) = idom - 1;		        A.val(irow) = gw.coef(idom,2);  irow++;
+        	}
         	A.ind(irow) = idom;	A.val(irow) = gw.coef(idom,0);	irow++;
-        	if (ii < gdom.nx-1)	{A.ind(irow) = idom + 1;		        A.val(irow) = gw.coef(idom,1);  irow++;}
-        	if (jj < gdom.ny-1)	{A.ind(irow) = idom + gdom.nx;	        A.val(irow) = gw.coef(idom,3);  irow++;}
+        	if (ii < gdom.nx-1)	{
+        		A.ind(irow) = idom + 1;		        A.val(irow) = gw.coef(idom,1);  irow++;
+        	}
+        	if (jj < gdom.ny-1)	{
+        		A.ind(irow) = idom + gdom.nx;	        A.val(irow) = gw.coef(idom,3);  irow++;
+        	}
         	if (kk < gdom.nz-1)	{A.ind(irow) = idom + gdom.nx*gdom.ny;	A.val(irow) = gw.coef(idom,5);  irow++;}
         	A.rhs(idom) = gw.coef(idom,7);
         });

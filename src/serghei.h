@@ -199,6 +199,7 @@ public:
 			// run surface model
 			#if SERGHEI_SWE_MODEL
 			tint.stepForward(state, ss.swss, ebc.extbc, dom, exch, par, io);
+			//std::cerr << GSTAR "TIME: " << dom.etime << " SW dt: " << dom.dt <<"\n";
 			#else
 			ss.swss.ComputeSWSourceSink(state, dom);
 			#endif
@@ -232,6 +233,7 @@ public:
 						gwf.picard_solve<Kokkos::OpenMP>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
 					}
 					#endif
+					//std::cerr << GSTAR "TIME: " << dom.etime << " GW dt: " << gdom.dt <<"\n\n";
 				}
 			}
 			else {

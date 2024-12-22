@@ -95,6 +95,7 @@ public:
         gdom.rainRate = realArr("rain", dom.nCellMem);
         gdom.evapRate = realArr("evap", dom.nCellMem);
         gdom.isnodata = intArr("nodata", gdom.nCellMem);
+        gdom.onboundary = intArr("nodata", gdom.nCellMem);
         // allocate subsurface state variable
         gw.allocate(gdom);
         gmpi.allocate(gdom);
@@ -125,8 +126,9 @@ public:
             }
             //gdom.z(iGlob) = state.z(iGlobSW) - (kk-hc+0.5)*gdom.dz(iGlob);
             // no data cells
-            if (state.isnodata(iGlobSW) == 1)   {gdom.isnodata(iGlob) == 1;}
+            if (state.isnodata(iGlobSW) == 1)   {gdom.isnodata(iGlob) = 1;}
         }
+        
         if (gdom.dz_multiplier != 1.0)  {
             for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++) {
                 gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
@@ -148,8 +150,12 @@ public:
         for (iGlob = 0; iGlob < gdom.nCellMem; iGlob++)   {
             gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
             // x direction
-            if (ii == 0 || ii >= gdom.nx)    {
+            if (ii == 0 || ii >= gdom.nx || gdom.isnodata(iGlob) == 1)    {
                 gdom.sinx(iGlob) = 0.0;
+                gdom.cosx(iGlob) = 1.0;
+            }
+            else if (ii < gdom.nx-1 && gdom.isnodata(iGlob+1) == 1)	{
+            	gdom.sinx(iGlob) = 0.0;
                 gdom.cosx(iGlob) = 1.0;
             }
             else    {
@@ -160,8 +166,12 @@ public:
                 gdom.cosx(iGlob) = gdom.dx / dist;
             }
             // y direction
-            if (jj == 0 || jj >= gdom.ny)    {
+            if (jj == 0 || jj >= gdom.ny || gdom.isnodata(iGlob) == 1)    {
                 gdom.siny(iGlob) = 0.0;
+                gdom.cosy(iGlob) = 1.0;
+            }
+            else if (jj < gdom.ny-1 && gdom.isnodata(iGlob+gdom.nxhc) == 1)	{
+            	gdom.siny(iGlob) = 0.0;
                 gdom.cosy(iGlob) = 1.0;
             }
             else    {
@@ -528,7 +538,7 @@ public:
                         pline.value >> bccount;
                         bccountFound = 1;
                         if (bccount < 1) {
-                            std::cout << YEXC << "subbc.input indicates zero external boundaries." << std::endl;
+                            std::cout << YEXC << "gwbc.input indicates zero external boundaries." << std::endl;
                             return 1;
                         }
                         gbc.gwbc.resize(bccount);
@@ -601,7 +611,7 @@ public:
                     }
                     if(ibc < -1){
                         if(par.masterproc){
-                            std::cerr << RERROR << "No boundaries defined in subbc.input, number of boundaries not defined, or 'id' key not found." << std::endl;
+                            std::cerr << RERROR << "No boundaries defined in gwbc.input, or 'id' key not found." << std::endl;
                             return 0;
                         }
                     }
@@ -624,7 +634,7 @@ public:
             fullPathPoly[k] = dir + polygonFile[k];
             std::ifstream fPoly(fullPathPoly[k]);
             // read in kth polygon
-            if (fPoly.is_open()) {
+            if (fPoly.is_open() && polygonFile[k].length() > 0) {
                 fPoly.ignore(256,' ');
                 fPoly >> nPoly;
                 realArr xPoly=realArr( "xPoly" , nPoly );
@@ -653,7 +663,7 @@ public:
             }
             fPoly.close();
         } // end for read in of the kth polygon
-
+        
         // Read time series boundary conditions
         for (int k = 0; k < tsFile.size(); k++) {
             std::string fname = dir + tsFile[k];
