@@ -57,10 +57,10 @@ RM = /usr/local/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/zhangzhibo/serghei/serghei-20240910-RTM
+CMAKE_SOURCE_DIR = /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/zhangzhibo/serghei/serghei-20240910-RTM
+CMAKE_BINARY_DIR = /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST
 
 #=============================================================================
 # Targets provided globally by CMake.
@@ -87,14 +87,14 @@ rebuild_cache/fast: rebuild_cache
 
 # The main all target
 all: cmake_check_build_system
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(CMAKE_COMMAND) -E cmake_progress_start /home/zhangzhibo/serghei/serghei-20240910-RTM/CMakeFiles /home/zhangzhibo/serghei/serghei-20240910-RTM/src//CMakeFiles/progress.marks
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/all
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/zhangzhibo/serghei/serghei-20240910-RTM/CMakeFiles 0
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(CMAKE_COMMAND) -E cmake_progress_start /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST/CMakeFiles /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST/src//CMakeFiles/progress.marks
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST/CMakeFiles 0
 .PHONY : all
 
 # The main clean target
 clean:
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/clean
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/clean
 .PHONY : clean
 
 # The main clean target
@@ -103,22 +103,22 @@ clean/fast: clean
 
 # Prepare targets for installation.
 preinstall: all
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/preinstall
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/preinstall
 .PHONY : preinstall
 
 # Prepare targets for installation.
 preinstall/fast:
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/preinstall
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/preinstall
 .PHONY : preinstall/fast
 
 # clear depends
 depend:
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(CMAKE_COMMAND) -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR) --check-build-system CMakeFiles/Makefile.cmake 1
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(CMAKE_COMMAND) -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR) --check-build-system CMakeFiles/Makefile.cmake 1
 .PHONY : depend
 
 # Convenience name for target.
 src/CMakeFiles/serghei.dir/rule:
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/CMakeFiles/serghei.dir/rule
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/CMakeFiles/serghei.dir/rule
 .PHONY : src/CMakeFiles/serghei.dir/rule
 
 # Convenience name for target.
@@ -127,7 +127,7 @@ serghei: src/CMakeFiles/serghei.dir/rule
 
 # fast build rule for target.
 serghei/fast:
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/serghei.dir/build.make src/CMakeFiles/serghei.dir/build
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/serghei.dir/build.make src/CMakeFiles/serghei.dir/build
 .PHONY : serghei/fast
 
 driver.o: driver.cpp.o
@@ -135,7 +135,7 @@ driver.o: driver.cpp.o
 
 # target to build an object file
 driver.cpp.o:
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/serghei.dir/build.make src/CMakeFiles/serghei.dir/driver.cpp.o
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/serghei.dir/build.make src/CMakeFiles/serghei.dir/driver.cpp.o
 .PHONY : driver.cpp.o
 
 driver.i: driver.cpp.i
@@ -143,7 +143,7 @@ driver.i: driver.cpp.i
 
 # target to preprocess a source file
 driver.cpp.i:
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/serghei.dir/build.make src/CMakeFiles/serghei.dir/driver.cpp.i
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/serghei.dir/build.make src/CMakeFiles/serghei.dir/driver.cpp.i
 .PHONY : driver.cpp.i
 
 driver.s: driver.cpp.s
@@ -151,7 +151,7 @@ driver.s: driver.cpp.s
 
 # target to generate assembly for a file
 driver.cpp.s:
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/serghei.dir/build.make src/CMakeFiles/serghei.dir/driver.cpp.s
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/serghei.dir/build.make src/CMakeFiles/serghei.dir/driver.cpp.s
 .PHONY : driver.cpp.s
 
 # Help Target
@@ -177,6 +177,6 @@ help:
 # No rule that depends on this can have commands that come from listfiles
 # because they might be regenerated.
 cmake_check_build_system:
-	cd /home/zhangzhibo/serghei/serghei-20240910-RTM && $(CMAKE_COMMAND) -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR) --check-build-system CMakeFiles/Makefile.cmake 0
+	cd /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST && $(CMAKE_COMMAND) -S$(CMAKE_SOURCE_DIR) -B$(CMAKE_BINARY_DIR) --check-build-system CMakeFiles/Makefile.cmake 0
 .PHONY : cmake_check_build_system
 

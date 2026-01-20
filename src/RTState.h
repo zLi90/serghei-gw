@@ -62,6 +62,8 @@ public:
     
 	// Liquid phase concentration
 	realArr2 c;
+	realArr csw;//surface solute concentration
+	realArr ConQss;//地表地下溶质交换通量q*c
 	//Solid phase concentration
 	realArr2 c_solid;
 
@@ -101,6 +103,8 @@ public:
 		// concentration is (n by 2): c_now, c_old
 		c = realArr2("c", gdom.nCellMem, 2);
 		c_solid = realArr2("c_solid", gdom.nCellMem, 2);
+		csw = realArr("csw", gdom.nCellSwMem);
+		ConQss = realArr("ConQss", gdom.nCellSw);
 		// dispersion is (n by 3): d_xx, d_yy, d_zz
 		// Note that we ignore d_xy, d_xz, etc. for now,
 		// but they should be implemented later

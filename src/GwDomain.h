@@ -9,7 +9,8 @@ class GwDomain : public Domain {
 public:
     // Time stepping options
     real dt_init, dt_max, dtOld;
-    real dt;//!zzb20241127
+    real dt;
+    real dt4swEvap; // time step used for surface water evaporation calculation
     // Subsurface domain dimensions
     real thickH, topZ, zll, dx, dy, dz_multiplier, dz_base;
     int nz, nz_glob, nhalo, nxhc, nyhc, nzhc;
@@ -26,7 +27,7 @@ public:
     bool async;
     // Kokkos views
     realArr x, y, z, dz, depth, sinx, cosx, siny, cosy, rainRate, evapRate, etpmRate;
-    intArr isnodata;
+    intArr isnodata, onboundary;
 
     // other variables
     int BCtype;

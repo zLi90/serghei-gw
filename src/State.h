@@ -11,72 +11,89 @@
 #define SERGHEI_MAXFLOOD 0
 #endif
 
-typedef struct{
-  real h=0;
-  real hu=0;
-  real hv=0;
-  real z=0;
+typedef struct
+{
+  real h = 0;
+  real hu = 0;
+  real hv = 0;
+  real z = 0;
+
+  real surfaceEvaporation = 0;
 } swState;
 
-
-
-class State {
+class State
+{
 
 public:
-
   // SW variables
   realArr h;
   realArr hu;
   realArr hv;
 
-  //elevation
+  // SW 水面蒸发
+  realArr surfaceEvaporation;
+
+  // elevation
   realArr z;
 
-  //roughness
+  // roughness
   realArr roughness;
   real hmin;
 
-  //deltaFluxes
-  realArr dsw0; //3 variables (h,hu,hv). left and south contribs
-  realArr dsw1; //3 variables (h,hu,hv). right and north contribs
+  // deltaFluxes
+  realArr dsw0; // 3 variables (h,hu,hv). left and south contribs
+  realArr dsw1; // 3 variables (h,hu,hv). right and north contribs
 
   // surface-subsurface exchange flux
   realArr qss;
 
-  boolArr isnodata; //contains 0 if is a regular cell, 1 if is nodata cell
-  intArr isBound; //positive values for inlet boundaries, negative values for outlet bvoundaries, 0 for inner cells
+  boolArr isnodata; // contains 0 if is a regular cell, 1 if is nodata cell
+  intArr isBound;   // positive values for inlet boundaries, negative values for outlet bvoundaries, 0 for inner cells
 
-  #if SERGHEI_MAXFLOOD
-    realArr hMax;
-    realArr momentumMax;
-    realArr time_hMax;
-  #endif
+#if SERGHEI_MAXFLOOD
+  realArr hMax;
+  realArr momentumMax;
+  realArr time_hMax;
+#endif
 
+#if SERGHEI_SURFACE_TRANSPORT
+  realArr2 h4rtsw, hu4rtsw, hv4rtsw; // water depth for RT
+#endif
 
-  inline void allocate(Domain &dom){
-    h 				= realArr( "h" , dom.nCellMem );
-    hu 			= realArr( "hu" , dom.nCellMem );
-    hv 			= realArr( "hv" , dom.nCellMem );
-    z 				= realArr( "z" , dom.nCellMem );
-    roughness 	= realArr( "roughness" , dom.nCellMem );
-    isnodata 	= boolArr( "isnodata" , dom.nCellMem );
-	 isBound 	= intArr( "isBound" , dom.nCellMem );
-    dsw0 			= realArr( "dsw0" , 3*dom.nCellMem );
-    dsw1 			= realArr( "dsw1" , 3*dom.nCellMem );
-    qss 				= realArr( "qss" , dom.nCell );
+  inline void allocate(Domain &dom)
+  {
+    h = realArr("h", dom.nCellMem);
+    hu = realArr("hu", dom.nCellMem);
+    hv = realArr("hv", dom.nCellMem);
+    z = realArr("z", dom.nCellMem);
 
-    #if SERGHEI_MAXFLOOD
-      hMax = realArr("hMax",dom.nCellMem);
-      momentumMax = realArr("momMax",dom.nCellMem);
-      time_hMax = realArr("timehMax",dom.nCellMem);
+    roughness = realArr("roughness", dom.nCellMem);
+    isnodata = boolArr("isnodata", dom.nCellMem);
+    isBound = intArr("isBound", dom.nCellMem);
+    dsw0 = realArr("dsw0", 3 * dom.nCellMem);
+    dsw1 = realArr("dsw1", 3 * dom.nCellMem);
+    qss = realArr("qss", dom.nCell);
 
-      Kokkos::parallel_for("initialise_maxflood",dom.nCell,KOKKOS_CLASS_LAMBDA(int iGlob) {
+#if SW_GW_EVAPORATION_TRANSPIRATION_MODEL
+    surfaceEvaporation = realArr("surfaceEvaporation", dom.nCellMem);
+#endif
+#if SERGHEI_MAXFLOOD
+    hMax = realArr("hMax", dom.nCellMem);
+    momentumMax = realArr("momMax", dom.nCellMem);
+    time_hMax = realArr("timehMax", dom.nCellMem);
+
+    Kokkos::parallel_for("initialise_maxflood", dom.nCell, KOKKOS_CLASS_LAMBDA(int iGlob) {
         int ii = dom.getIndex(iGlob);
         hMax(ii) = 0;
         momentumMax(ii)=0;
-        time_hMax(ii)=0;
-      });
-    #endif
+        time_hMax(ii)=0; });
+#endif
+
+#if SERGHEI_SURFACE_TRANSPORT
+    h4rtsw = realArr2("h4rtsw", dom.nCellMem, 2);   // water depth for RT
+    hu4rtsw = realArr2("hu4rtsw", dom.nCellMem, 2); // x-momentum for RT
+    hv4rtsw = realArr2("hv4rtsw", dom.nCellMem, 2); // y-momentum for RT
+#endif
 
     Kokkos::deep_copy(h, 0);
     Kokkos::deep_copy(hu, 0);
@@ -87,30 +104,31 @@ public:
     Kokkos::deep_copy(isnodata, false);
     Kokkos::deep_copy(dsw0, 0);
     Kokkos::deep_copy(dsw1, 0);
-	if(dom.id==0) std::cout << GOK << "State allocated and initialised" << std::endl;
+    if (dom.id == 0)
+      std::cout << GOK << "State allocated and initialised" << std::endl;
   }
 
-  inline void filterDomain(const Domain &dom){
-    Kokkos::parallel_for("filter_domain",dom.nCell,KOKKOS_CLASS_LAMBDA(int iGlob) {
+  inline void filterDomain(const Domain &dom)
+  {
+    Kokkos::parallel_for("filter_domain", dom.nCell, KOKKOS_CLASS_LAMBDA(int iGlob) {
       int ii = dom.getIndex(iGlob);
       if(isnodata(ii)){
         h(ii) = SERGHEI_NAN;
         hu(ii) = SERGHEI_NAN;
         hv(ii) = SERGHEI_NAN;
-      }
-    });
+      } });
   }
 };
 
-
-class ShallowWater{
+class ShallowWater
+{
 public:
   std::string initialMode;
   std::string frictionModel;
   std::string roughnessInput;
-  std::set<std::string> initialModes = {"dry","h","h+z","file","netcdf"};
-  std::set<std::string> frictionModels = {"none","manning","darcyweisbach","chezy"};
-  real roughness = 0 ;
+  std::set<std::string> initialModes = {"dry", "h", "h+z", "file", "netcdf"};
+  std::set<std::string> frictionModels = {"none", "manning", "darcyweisbach", "chezy"};
+  real roughness = 0;
   real initialValue = 0;
   real hmin = -1;
 };

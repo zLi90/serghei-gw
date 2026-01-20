@@ -12,6 +12,9 @@
 #include "Parser.h"
 #include "SourceSink.h"
 #include "RTBC.h"
+#include "RTState.h"
+
+#if SERGHEI_SUBSURFACE_TRANSPORT
 
 class RTInit : public Initializer
 {
@@ -177,7 +180,7 @@ public:
                     if (!strcmp("n_mass", pline.key.c_str()))
                     {
                         pline.value >> rt.n_mass;
-                        std::cout << "rt.n_mass: " << rt.n_mass << std::endl; // 添加打印语句
+                        std::cerr << GOK "RTM Subsurface n_mass:"<< rt.n_mass << std::endl;
                     }
                     else if (!strcmp("diffusion_molecular", pline.key.c_str()))
                     {
@@ -186,7 +189,7 @@ public:
                     else if (!strcmp("RT_Aquifer_initialMode", pline.key.c_str()))
                     {
                         pline.value >> rt.RT_Aquifer_initialMode;
-                        //std::cout << "rt.RT_Aquifer_initialMode: " << rt.RT_Aquifer_initialMode << std::endl; // 添加打印语句
+                        // std::cout << "rt.RT_Aquifer_initialMode: " << rt.RT_Aquifer_initialMode << std::endl; // 添加打印语句
 
                     }
                      else if (!strcmp("RT_Solid_initialMode", pline.key.c_str()))
@@ -1079,24 +1082,25 @@ public:
             rt.c_solid(iGlob, 1) = 0.0;
         }
         //read initial condition from file
-        if (rt.RT_Aquifer_initialMode == IC_REACTIVE_TRANSPORT_CON){
+        if (rt.RT_Aquifer_initialMode == RTIC_FILE){
             tempStr = "concen.input";
             readRtICFile(tempStr, inFolder, rt, gdom, par);
+            
         }
         else if(rt.RT_Aquifer_initialMode != 0 && rt.RT_Aquifer_initialMode != 1){
             // if (par.masterproc){
-                std::cerr << RERROR "RTM Aquifer initial mode must be RTIC_ZERO(1) OR RTIC_CON(2)!" << std::endl;
+                std::cerr << RERROR "RTM Aquifer initial mode must be RTIC_CONST(0) OR RTIC_FILE(1)!" << std::endl;
             // }
             exit(-1);
         }     
 
         if (rt.ReactionModule == 1) {
-                    if (rt.RT_Solid_initialMode == IC_REACTIVE_TRANSPORT_CON){
+                    if (rt.RT_Solid_initialMode == RTIC_FILE){
                             tempStr = "concen_solid.input";
                             readRt_Solid_ICFile(tempStr, inFolder, rt, gdom, par);
         }
                     else if (rt.RT_Solid_initialMode != 0 && rt.RT_Solid_initialMode != 1){
-                            std::cerr << RERROR "RTM Solid transport initial mode must be RTIC_ZERO(1) OR RTIC_CON(2)!" << std::endl;
+                            std::cerr << RERROR "RTM Solid transport initial mode must be RTIC_CONST(0) OR RTIC_FILE(1)!" << std::endl;
                              exit(-1);
         }
 
@@ -1142,6 +1146,7 @@ public:
                 if (par.masterproc)
                 {
                     std::cerr << RERROR "RTM IC file parameters don't match DEM parameters. Unable to continue\n";
+                    return 0;
                     if (par.masterproc)
                     {
                         std::cerr << BDASH "nx_glob: " << gdom.nx_glob << tnx << "\n";
@@ -1157,6 +1162,8 @@ public:
                 {
                     fInStream >> tmp;
                     tmpVar(ii) = tmp;
+
+                    // printf("tmpVar(%d)=%f\n", ii, tmpVar(ii)); // 添加打印语句
                 }
                 else
                 {
@@ -1185,7 +1192,9 @@ public:
                 iGlob = (hc + kk) * gdom.nxhc * gdom.nyhc + (hc + jj) * gdom.nxhc + ii + hc;
                 // get concentration
                 ii2 = kk * gdom.nx_glob * gdom.ny_glob + (par.j_beg + jj) * (gdom.nx_glob) + par.i_beg + ii;
-                rt.c(iGlob, 1) = tmpVar(ii2);
+                // rt.c(iGlob, 1) = tmpVar(ii2);
+rt.c(iGlob, 1) = 0.01;
+                // printf("iGlob=%d, ii2=%d, tmpVar(ii2)=%f, rt.c(iGlob,1)=%f\n", iGlob, ii2, tmpVar(ii2), rt.c(iGlob, 1)); // 添加打印语句
 
                 rt.c(iGlob, 0) = rt.c(iGlob, 1);
             }
@@ -1200,7 +1209,7 @@ public:
         }
         if (par.masterproc)
         {
-            std::cerr << GOK "RTM Subsurface concentration content set\n";
+            std::cerr << GOK "RTM Subsurface Initial Concentration set\n";
         }
         return 1;
     }
@@ -1312,4 +1321,5 @@ public:
     ------------------------------------------+++*/
 };
 
+#endif
 #endif

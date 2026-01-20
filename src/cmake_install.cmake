@@ -1,4 +1,4 @@
-# Install script for directory: /home/zhangzhibo/serghei/serghei-20240910-RTM/src
+# Install script for directory: /home/zhangzhibo/serghei/serghei-20240910-SW-RTM-ASYNC-WOFOST/src
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)

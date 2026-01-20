@@ -44,6 +44,9 @@ public:
 
 		timer.reset();
         linear_system(gw, gdom, gbc, gss, A, par);
+        
+
+
 		gdom.timers.gwlinsys += timer.seconds();
 
         timer.reset();
@@ -75,7 +78,9 @@ public:
 
         face_flux(gw, gdom, gbc, gmpi, par);
         //!zzb20240902修改
-        face_flux_new(gw, gdom, gbc, gmpi, par);     
+        face_flux_new(gw, gdom, gbc, gmpi, par);  
+        //!zzb 20241213 添加根系区含水率均值计算
+        // WC_Root_Zone_Mean_Cal(gw, gdom, par);
         //!zzb20240902修改
 
 		timer.reset();
@@ -371,6 +376,33 @@ public:
         }
 	}   
 //!zzb20240829修改
+
+//! zzb 20241213 根系区含水率均值计算函数
+    // inline void WC_Root_Zone_Mean_Cal(GwState &gw, GwDomain &gdom, Parallel &par, GwMPI &gmpi) {	
+    // // 初始化根区平均水含量为0
+    // // real sum_wc_root_zone = 0.0;
+    // // int nCells_in_root_zone = 0;
+
+    // // 对根区范围内的每个网格单元格进行并行求和
+    // Kokkos::parallel_for("root_zone", gdom.nCell, KOKKOS_LAMBDA(int idom) {
+    //     int ii, jj, kk, iGlob;
+    //     gdom.unpackIndices(idom, kk, jj, ii);
+    //     real sum_wc_root_zone;
+    //     iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+    //     if (kk >= 0 && kk <= 10) {  // 检查 kk 是否在0到10的范围内
+            
+    //         sum_wc_root_zone += gw.wc(iGlob, 0);
+    //         // nCells_in_root_zone++;
+    //     }
+    // });
+
+    // // 计算根区平均水含量
+    // gw.wc_root_zone = sum_wc_root_zone / 0.1;
+
+
+    // // MPI交换根区水含量
+    // gmpi.mpi_sendrecv(gw.wc_root_zone, gw, gdom, par); 
+    // }
    // /* --------------------------------------------------
     //     End of flux block
     // -------------------------------------------------- */
@@ -436,6 +468,8 @@ public:
         // Apply internal source/sink terms
 		for (int k = 0; k < gss.size(); k++) {
             gss[k].applyMatSS(gw, gdom);
+            // printf("k_max_root: %d\n", gw.k_max_root);
+            // printf("k_max_root: %d\n", gss[k].k_max_root);
         }
 
         // Insert coefficients into Matrix A
@@ -486,6 +520,12 @@ public:
 			for (int k = 0; k < gss.size(); k++) {
 			    gss[k].applyWCSS(gw, gdom);
 			}
+
+            // for (int i = 0; i < 2; i++) {
+
+            //   printf("tran: %f\n", gss[0].tran.value[i]);
+            // }
+
             // Choose h or wc at the interface
             Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob, iGlobSW, ivg, flag;

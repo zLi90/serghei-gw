@@ -6,6 +6,26 @@
 #include "define.h"
 #include "Indexing.h"
 
+#if SERGHEI_SURFACE_TRANSPORT
+#include "RTStateSW.h"
+#define RTSW_BC_NONE 1
+#define RTSW_BC_CONST 2
+#define RTSW_BC_ZEROGRAD 3
+#define RTSW_BC_TIMESERIES 4
+
+#define SW_RT_BC_NOFLOW 1
+#define SW_RT_BC_Dirichlet_CONST 2
+#define SW_RT_BC_Neumann_CONST 3
+#define SW_RT_BC_Cauchy_CONST 4
+#define SW_RT_BC_Dirichlet_T 5
+#define SW_RT_BC_Neumann_T 6
+#define SW_RT_BC_Cauchy_T 7
+#define SW_RT_BC_SWE 8
+#define SW_RT_BC_FD 9
+
+
+#endif
+
 // DCV 05.05.2021, left these here defined for generic use in exchange.h, not for hydraulics.
 // #define BC_PERIODIC 1
 // #define BC_REFLECTIVE 2
@@ -23,6 +43,8 @@
 #define SWE_BC_HZ_T_INLET 10
 #define SWE_BC_HZ_T_OUTLET 11
 #define SWE_BC_Q_T 12
+
+
 
 
 KOKKOS_INLINE_FUNCTION real criticalDepth(real hu, real hv, real Fr){
@@ -550,6 +572,78 @@ public:
 		MPI_Reduce(&outflowAccumulated, &Qout, 1, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC,  MPI_COMM_WORLD);
 		netVol = Qin-Qout;
 	}
+	
+	
+	
+	#if SERGHEI_SURFACE_TRANSPORT
+	inline void applyrtbc(RTStateSW &rtsw, const Domain &dom) {
+        Kokkos::Timer timer;
+        real extraMass=0.0;
+        if (ncellsBC > 0){
+            switch (bctype){
+        	default:
+  	      	    std::cerr << RERROR "Boundary type: " << bctype << " not recognised." << std::endl;
+  	            std::cerr << RERROR "No boundary condition applied." << std::endl;
+  	            exit(EXIT_FAILURE);
+                break;
+            case RTSW_BC_CONST: // constant solute concentration
+  	      	    Kokkos::parallel_for("rt_bc_const",ncellsBC , KOKKOS_CLASS_LAMBDA (int iGlob){
+  		      	    int ii = bcells[iGlob];
+                    rtsw.c(ii,1) = bcvals(0);
+                });
+                break;
+            case RTSW_BC_ZEROGRAD: //solute outflow zero gradient
+
+			// printf("Applying zero gradient boundary condition for solute transport\n");
+            	Kokkos::parallel_for("rt_bc_grad",ncellsBC , KOKKOS_CLASS_LAMBDA (int iGlob){
+  		      	    int ii = bcells[iGlob];
+
+					// printf("ii = %d\n", ii);
+  		      	    int i, j, nxhc, nyhc;
+            		nxhc = dom.nx+2*hc;
+            		nyhc = dom.ny+2*hc;
+            		unpackIndicesUniformGrid(ii, nyhc, nxhc, j, i);
+
+					// printf("i = %d, j = %d, dom.nx =%d\n", i, j, dom.nx);
+            		// to be implemented
+					  
+							
+							// 完整边界处理
+							if (i == 0) { // 左边界
+								
+								rtsw.c(ii, 1) = rtsw.c(ii+1, 1);
+							} 
+							else if (i == dom.nx) { // 右边界		
+								// printf("Applying zero grad at right boundary: cell %d (global_i=%d, global_j=%d)\n", ii, global_i, global_j);
+								// printf("  Before: c_boundary=%f, c_interior=%f\n", rtsw.c(ii,1), rtsw.c(ii-1,1));
+								rtsw.c(ii,1) = rtsw.c(ii-1,1);
+								// printf("  After: c_boundary=%f\n", rtsw.c(ii,1));
+							} 
+							else if (j == 0) { // 下边界
+								
+								rtsw.c(ii, 1) = rtsw.c(ii + nxhc, 1);
+							} 
+							else if (j == dom.ny) { // 上边界
+								
+								rtsw.c(ii, 1) = rtsw.c(ii - nxhc, 1);
+							}
+					
+				
+                });
+            	// std::cerr << RERROR "Boundary type: " << bctype << " has not been implemented." << std::endl;
+                break;
+            case RTSW_BC_TIMESERIES:
+                real cb = interpolateLinear(hydrograph, dom.etime);
+  	      	    Kokkos::parallel_for("rt_bc_timeseries",ncellsBC , KOKKOS_CLASS_LAMBDA (int iGlob){
+  		      	    int ii = bcells[iGlob];
+                    rtsw.c(ii,1) = cb;
+                });
+                break;
+            }
+        }
+        //dom.timers.sweBC += timer.seconds();
+    }
+	#endif
 
 };
 
@@ -559,5 +653,8 @@ public:
   	std::string BoundaryTypes[13] = {"NONE","PERIODIC","REFLECTIVE","TRANSMISSIVE","NONE","CRITICAL","CONSTANT DEPTH","CONSTANT INFLOW","CONSTANT WSELEVATION","FREE OUTFLOW","STAGE HYDROGRAPH INLET","STAGE HYDROGRAPH OUTLET", "HYDROGRAPH"};
 	std::vector<std::string> id;
 	std::vector<ExtBC> extbc;
+    
+    std::string RTTypes[13] = {"NONE","CONSTANT","ZEROGRAD","TIMESERIES"};
+    std::vector<ExtBC> rtbc;
 };
 #endif

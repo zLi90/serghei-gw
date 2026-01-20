@@ -18,6 +18,20 @@
 #define IC_WC 3
 #define IC_WT 4
 
+//!zzb Reactive transport subsurface initial mode
+#define IC_REACTIVE_TRANSPORT_ZERO 0
+#define IC_REACTIVE_TRANSPORT_CON 1
+
+#define RTIC_CONST 0
+#define RTIC_FILE 1
+#define RTSW_BC_TIMESERIES 1
+
+// Type of adsorption reaction
+#define Equilibrium_Linear_Model 1
+#define Equilibrium_Freundlich_Model 2
+#define Equilibrium_Langmuir_Model 3
+#define Nonequilibrium_Model 4
+
 #define SERGHEI_FLOAT 1
 #define SERGHEI_DOUBLE 2
 

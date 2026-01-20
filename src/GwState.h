@@ -7,7 +7,6 @@
 #ifndef _GW_STATE_H_
 #define _GW_STATE_H_
 
-
 #if SERGHEI_SUBSURFACE_MODEL
 
 #include "const.h"
@@ -22,7 +21,6 @@
 #include <set>
 #include <math.h>
 
-
 // declare functions
 real wc2h(real wc, real alpha, real n, real wcs, real wcr);
 real h2wc(real h, real alpha, real n, real wcs, real wcr);
@@ -30,21 +28,30 @@ real h2kr(real h, real alpha, real n);
 real h2dwcdh(real h, real alpha, real n, real wcs, real wcr);
 real h2dKdh(real h, real alpha, real n, real Ks);
 
-class GwState   {
+class GwState
+{
 
 public:
     // GW variables
     realArr2 h, q, wc, k;
-    //!zzb20240829修改
-    realArr2 q_new;//n+1时刻水流量
-    realArr wc_new;//n+1时刻含水量
-    realArr wc_old;//n时刻含水量
-    //!zzb20240829修改
+    //! zzb20240829修改
+    realArr2 q_new; // n+1时刻水流量
+    realArr wc_new; // n+1时刻含水量
+    realArr wc_old; // n时刻含水量
+    //! zzb20240829修改
     // matrix system
     realArr2 resi, coef;
     realArr qss, hs;
     // source/sink flow rate
     realArr ssflow;
+    //! zzb 地下水蒸散发量
+
+    realArr evapGW;                 //! zzb地下水蒸发量
+    realArr transpGW;               //! zzb地下水蒸散
+    realArr surfaceWaterEvapActual; //! zzb 地表水蒸发量
+
+    // realArr wc_root_zone;//!zzb 20241213 根系区含水率均值
+    // int k_max_root;//!zzb 最大根深所在层数
     //
     // reasoning
     // ---------
@@ -52,95 +59,143 @@ public:
     // van Genuchten parameters in the table soilTable
     intArr soilID;
     realArr vgTable; // van Genuchten parameters: Ks, Phi, ThetaS, ThetaR, n, m, alpha
-    int nVGparam; /* number of van Genuchten parameters */
+    int nVGparam;    /* number of van Genuchten parameters */
     // std::string initialMode;
     int initialMode;
     real initialValue;
 
     // Allocate state variables for groundwater
-    inline void allocate (GwDomain &gdom) {
+    inline void allocate(GwDomain &gdom)
+    {
         nVGparam = NVG;
 
         h = realArr2("h", gdom.nCellMem, 2);
         wc = realArr2("wc", gdom.nCellMem, 3);
         k = realArr2("k", gdom.nCellMem, 4);
         q = realArr2("q", gdom.nCellMem, 3);
-        soilID = intArr ("soilID", gdom.nCellMem);
-        vgTable = realArr ("vg", nVGparam * gdom.nSoilID);
+        soilID = intArr("soilID", gdom.nCellMem);
+        vgTable = realArr("vg", nVGparam * gdom.nSoilID);
         coef = realArr2("coef", gdom.nCell, 8);
 
-		ssflow = realArr("ss", 1);
-		ssflow(0) = 0.0;
+        ssflow = realArr("ss", 1);
+        ssflow(0) = 0.0;
         qss = realArr("qss", gdom.nCellSw);
         hs = realArr("hs", gdom.nCellSwMem);
-        q_new = realArr2("q_new", gdom.nCellMem, 3);//!zzb20240829修改
-        wc_new = realArr("wc_new", gdom.nCellMem);//!zzb20240904修改
-        wc_old = realArr("wc_old", gdom.nCellMem);//!zzb20240904修改
-		// #if SERGHEI_SUBSURFACE_TRANSPORT
-		// // concentration is (n by 2): c_now, c_old
+        q_new = realArr2("q_new", gdom.nCellMem, 3); //! zzb20240829修改
+        wc_new = realArr("wc_new", gdom.nCellMem);   //! zzb20240904修改
+        wc_old = realArr("wc_old", gdom.nCellMem);   //! zzb20240904修改
+
+        // if (gdom.hasET == 1)//此处有个小bug，是因为如果用gdom.hasET判断的话，无法完成内存分配，
+        // 因为gdom.hasET的真正值获取晚于内存分配初始化函数
+        // {
+        evapGW = realArr("evapGW", gdom.nCellMem);     //! zzb地下水蒸发量
+        transpGW = realArr("transpGW", gdom.nCellMem); //! zzb地下水蒸散
+        Kokkos::deep_copy(evapGW, 0.0);
+        Kokkos::deep_copy(transpGW, 0.0);
+        // }
+#if SW_GW_EVAPORATION_TRANSPIRATION_MODEL
+        surfaceWaterEvapActual = realArr("surfaceWaterEvapActual", gdom.nCellSwMem); //! zzb 地表水实际蒸发量
+#endif
+        // #if SERGHEI_SUBSURFACE_TRANSPORT
+        // // concentration is (n by 2): c_now, c_old
         // c = realArr2("c", gdom.nCellMem, 2);
-		// // dispersion is (n by 3): d_xx, d_yy, d_zz
-		// // Note that we ignore d_xy, d_xz, etc. for now,
-		// // but they should be implemented later
+        // // dispersion is (n by 3): d_xx, d_yy, d_zz
+        // // Note that we ignore d_xy, d_xz, etc. for now,
+        // // but they should be implemented later
         // dcal = realArr2("dcal", gdom.nCellMem, 3);
-		// #endif
-
+        // #endif
     }
-
 };
-
-
 
 /* --------------------------------------------------
     Soil constitutive functions
 -------------------------------------------------- */
-KOKKOS_INLINE_FUNCTION real wc2h(real wc, real alpha, real n, real wcs, real wcr) {
-    real h, m, eps=1e-7;
+KOKKOS_INLINE_FUNCTION real wc2h(real wc, real alpha, real n, real wcs, real wcr)
+{
+    real h, m, eps = 1e-7;
     m = 1.0 - 1.0 / n;
-    if (wc - wcr < eps) {wc = wcr + eps;}
-    if (wc < wcs) {
-        h = -(1.0/alpha) * pow(pow((wcs - wcr)/(wc - wcr),(1.0/m)) - 1.0,(1.0/n));
+    if (wc - wcr < eps)
+    {
+        wc = wcr + eps;
+    }
+    if (wc < wcs)
+    {
+        h = -(1.0 / alpha) * pow(pow((wcs - wcr) / (wc - wcr), (1.0 / m)) - 1.0, (1.0 / n));
         return h;
     }
-    else    {return 0.0;}
+    else
+    {
+        return 0.0;
+    }
 }
 
-KOKKOS_INLINE_FUNCTION real h2wc(real h, real alpha, real n, real wcs, real wcr) {
+KOKKOS_INLINE_FUNCTION real h2wc(real h, real alpha, real n, real wcs, real wcr)
+{
     real wc, m, s;
     m = 1.0 - 1.0 / n;
-    s = pow(1.0 + pow(fabs(alpha*h), n), -m);
+    s = pow(1.0 + pow(fabs(alpha * h), n), -m);
     // calculate water content
-    if (h >= 0.0)  {wc = wcs;}
-    else    {wc = wcr + (wcs-wcr) * s;}
-    if (wc > wcs)    {wc = wcs;}
-    else if (wc < wcr)   {wc = wcr;}
+    if (h >= 0.0)
+    {
+        wc = wcs;
+    }
+    else
+    {
+        wc = wcr + (wcs - wcr) * s;
+    }
+    if (wc > wcs)
+    {
+        wc = wcs;
+    }
+    else if (wc < wcr)
+    {
+        wc = wcr;
+    }
     return wc;
 }
 
-KOKKOS_INLINE_FUNCTION real h2kr(real h, real alpha, real n) {
+KOKKOS_INLINE_FUNCTION real h2kr(real h, real alpha, real n)
+{
     real m, s, kr;
     m = 1.0 - 1.0 / n;
-    s = pow(1.0 + pow(fabs(alpha*h), n), -m);
-    kr = pow(s,0.5) * pow(1-pow(1-pow(s,1.0/m),m), 2.0);
-    if (h > 0.0 || kr > 1.0) {kr = 1.0;}
+    s = pow(1.0 + pow(fabs(alpha * h), n), -m);
+    kr = pow(s, 0.5) * pow(1 - pow(1 - pow(s, 1.0 / m), m), 2.0);
+    if (h > 0.0 || kr > 1.0)
+    {
+        kr = 1.0;
+    }
     return kr;
 }
 
-KOKKOS_INLINE_FUNCTION real h2dwcdh(real h, real alpha, real n, real wcs, real wcr)  {
-    real dwcdh, wc1, wc2, dh=1e-3;
+KOKKOS_INLINE_FUNCTION real h2dwcdh(real h, real alpha, real n, real wcs, real wcr)
+{
+    real dwcdh, wc1, wc2, dh = 1e-3;
     wc1 = h2wc(h, alpha, n, wcs, wcr);
-    wc2 = h2wc(h+dh, alpha, n, wcs, wcr);
-    if (h > 0.0)    {dwcdh = 0.0;}
-    else {dwcdh = (wc2 - wc1) / dh;}
+    wc2 = h2wc(h + dh, alpha, n, wcs, wcr);
+    if (h > 0.0)
+    {
+        dwcdh = 0.0;
+    }
+    else
+    {
+        dwcdh = (wc2 - wc1) / dh;
+    }
     return dwcdh;
 }
 
-KOKKOS_INLINE_FUNCTION real h2dKdh(real h, real alpha, real n, real Ks)  {
-    real dkdh, k1, k2, dh=1e-3;
+KOKKOS_INLINE_FUNCTION real h2dKdh(real h, real alpha, real n, real Ks)
+{
+    real dkdh, k1, k2, dh = 1e-3;
     k1 = h2kr(h, alpha, n);
-    k2 = h2kr(h+dh, alpha, n);
-    if (h > 0.0)    {dkdh = 0.0;}
-    else {dkdh = 0.5 * Ks * (k2 - k1) / dh;}
+    k2 = h2kr(h + dh, alpha, n);
+    if (h > 0.0)
+    {
+        dkdh = 0.0;
+    }
+    else
+    {
+        dkdh = 0.5 * Ks * (k2 - k1) / dh;
+    }
     return dkdh;
 }
 

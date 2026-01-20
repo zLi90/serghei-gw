@@ -58,6 +58,10 @@ class surfaceIntegrator {
   real surfaceVolume ;     // surface water volume in domain [L^3] (local)
   real rainFlux ;   // total rain flux [L^3 / T] (local)
   real rainAccum = 0.;   // accumulated rainfall in simulation [L^3] (local)
+ 
+  real evapFlux ;   // total evaporation flux [L^3 / T] (local)
+  real evapAccum = 0.;   // accumulated evaporation in simulation [L^3] (local)
+
   real infFlux ;    // total infiltration flux [L^3/T] (local)
   real infAccum = 0.;    // accumulated infiltration in simulation [L^3] (local)
 
@@ -66,6 +70,9 @@ class surfaceIntegrator {
   real rainAccumG = 0.;   // accumulated rainfall in simulation [L^3] (global)
   real infFluxG ;    // total infiltration flux [L^3/T] (global)
   real infAccumG = 0.;    // accumulated infiltration in simulation [L^3] (global)
+
+  real evapFluxG ;   // total evaporation flux [L^3 / T] (global)
+  real evapAccumG = 0.;   // accumulated evaporation in simulation [L^3] (global)
 
   // pointers
   SourceSinkData *ss;
@@ -85,9 +92,14 @@ class surfaceIntegrator {
     surfaceVolume = 0;
 	rainFlux=0.0;
 	infFlux=0.0;
+
+	evapFlux=0.0;
+
+
 	if(dom.etime<TOL12){ //change by initial time when hotstart is implemented
 	 	rainAccum=0.0;
 	 	infAccum=0.0;
+		evapAccum=0.0;
 	}
 
 	//sample::MassType mass;
@@ -106,6 +118,8 @@ class surfaceIntegrator {
     } , Kokkos::Sum<real>(surfaceVolume) , Kokkos::Sum<real>(rainFlux), Kokkos::Sum<real>(infFlux));
 	rainAccum += rainFlux * dom.dt;
 	infAccum += infFlux * dom.dt;
+	evapFlux = ss.evapFluxActual; // change by actual evaporation flux
+	evapAccum += evapFlux * dom.dt;	
 
 	Kokkos::fence();
 
@@ -117,12 +131,20 @@ class surfaceIntegrator {
 	rainAccumG=0.0;
 	infFluxG=0.0;
 	infAccumG=0.0;
+
+	evapFluxG=0.0;
+	evapAccumG=0.0;
+
 	MPI_Allreduce(&surfaceVolume, &surfaceVolumeG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 	MPI_Allreduce(&rainFlux, &rainFluxG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 	MPI_Allreduce(&rainAccum, &rainAccumG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 	MPI_Allreduce(&infFlux, &infFluxG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 	MPI_Allreduce(&infAccum, &infAccumG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
 
+	MPI_Allreduce(&evapFlux, &evapFluxG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+	MPI_Allreduce(&evapAccum, &evapAccumG, 1, SERGHEI_MPI_REAL , MPI_SUM, MPI_COMM_WORLD);
+
+	
 	MPI_Barrier(MPI_COMM_WORLD);
 
   dom.timers.integrateMPI += timer.seconds();

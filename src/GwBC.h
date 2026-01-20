@@ -30,116 +30,192 @@
 #define ZPLUS 5
 #define ZMINUS 6
 
-
-class GwBC {
-// this class is safe to invoke in a parallel region
+class GwBC
+{
+	// this class is safe to invoke in a parallel region
 public:
-	int ncellsBC = 0; //number of bcells
-	int ncellsIT = 0;	// number of internal source/sink cells
-	intArr bcells, gcells, icells; //array of indexes of boundary cells
-    intArr swgw_type; // type of surface-subsurface exchange: 0: No ponding, no sw-gw exchange, 1: Ponding with large h, 2: Ponding with small h
+	int ncellsBC = 0;			   // number of bcells
+	int ncellsIT = 0;			   // number of internal source/sink cells
+	intArr bcells, gcells, icells; // array of indexes of boundary cells
+	intArr swgw_type;			   // type of surface-subsurface exchange: 0: No ponding, no sw-gw exchange, 1: Ponding with large h, 2: Ponding with small h
 	int location, bctype, isInDomain, direction;
-    realArr bcvals, bcdata;
+	realArr bcvals, bcdata;
 	TimeSeries ts;
 	real Qtot, Qinflow, Qoutflow;
 
-	MPI_Comm comm;	// communicator for ranks associated to the BC
+	MPI_Comm comm; // communicator for ranks associated to the BC
 
-	inline int find_bcells(GwState &gw, std::string &id, GwDomain &gdom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly){
-		int foundInSubdom; // to keep track of which subdomains are associated to this boundary
-		std::vector<int> tmpbcells; //array of indexes of boundary cells
-		std::vector<int> tmpgcells; //array of indexes of ghost cells
-		std::vector<int> subdomains;	// keeps track of which subdomains are associated to the BC
+	inline int find_bcells(GwState &gw, std::string &id, GwDomain &gdom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly)
+	{
+		int foundInSubdom;			 // to keep track of which subdomains are associated to this boundary
+		std::vector<int> tmpbcells;	 // array of indexes of boundary cells
+		std::vector<int> tmpgcells;	 // array of indexes of ghost cells
+		std::vector<int> subdomains; // keeps track of which subdomains are associated to the BC
 		// Loop over the entire domain to find bc cells
-		for (int kk = 0; kk < gdom.nz; kk++) {
-			for (int jj = 0; jj < gdom.ny; jj++) {
-				for (int ii = 0; ii < gdom.nx; ii++) {
-					int iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
+		int onBoundary;
+
+		for (int kk = 0; kk < gdom.nz; kk++)
+		{
+			for (int jj = 0; jj < gdom.ny; jj++)
+			{
+				for (int ii = 0; ii < gdom.nx; ii++)
+				{
+					int iGlob = (hc + kk) * gdom.nxhc * gdom.nyhc + (hc + jj) * gdom.nxhc + ii + hc;
 					foundInSubdom = -1;
-		            real xCoord = gdom.xll + ( par.i_beg + ii + 0.5) * gdom.dx;
-		            real yCoord = gdom.yll + gdom.ny_glob*gdom.dx - ( par.j_beg + jj + 0.5) * gdom.dx;
-		            if (geometry::isInsidePoly(nPoly, xPoly, yPoly, xCoord, yCoord)){
-		                // If on top/bottom boundary, only the top/bottom layer counts
-		                if (direction == ZPLUS) {
-							if (kk == gdom.nz-1) {
-								tmpbcells.push_back(iGlob);
-								tmpgcells.push_back(iGlob+gdom.nxhc*gdom.nyhc);
+					real xCoord = gdom.xll + (par.i_beg + ii + 0.5) * gdom.dx;
+					real yCoord = gdom.yll + gdom.ny_glob * gdom.dx - (par.j_beg + jj + 0.5) * gdom.dx;
+
+					// Check if the cell is on the boundary
+					onBoundary = 0;
+					if (direction == ZMINUS || direction == ZPLUS)
+					{
+						onBoundary = 1;
+					}
+					else
+					{
+						if (gdom.isnodata(iGlob) == 0)
+						{
+							if (ii == 0 || ii == gdom.nx - 1 || jj == 0 || jj == gdom.ny - 1)
+							{
+								onBoundary = 1;
+							}
+							else
+							{
+								if (gdom.isnodata(iGlob + 1) == 1 && direction == XPLUS)
+								{
+									onBoundary = 1;
+								}
+								else if (gdom.isnodata(iGlob - 1) == 1 && direction == XMINUS)
+								{
+									onBoundary = 1;
+								}
+								else if (gdom.isnodata(iGlob + gdom.nxhc) == 1 && direction == YPLUS)
+								{
+									onBoundary = 1;
+								}
+								else if (gdom.isnodata(iGlob - gdom.nxhc) == 1 && direction == YMINUS)
+								{
+									onBoundary = 1;
+								}
 							}
 						}
-		                else if (direction == ZMINUS)    {
-							if (kk == 0)  {
+					}
+					// only keep cells on the boundary
+					if (geometry::isInsidePoly(nPoly, xPoly, yPoly, xCoord, yCoord) && onBoundary == 1)
+					{
+						// If on top/bottom boundary, only the top/bottom layer counts
+						if (direction == ZPLUS)
+						{
+							if (kk == gdom.nz - 1)
+							{
 								tmpbcells.push_back(iGlob);
-								tmpgcells.push_back(iGlob-gdom.nxhc*gdom.nyhc);
+								tmpgcells.push_back(iGlob + gdom.nxhc * gdom.nyhc);
 							}
 						}
-		                // Otherwise (lateral boundary), all cells in the vertical direction are included
-		                // NOTE: In the future, this should be customized to allow only certain vertical layers to be included
-		                else {
+						else if (direction == ZMINUS)
+						{
+							if (kk == 0)
+							{
+								tmpbcells.push_back(iGlob);
+								tmpgcells.push_back(iGlob - gdom.nxhc * gdom.nyhc);
+							}
+						}
+						// Otherwise (lateral boundary), all cells in the vertical direction are included
+						// NOTE: In the future, this should be customized to allow only certain vertical layers to be included
+						else
+						{
 							tmpbcells.push_back(iGlob);
-							if (direction == XPLUS)	{tmpgcells.push_back(iGlob+1);}
-							else if (direction == XMINUS)	{tmpgcells.push_back(iGlob-1);}
-							else if (direction == YPLUS)	{tmpgcells.push_back(iGlob+gdom.nxhc);}
-							else if (direction == YMINUS)	{tmpgcells.push_back(iGlob-gdom.nxhc);}
+							if (direction == XPLUS)
+							{
+								tmpgcells.push_back(iGlob + 1);
+							}
+							else if (direction == XMINUS)
+							{
+								tmpgcells.push_back(iGlob - 1);
+							}
+							else if (direction == YPLUS)
+							{
+								tmpgcells.push_back(iGlob + gdom.nxhc);
+							}
+							else if (direction == YMINUS)
+							{
+								tmpgcells.push_back(iGlob - gdom.nxhc);
+							}
+
+							// save on boundary info
+							gdom.onboundary(iGlob) = 1;
 						}
-		            }
+					}
 				}
 			}
 		}
 
-		ncellsBC=int(tmpbcells.size());
-		if(ncellsBC > 0) foundInSubdom = par.myrank; // if at least one cell in this subdomain (rank) is in the BC, tag as found
+		ncellsBC = int(tmpbcells.size());
+		if (ncellsBC > 0)
+			foundInSubdom = par.myrank; // if at least one cell in this subdomain (rank) is in the BC, tag as found
 
 		int ncells_all;
-        MPI_Allreduce(&ncellsBC, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(&ncellsBC, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
 
 		int *subdoms;
-		subdoms = (int*) malloc(par.nranks * sizeof(int));
-		MPI_Allgather(&foundInSubdom,1,MPI_INT,subdoms,1,MPI_INT,MPI_COMM_WORLD);
-		#if SERGHEI_DEBUG_BOUNDARY
-			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "GW ncellsBC " << ncells_all << std::endl;
-			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "GW BC subdomains: " ;
-			for (int i=0; i<par.nranks; i++){
-				std::cout << GGD << " ";
-				if(subdoms[i]==par.myrank) std::cout << RED;
-				std::cout << subdoms[i] << "\t"<< RESET ;
-			}
-			std::cout << std::endl;
-		#endif
+		subdoms = (int *)malloc(par.nranks * sizeof(int));
+		MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD);
+#if SERGHEI_DEBUG_BOUNDARY
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "GW ncellsBC " << ncells_all << std::endl;
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "GW BC subdomains: ";
+		for (int i = 0; i < par.nranks; i++)
+		{
+			std::cout << GGD << " ";
+			if (subdoms[i] == par.myrank)
+				std::cout << RED;
+			std::cout << subdoms[i] << "\t" << RESET;
+		}
+		std::cout << std::endl;
+#endif
 
-		for(int i=0; i<par.nranks; i++){
-			if(subdoms[i] >= 0){
+		for (int i = 0; i < par.nranks; i++)
+		{
+			if (subdoms[i] >= 0)
+			{
 				subdomains.push_back(subdoms[i]);
 			}
 		}
-		#if SERGHEI_DEBUG_BOUNDARY
-			std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "GW Consolidated BC subdomains = ";
-			for(int i=0; i<subdomains.size(); i++){
-				std::cout << GGD << " " ;
-				std::cout << subdomains[i] << "\t";
-			}
- 			std::cout << std::endl;
-		#endif
-		MPI_Group group, subgroup;
-		MPI_Comm_group(MPI_COMM_WORLD,&group);
-		MPI_Group_incl(group,subdomains.size(),subdomains.data(),&subgroup);
-		MPI_Comm_create(MPI_COMM_WORLD,subgroup,&comm);
-
-		//we need the total boundary cells detected by all subdomain to launch an error otherwise
-		if(ncells_all>0){
-			bcells=intArr("bcells", ncellsBC);
-			gcells=intArr("gcells", ncellsBC);
-            if (bctype == SUB_BC_SWE)   {swgw_type = intArr("swgw_type", ncellsBC);}
-			#ifdef __NVCC__
-				cudaMemcpyAsync( bcells.data() , tmpbcells.data() , ncellsBC*sizeof(int) , cudaMemcpyHostToDevice );
-				cudaMemcpyAsync( gcells.data() , tmpgcells.data() , ncellsBC*sizeof(int) , cudaMemcpyHostToDevice );
-				cudaDeviceSynchronize();
-			#else
-				std::memcpy(bcells.data(), tmpbcells.data(), ncellsBC*sizeof(int));
-				std::memcpy(gcells.data(), tmpgcells.data(), ncellsBC*sizeof(int));
-			#endif
+#if SERGHEI_DEBUG_BOUNDARY
+		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "GW Consolidated BC subdomains = ";
+		for (int i = 0; i < subdomains.size(); i++)
+		{
+			std::cout << GGD << " ";
+			std::cout << subdomains[i] << "\t";
 		}
-		else{
-			if(par.masterproc){
+		std::cout << std::endl;
+#endif
+		MPI_Group group, subgroup;
+		MPI_Comm_group(MPI_COMM_WORLD, &group);
+		MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup);
+		MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm);
+
+		// we need the total boundary cells detected by all subdomain to launch an error otherwise
+		if (ncells_all > 0)
+		{
+			bcells = intArr("bcells", ncellsBC);
+			gcells = intArr("gcells", ncellsBC);
+			if (bctype == SUB_BC_SWE)
+			{
+				swgw_type = intArr("swgw_type", ncellsBC);
+			}
+#ifdef __NVCC__
+			cudaMemcpyAsync(bcells.data(), tmpbcells.data(), ncellsBC * sizeof(int), cudaMemcpyHostToDevice);
+			cudaMemcpyAsync(gcells.data(), tmpgcells.data(), ncellsBC * sizeof(int), cudaMemcpyHostToDevice);
+			cudaDeviceSynchronize();
+#else
+			std::memcpy(bcells.data(), tmpbcells.data(), ncellsBC * sizeof(int));
+			std::memcpy(gcells.data(), tmpgcells.data(), ncellsBC * sizeof(int));
+#endif
+		}
+		else
+		{
+			if (par.masterproc)
+			{
 				std::cerr << RERROR << "No boundary cells found for subsurface boundary with id '" << id << "'" << std::endl;
 			}
 			return 0;
@@ -147,68 +223,101 @@ public:
 		return 1;
 	}
 
-
-
-
-
-    // Apply subsurface boundary conditions
-    inline void applyHBC(GwState &gw, GwDomain &gdom, Parallel &par) {
+	// Apply subsurface boundary conditions
+	inline void applyHBC(GwState &gw, GwDomain &gdom, Parallel &par)
+	{
 		// Check if on global boundaries
 		bool onBoundary = 0;
-		if (direction == 2 && par.px == 0)	{onBoundary = 1;}
-		else if (direction == 1 && par.px == par.nproc_x-1)	{onBoundary = 1;}
-		else if (direction == 4 && par.py == 0)	{onBoundary = 1;}
-		else if (direction == 3 && par.py == par.nproc_y-1)	{onBoundary = 1;}
-		else if (direction == 5 || direction == 6)	{onBoundary = 1;}
+		if (direction == 2 && par.px == 0)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 1 && par.px == par.nproc_x - 1)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 4 && par.py == 0)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 3 && par.py == par.nproc_y - 1)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 5 || direction == 6)
+		{
+			onBoundary = 1;
+		}
 
-        // Kokkos::Timer timer;
-        if (ncellsBC > 0 && onBoundary == 1) {
-            real hbc;
+		// Kokkos::Timer timer;
+		if (ncellsBC > 0 && onBoundary == 1)
+		{
+			real hbc;
 			// interpolate if time-series boundary value is read
-            if (bctype == SUB_BC_H_T || bctype == SUB_BC_WT_T) {
-				if (ts.nc == 1)	{hbc = interpolateLinear(ts, gdom.etime);}
+			if (bctype == SUB_BC_H_T || bctype == SUB_BC_WT_T)
+			{
+				if (ts.nc == 1)
+				{
+					hbc = interpolateLinear(ts, gdom.etime);
+				}
 			}
-            // zero gradient if Q BC is specified
-            if (bctype == SUB_BC_Q_CONST || bctype == SUB_BC_Q_T || bctype == SUB_BC_FD)   {
-                Kokkos::parallel_for("gw_bc_h", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+			// zero gradient if Q BC is specified
+			if (bctype == SUB_BC_Q_CONST || bctype == SUB_BC_Q_T || bctype == SUB_BC_FD)
+			{
+				Kokkos::parallel_for("gw_bc_h", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
                     int iGlob = bcells[ibc], iGhost = gcells[ibc];
-					gw.h(iGhost,1) = gw.h(iGlob,1);
-                });
-            }
-			// H CONST or WT CONST
-			else if (bctype == SUB_BC_H_CONST || bctype == SUB_BC_WT_CONST)	{
-				Kokkos::parallel_for("gw_bc_h", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+					gw.h(iGhost,1) = gw.h(iGlob,1); });
+			}
+			// H CONST
+			else if (bctype == SUB_BC_H_CONST)
+			{
+				Kokkos::parallel_for("gw_bc_h", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
                     int ivg, iGlob = bcells[ibc], iGhost = gcells[ibc];
                     real wcs, wcr, alpha, n;
                     ivg = gw.soilID(iGlob) * gw.nVGparam;
                     wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
                     n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
 					gw.h(iGhost,1) = bcvals(ibc);
-					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr);
-                });
+					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr); });
 			}
-            // H Time series
-            else if (bctype == SUB_BC_H_T)  {
-                Kokkos::parallel_for("gw_bc_h", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+			// WT CONST
+			else if (bctype == SUB_BC_WT_CONST)
+			{
+				Kokkos::parallel_for("gw_bc_wt", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
+                    int ivg, iGlob = bcells[ibc], iGhost = gcells[ibc];
+                    real wcs, wcr, alpha, n;
+                    ivg = gw.soilID(iGlob) * gw.nVGparam;
+                    wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
+                    n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
+					gw.h(iGhost,1) = bcvals(ibc) - gdom.z(iGlob);
+					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr); });
+			}
+			// H Time series
+			else if (bctype == SUB_BC_H_T)
+			{
+				Kokkos::parallel_for("gw_bc_wt", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
                     int ivg, iGlob = bcells[ibc], iGhost = gcells[ibc];
                     real wcs, wcr, alpha, n;
                     ivg = gw.soilID(iGlob) * gw.nVGparam;
                     wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
                     n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
 					gw.h(iGhost,1) = hbc;
-					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr);
-                });
-            }
-            // Prescribed water table BC
-            else if (bctype == SUB_BC_WT_T)  {
+					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr); });
+			}
+			// Prescribed water table BC
+			else if (bctype == SUB_BC_WT_T)
+			{
 
-            	findTimeBlock(ts, gdom.etime);
-  				int t_idx = ts.timeIndex;
-  				int t_next = t_idx + 1;
-  				if (t_idx == ts.np - 1) {t_next = t_idx;}
+				findTimeBlock(ts, gdom.etime);
+				int t_idx = ts.timeIndex;
+				int t_next = t_idx + 1;
+				if (t_idx == ts.np - 1)
+				{
+					t_next = t_idx;
+				}
 
-  				//std::cout << t_idx << ", " << ts.np << ", " << ts.nc << "\n";
-                Kokkos::parallel_for("gw_bc_wt", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+				// std::cout << t_idx << ", " << ts.np << ", " << ts.nc << ", " << ncellsBC <<", " << hbc <<"\n";
+				Kokkos::parallel_for("gw_bc_wt", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
                     int ivg, iGlob = bcells[ibc], iGhost = gcells[ibc];
                     real wcs, wcr, alpha, n, wtbc;
                     ivg = gw.soilID(iGlob) * gw.nVGparam;
@@ -216,127 +325,204 @@ public:
                     n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
 					// interpolate cell-by-cell water table
 					if (ts.nc > 1)	{
-
   						wtbc = ts.values(t_idx,ibc) + 
   							(ts.values(t_next,ibc) - ts.values(t_idx,ibc))/(ts.time(t_next)-ts.time(t_idx))*(gdom.etime-ts.time(t_idx));
+                        gw.h(iGhost,1) = wtbc - gdom.z(iGlob);
 					}
-					gw.h(iGhost,1) = wtbc - gdom.z(iGlob);
-					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr);
-                });
-            }
-            // Surface-subsurface exchange
-            else if (bctype == SUB_BC_SWE)  {
-				#if SERGHEI_SWE_MODEL
-				if (direction == 6)	{
-					Kokkos::parallel_for("gw_bc_swe", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
-	                    int iGlob = bcells[ibc], iGhost = gcells[ibc], ivg = gw.soilID(iGlob) * NVG;
-	                    real ks = gw.vgTable(ivg);
+					else {gw.h(iGhost,1) = hbc - gdom.z(iGlob);}
+					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr); });
+			}
+			// Surface-subsurface exchange
+			else if (bctype == SUB_BC_SWE)
+			{
+#if SERGHEI_SWE_MODEL
+				if (direction == 6)
+				{
+					Kokkos::parallel_for("gw_bc_swe", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
+						int iGlob = bcells[ibc], iGhost = gcells[ibc], ivg = gw.soilID(iGlob) * NVG;
+						real ks = gw.vgTable(ivg);
 						int ii, jj, kk, iGlobSW;
 						gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-						iGlobSW = jj*gdom.nxhc + ii;
-						gw.h(iGhost,1) = gw.hs(iGlobSW);
+						iGlobSW = jj * gdom.nxhc + ii;
+						gw.h(iGhost, 1) = gw.hs(iGlobSW); // 将地下水边界条件（虚拟单元）的水头设置为对应位置的地表水水头
 						// get sw-gw exchange type
-						if (gw.h(iGhost,1) > 0.0)    {
-							real q_infilt = 2.0 * ks * (gw.h(iGlob,1) - gw.h(iGhost,1)) / gdom.dz(iGlob) - ks;
-							if (-q_infilt * gdom.dt <= gw.h(iGhost,1))   {swgw_type(ibc) = 1;}
-							else {swgw_type(ibc) = 2;}
+						/*
+						swgw_type(ibc) = 1; // 下渗 (无地表水干涸风险)
+						 swgw_type(ibc) = 2; // 下渗导致地表水干涸
+						 swgw_type(ibc) = 0; // 无交换
+						*/
+						// if (gw.h(iGhost,1) > 0.0)//地表有水时
+						//! zzb 修改，为了避免农田下渗或者蒸发导致地表水深为0，无法施加流量边界
+						// 将水深限制在一个非常小的正值以上,TimeIntegrator.h中已经做了类似处理
+						if (gw.h(iGhost, 1) > gdom.hmin)
+						{
+							real q_infilt = 2.0 * ks * (gw.h(iGlob, 1) - gw.h(iGhost, 1)) / gdom.dz(iGlob) - ks;
+							if (-q_infilt * gdom.dt <= gw.h(iGhost, 1))
+							{
+								swgw_type(ibc) = 1; //  下渗 (无地表水干涸风险)
+							}
+							else
+							{
+								swgw_type(ibc) = 2; // 饱和入渗，地表有水且入渗量超过地表水深（按最大入渗率）
+							}
 						}
-						else {
+						else
+						{ // 地表无水时
 							// exfiltration
-							if (gw.h(iGlob,1) > gw.h(iGhost,1) + 0.5*gdom.dz(iGlob)) {swgw_type(ibc) = 1;}
+							if (gw.h(iGlob, 1) > gw.h(iGhost, 1) + 0.5 * gdom.dz(iGlob))
+							{
+								swgw_type(ibc) = 1; // 地下水排泄到地表​：地下水水头 > 边界位置高程 + 半单元厚度
+							}
 							// no flow
-							else {swgw_type(ibc) = 0;}
+							else
+							{
+								swgw_type(ibc) = 0; // 无交换，地表无水或地下水水头不足以渗出
+							}
 						}
-	                });
-				}
-				else {
-					if (par.masterproc)	{std::cerr << RERROR "BC direction must be 6 for SW-GW exchange boundary! " << "\n";}
-				}
-				#endif
-            }
-        }
-        // gdom.timers.gw += timer.seconds();
-    }
 
+						// printf("ibc = %d, swgw_type(ibc) = %d\n", ibc, swgw_type(ibc));
+					});
+				}
+				else
+				{
+					if (par.masterproc)
+					{
+						std::cerr << RERROR "BC direction must be 6 for SW-GW exchange boundary! " << "\n";
+					}
+				}
+#endif
+			}
+		}
+		// gdom.timers.gw += timer.seconds();
+	}
 
-    // Apply boundary for K
-    inline void applyKBC(GwState &gw, GwDomain &gdom, Parallel &par) {
+	// Apply boundary for K
+	inline void applyKBC(GwState &gw, GwDomain &gdom, Parallel &par)
+	{
 		// Check if on global boundaries
 		bool onBoundary = 0;
-		if (direction == 2 && par.px == 0)	{onBoundary = 1;}
-		else if (direction == 1 && par.px == par.nproc_x-1)	{onBoundary = 1;}
-		else if (direction == 4 && par.py == 0)	{onBoundary = 1;}
-		else if (direction == 3 && par.py == par.nproc_y-1)	{onBoundary = 1;}
-		else if (direction == 5 || direction == 6)	{onBoundary = 1;}
+		if (direction == 2 && par.px == 0)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 1 && par.px == par.nproc_x - 1)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 4 && par.py == 0)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 3 && par.py == par.nproc_y - 1)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 5 || direction == 6)
+		{
+			onBoundary = 1;
+		}
 
-        if (ncellsBC > 0 && onBoundary == 1) {
-            Kokkos::parallel_for("gw_bc", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+		if (ncellsBC > 0 && onBoundary == 1)
+		{
+			Kokkos::parallel_for("gw_bc", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
                 int iGlob = bcells[ibc], iGhost = gcells[ibc], ivg = gw.soilID(iGlob) * NVG;
                 real ks = gw.vgTable(ivg);
 				if (direction == 1)	{
-					if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGlob,0) = ks;}
-					else {gw.k(iGlob,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
+					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGlob,0) = ks;}
+					else {gw.k(iGlob,0) = ks * gw.k(iGlob,3);}
 				}
 				else if (direction == 2)	{
-					if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGhost,0) = ks;}
-					else {gw.k(iGhost,0) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
+					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGhost,0) = ks;}
+					else {gw.k(iGhost,0) = ks * gw.k(iGlob,3);}
 				}
 				else if (direction == 3)	{
-					if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGlob,1) = ks;}
-					else {gw.k(iGlob,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
+					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGlob,1) = ks;}
+					else {gw.k(iGlob,1) = ks * gw.k(iGlob,3);}
 				}
 				else if (direction == 4)	{
-					if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGhost,1) = ks;}
-					else {gw.k(iGhost,1) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
+					if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGhost,1) = ks;}
+					else {gw.k(iGhost,1) = ks * gw.k(iGlob,3);}
 				}
 				else if (direction == 5)	{
 					if (bctype == SUB_BC_FD)	{gw.k(iGlob,2) = ks * gw.k(iGlob,3);}
 					else {
-						if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGlob,2) = ks;}
+						if (gw.h(iGhost,1) >= 0.0 || gw.h(iGlob,1) >= 0.0)   {gw.k(iGlob,2) = ks;}
 						else {gw.k(iGlob,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
 					}
 				}
 				else if (direction == 6)	{
 					if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGhost,2) = ks;}
-					else {gw.k(iGhost,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
-				}
-            });
-        }
-    }
+					else {gw.k(iGhost,2) = 0.0;}
+					//else {gw.k(iGhost,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
+				} });
+		}
+	}
 
-    // Apply boundary conditions for Q
-    inline void applyQBC(GwState &gw, GwDomain &gdom, Parallel &par) {
+	// Apply boundary conditions for Q
+	inline void applyQBC(GwState &gw, GwDomain &gdom, Parallel &par)
+	{
 		// Check if on global boundaries
 		bool onBoundary = 0;
-		if (direction == 2 && par.px == 0)	{onBoundary = 1;}
-		else if (direction == 1 && par.px == par.nproc_x-1)	{onBoundary = 1;}
-		else if (direction == 4 && par.py == 0)	{onBoundary = 1;}
-		else if (direction == 3 && par.py == par.nproc_y-1)	{onBoundary = 1;}
-		else if (direction == 5 || direction == 6)	{onBoundary = 1;}
+		if (direction == 2 && par.px == 0)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 1 && par.px == par.nproc_x - 1)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 4 && par.py == 0)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 3 && par.py == par.nproc_y - 1)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 5 || direction == 6)
+		{
+			onBoundary = 1;
+		}
 
-        if (ncellsBC > 0 && onBoundary == 1) {
-            real qbc;
+		if (ncellsBC > 0 && onBoundary == 1)
+		{
+			real qbc;
 			// interpolate if boundary flux is a time series
-            if (bctype == SUB_BC_Q_T) {qbc = interpolateLinear(ts, gdom.etime);}
-	  	    switch (bctype) {
-              	default:
-					// Note that the default settings do not need to be applied for all GwBC functions
-					// because all functions in GwBC.h read the same input settings
-                    std::cerr << RERROR "Boundary type: " << bctype << " not recognized for flux boundary." << std::endl;
-        	        std::cerr << RERROR "No boundary condition applied." << std::endl;
-        	        exit(EXIT_FAILURE);
-                    break;
-                case SUB_BC_H_CONST:
-                case SUB_BC_WT_CONST:
-                case SUB_BC_H_T:
-                case SUB_BC_WT_T:
-                    Kokkos::parallel_for("gw_bc_h_const", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+			if (bctype == SUB_BC_Q_T)
+			{
+				qbc = interpolateLinear(ts, gdom.etime);
+			}
+			switch (bctype)
+			{
+			default:
+				// Note that the default settings do not need to be applied for all GwBC functions
+				// because all functions in GwBC.h read the same input settings
+				std::cerr << RERROR "Boundary type: " << bctype << " not recognized for flux boundary." << std::endl;
+				std::cerr << RERROR "No boundary condition applied." << std::endl;
+				exit(EXIT_FAILURE);
+				break;
+			case SUB_BC_H_CONST:
+			case SUB_BC_WT_CONST:
+			case SUB_BC_H_T:
+			case SUB_BC_WT_T:
+				Kokkos::parallel_for("gw_bc_h_const", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
                         int iGlob = bcells[ibc], iGhost = gcells[ibc];
+
+						//! ZZB
+						int ii, jj, kk;
+						gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+						// idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+
+
+
 						if (direction == 1)	{
 							gw.q(iGlob,0) = 2.0 * gw.k(iGlob,0) * (gw.h(iGlob+1,1) - gw.h(iGlob,1)) / gdom.dx;
 						}
 						else if (direction == 2)	{
+//! ZZB 
+// if (kk < 40){
 							gw.q(iGhost,0) = 2.0 * gw.k(iGhost,0) * (gw.h(iGlob,1) - gw.h(iGhost,1)) / gdom.dx;
+// }						
 						}
 						else if (direction == 3)	{
 							gw.q(iGlob,1) = 2.0 * gw.k(iGlob,1) * (gw.h(iGlob+gdom.nxhc,1) - gw.h(iGlob,1)) / gdom.dy;
@@ -349,36 +535,51 @@ public:
 						}
 						else if (direction == 6)	{
 							gw.q(iGhost,2) = 2.0 * gw.k(iGhost,2) * (gw.h(iGlob,1) - gw.h(iGhost,1)) / gdom.dz(iGlob) - gw.k(iGhost,2);
+							
+						} });
+				break;
+			case SUB_BC_SWE:
+#if SERGHEI_SWE_MODEL
+				if (direction == 6)
+				{
+					Kokkos::parallel_for("gw_swe_fd", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
+						int ii, jj, kk, iGlobSW, iGlob = bcells[ibc], iGhost = gcells[ibc], ivg = gw.soilID(iGlob) * NVG;
+						gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+						iGlobSW = (jj - 1) * gdom.nx + ii - 1;
+						real wcs = gw.vgTable(ivg + 2);
+						if (gdom.isnodata(iGlob) == 0)
+						{
+							if (swgw_type(ibc) == 0)
+							{
+								gw.q(iGhost, 2) = 0.0;
+							}
+							else if (swgw_type(ibc) == 2)
+							{
+								gw.q(iGhost, 2) = -gw.h(iGhost, 1) / gdom.dt;
+							}
+							else
+							{
+								gw.q(iGhost, 2) = 2.0 * gw.k(iGhost, 2) * (gw.h(iGlob, 1) - gw.h(iGhost, 1)) / gdom.dz(iGlob) - gw.k(iGhost, 2);
+							}
 						}
-                    });
-                    break;
-                case SUB_BC_SWE:
-					#if SERGHEI_SWE_MODEL
-					if (direction == 6)	{
-						Kokkos::parallel_for("gw_swe_fd", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
-	                        int ii, jj, kk, iGlobSW, iGlob = bcells[ibc], iGhost = gcells[ibc], ivg = gw.soilID(iGlob) * NVG;
-	                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-	                        iGlobSW = (jj-1)*gdom.nx + ii - 1;
-	                        real wcs = gw.vgTable(ivg+2);
-							if (swgw_type(ibc) == 0)    {
-								gw.q(iGhost,2) = 0.0;
-							}
-							else if (swgw_type(ibc) == 2)   {
-								gw.q(iGhost,2) = -gw.h(iGhost,1) / gdom.dt;
-							}
-							else {
-								gw.q(iGhost,2) = 2.0 * gw.k(iGhost,2) * (gw.h(iGlob,1) - gw.h(iGhost,1)) / gdom.dz(iGlob) - gw.k(iGhost,2);
-							}
-							// Get exchange flux
-							gw.qss(iGlobSW) = gw.q(iGhost,2);
-	                    });
+						else
+						{
+							gw.q(iGhost, 2) = 0.0;
+						}
+						// Get exchange flux
+						gw.qss(iGlobSW) = gw.q(iGhost, 2);
+					});
+				}
+				else
+				{
+					if (par.masterproc)
+					{
+						std::cerr << RERROR "BC direction must be 6 for SW-GW exchange boundary! " << "\n";
 					}
-					else {
-						if (par.masterproc)	{std::cerr << RERROR "BC direction must be 6 for SW-GW exchange boundary! " << "\n";}
-					}
-					#endif
-                case SUB_BC_Q_CONST:
-					Kokkos::parallel_for("gw_bc_q_const", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+				}
+#endif
+			case SUB_BC_Q_CONST:
+				Kokkos::parallel_for("gw_bc_q_const", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
 						int ii, jj, kk, iGlobSW, iGlob = bcells[ibc], iGhost = gcells[ibc];
 						if (direction == 1)	{
 							gw.q(iGlob,0) = bcvals(ibc);
@@ -396,37 +597,20 @@ public:
 							// rainfall
 							gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 							iGlobSW = jj*gdom.nxhc + ii;
-//! zzb 三段式蒸发模型
-// todo thetaf田间持水量
-// double thetaf =  0.3455;
-// if (kk == 1) {
-// 	if (gw.wc(iGlob,1) >= 0.65*thetaf) {
-// 		gw.q(iGhost,2) = bcvals(ibc);
-// 	}
-// 	else if (gw.wc(iGlob,1) < 0.65*thetaf && gw.wc(iGlob,1) >= 0.07) {
-// 		gw.q(iGhost,2) = bcvals(ibc)*((gw.wc(iGlob,1)-0.07)/(0.65*thetaf-0.07));
-// 	}
-// 	else {
-// 		gw.q(iGhost,2) = 0;
-// 	}
-
-// }							
 							gw.q(iGhost,2) = bcvals(ibc);
-
+							
 							if (gdom.isRain)    {gw.q(iGhost,2) -= gdom.rainRate(iGlobSW);}
+
 //! zzb gwbc形式模拟蒸发比例，限制上边界水头为-1000
-// if (kk == 1) {
-// 	if (gw.h(iGlob,1)<-1000){
-// 		gw.h(iGlob,1)=-1000;
-// 	}
-// }	
-
-
-						}
-					});
-					break;
-                case SUB_BC_Q_T:
-                    Kokkos::parallel_for("gw_bc_q_const", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+if (kk == 1) {
+	if (gw.h(iGlob,1)<-1000){
+		gw.h(iGlob,1)=-1000;
+	}
+}							
+						} });
+				break;
+			case SUB_BC_Q_T:
+				Kokkos::parallel_for("gw_bc_q_const", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
                         int ii, jj, kk, iGlobSW, iGlob = bcells[ibc], iGhost = gcells[ibc];
 						if (direction == 1)	{
 							gw.q(iGlob,0) = qbc;
@@ -446,89 +630,145 @@ public:
 							iGlobSW = jj*gdom.nxhc + ii;
 							gw.q(iGhost,2) = qbc;
 							if (gdom.isRain)    {gw.q(iGhost,2) -= gdom.rainRate(iGlobSW);}
-						}
-                    });
-                    break;
-                case SUB_BC_FD:
-					if (direction == 5)	{
-						Kokkos::parallel_for("gw_bc_fd", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+						} });
+				break;
+			case SUB_BC_FD:
+				if (direction == 5)
+				{
+					Kokkos::parallel_for("gw_bc_fd", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
 	                        int iGlob = bcells[ibc];
-							gw.q(iGlob,2) = -gw.k(iGlob,2);
-	                    });
+							gw.q(iGlob,2) = -gw.k(iGlob,2); });
+				}
+				else
+				{
+					if (par.masterproc)
+					{
+						std::cerr << RERROR "BC direction must be 5 for free-drainage boundary! " << "\n";
 					}
-					else {
-						if (par.masterproc)	{std::cerr << RERROR "BC direction must be 5 for free-drainage boundary! " << "\n";}
-					}
-            }
-            // get the total flow rate across the boundary
-            if (direction == 1)	{
-            	Kokkos::parallel_reduce("reducex", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc, real &tmp){
+				}
+			}
+			// get the total flow rate across the boundary
+			if (direction == 1)
+			{
+				Kokkos::parallel_reduce("reducex", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 					int iGlob = bcells[ibc];
-					tmp += gw.q(iGlob,0) * gdom.dz(iGlob) * gdom.dy;
-				}, Kokkos::Sum<real>(Qtot));
-				if (Qtot > 0)	{Qinflow = Qtot;}
-				else {Qoutflow = -Qtot;}
-            }
-            else if (direction == 2)	{
-            	Kokkos::parallel_reduce("reducex", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc, real &tmp){
+					tmp += gw.q(iGlob,0) * gdom.dz(iGlob) * gdom.dy; }, Kokkos::Sum<real>(Qtot));
+				if (Qtot > 0)
+				{
+					Qinflow = Qtot;
+				}
+				else
+				{
+					Qoutflow = -Qtot;
+				}
+			}
+			else if (direction == 2)
+			{
+				Kokkos::parallel_reduce("reducex", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 					int iGlob = bcells[ibc], iGhost = gcells[ibc];
-					tmp += gw.q(iGhost,0) * gdom.dz(iGlob) * gdom.dy;
-				}, Kokkos::Sum<real>(Qtot));
-				if (Qtot < 0)	{Qinflow = -Qtot;}
-				else {Qoutflow = Qtot;}
-            }
-            else if (direction == 3)	{
-            	Kokkos::parallel_reduce("reducey", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc, real &tmp){
+					tmp += gw.q(iGhost,0) * gdom.dz(iGlob) * gdom.dy; }, Kokkos::Sum<real>(Qtot));
+				if (Qtot < 0)
+				{
+					Qinflow = -Qtot;
+				}
+				else
+				{
+					Qoutflow = Qtot;
+				}
+			}
+			else if (direction == 3)
+			{
+				Kokkos::parallel_reduce("reducey", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 					int iGlob = bcells[ibc];
-					tmp += gw.q(iGlob,1) * gdom.dz(iGlob) * gdom.dx;
-				}, Kokkos::Sum<real>(Qtot));
-				if (Qtot > 0)	{Qinflow = Qtot;}
-				else {Qoutflow = -Qtot;}
-            }
-            else if (direction == 4)	{
-            	Kokkos::parallel_reduce("reducey", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc, real &tmp){
+					tmp += gw.q(iGlob,1) * gdom.dz(iGlob) * gdom.dx; }, Kokkos::Sum<real>(Qtot));
+				if (Qtot > 0)
+				{
+					Qinflow = Qtot;
+				}
+				else
+				{
+					Qoutflow = -Qtot;
+				}
+			}
+			else if (direction == 4)
+			{
+				Kokkos::parallel_reduce("reducey", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 					int iGlob = bcells[ibc], iGhost = gcells[ibc];
-					tmp += gw.q(iGhost,1) * gdom.dz(iGlob) * gdom.dx;
-				}, Kokkos::Sum<real>(Qtot));
-				if (Qtot < 0)	{Qinflow = -Qtot;}
-				else {Qoutflow = Qtot;}
-            }
-            else if (direction == 5)	{
-            	Kokkos::parallel_reduce("reducez", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc, real &tmp){
+					tmp += gw.q(iGhost,1) * gdom.dz(iGlob) * gdom.dx; }, Kokkos::Sum<real>(Qtot));
+				if (Qtot < 0)
+				{
+					Qinflow = -Qtot;
+				}
+				else
+				{
+					Qoutflow = Qtot;
+				}
+			}
+			else if (direction == 5)
+			{
+				Kokkos::parallel_reduce("reducez", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 					int iGlob = bcells[ibc];
-					tmp += gw.q(iGlob,2) * gdom.dx * gdom.dy;
-				}, Kokkos::Sum<real>(Qtot));
-				if (Qtot > 0)	{Qinflow = Qtot;}
-				else {Qoutflow = -Qtot;}
-            }
-            else if (direction == 6)	{
-            	Kokkos::parallel_reduce("reducez", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc, real &tmp){
-					int iGlob = bcells[ibc], iGhost = gcells[ibc];
-					tmp += gw.q(iGhost,2) * gdom.dx * gdom.dy;
-				}, Kokkos::Sum<real>(Qtot));
-				if (Qtot < 0)	{Qinflow = -Qtot;}
-				else {Qoutflow = Qtot;}
-            }
-        }
-    }
+					tmp += gw.q(iGlob,2) * gdom.dx * gdom.dy; }, Kokkos::Sum<real>(Qtot));
+				if (Qtot > 0)
+				{
+					Qinflow = Qtot;
+				}
+				else
+				{
+					Qoutflow = -Qtot;
+				}
+			}
+			// else if (direction == 6)    {
+			//                 Kokkos::parallel_reduce("reducez", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc, real &tmp){
+			//                     int iGlob = bcells[ibc], iGhost = gcells[ibc];
+			//                     tmp += gw.q(iGhost,2) * gdom.dx * gdom.dy;
+			//                 }, Kokkos::Sum<real>(Qtot));
+			//                 if (Qtot < 0)    {Qinflow = -Qtot;}
+			//                 else {Qoutflow = Qtot;}
+			//             }
+		}
+	}
 
-
-    // Apply boundary conditions to the matrix coefficients
-    inline void applyMatBC(GwState &gw, GwDomain &gdom, Parallel &par) {
+	// Apply boundary conditions to the matrix coefficients
+	inline void applyMatBC(GwState &gw, GwDomain &gdom, Parallel &par)
+	{
 		// Check if on global boundaries
 		bool onBoundary = 0;
-		if (direction == 2 && par.px == 0)	{onBoundary = 1;}
-		else if (direction == 1 && par.px == par.nproc_x-1)	{onBoundary = 1;}
-		else if (direction == 4 && par.py == 0)	{onBoundary = 1;}
-		else if (direction == 3 && par.py == par.nproc_y-1)	{onBoundary = 1;}
-		else if (direction == 5 || direction == 6)	{onBoundary = 1;}
+		if (direction == 2 && par.px == 0)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 1 && par.px == par.nproc_x - 1)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 4 && par.py == 0)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 3 && par.py == par.nproc_y - 1)
+		{
+			onBoundary = 1;
+		}
+		else if (direction == 5 || direction == 6)
+		{
+			onBoundary = 1;
+		}
 
-        if (ncellsBC > 0 && onBoundary == 1) {
-            real qbc;
-            if (bctype == SUB_BC_Q_T) {qbc = interpolateLinear(ts, gdom.etime);}
-	  	    switch (bctype) {
-                case SUB_BC_H_CONST:    case SUB_BC_WT_CONST:   case SUB_BC_H_T:    case SUB_BC_WT_T:
-                    Kokkos::parallel_for("gw_bc_h_const", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+		if (ncellsBC > 0 && onBoundary == 1)
+		{
+			real qbc;
+			if (bctype == SUB_BC_Q_T)
+			{
+				qbc = interpolateLinear(ts, gdom.etime);
+			}
+			switch (bctype)
+			{
+			case SUB_BC_H_CONST:
+			case SUB_BC_WT_CONST:
+			case SUB_BC_H_T:
+			case SUB_BC_WT_T:
+				Kokkos::parallel_for("gw_bc_h_const", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
                         int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc], iGhost = gcells[ibc];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
                         idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
@@ -538,12 +778,15 @@ public:
 							gw.coef(idom,7) -= gw.coef(idom,1) * gw.h(iGlob+1,1);
 						}
 						else if (direction == 2)	{
+//! ZZB 变水头边界中，下部分边界零流量边界
+// if (kk < 40){
 							gw.coef(idom,2) = gw.coef(idom,2) * 2.0;
 							gw.coef(idom,7) -= gw.coef(idom,2) * gw.h(iGlob-1,1);
+// }						
 						}
 						else if (direction == 3)	{
 							gw.coef(idom,3) = gw.coef(idom,3) * 2.0;
-							gw.coef(idom,7) -= gw.coef(idom,3) * gw.h(iGlob-gdom.nxhc,1);
+							gw.coef(idom,7) -= gw.coef(idom,3) * gw.h(iGlob+gdom.nxhc,1);
 						}
 						else if (direction == 4)	{
 							gw.coef(idom,4) = gw.coef(idom,4) * 2.0;
@@ -559,13 +802,19 @@ public:
 							// if (gdom.isEvap)	{
 							// 	gw.coef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);
 							// }
-						}
-                    });
-                    break;
-                case SUB_BC_SWE:
-                	#if SERGHEI_SWE_MODEL
-					if (direction == 6)	{
-						Kokkos::parallel_for("gw_bc_swe_const", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+//! zzb gwbc形式模拟蒸发比例，限制上边界水头为-1000
+if (kk == 1) {
+	if (gw.h(iGlob,1)<-1000){
+		gw.h(iGlob,1)=-1000;
+	}
+}						
+						} });
+				break;
+			case SUB_BC_SWE:
+#if SERGHEI_SWE_MODEL
+				if (direction == 6)
+				{
+					Kokkos::parallel_for("gw_bc_swe_const", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
 	                        int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc];
 	                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 	                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
@@ -587,16 +836,19 @@ public:
 							// evaporation
 							if (gdom.isEvap)	{
 								gw.coef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);
-							}
-	                    });
+							} });
+				}
+				else
+				{
+					if (par.masterproc)
+					{
+						std::cerr << RERROR "BC direction must be 6 for sw-gw boundary! " << "\n";
 					}
-                    else {
-						if (par.masterproc)	{std::cerr << RERROR "BC direction must be 6 for sw-gw boundary! " << "\n";}
-					}
-                    #endif
-                    break;
-				case SUB_BC_Q_CONST:
-					Kokkos::parallel_for("gw_bc_q", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+				}
+#endif
+				break;
+			case SUB_BC_Q_CONST:
+				Kokkos::parallel_for("gw_bc_q", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
 						int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc];
 						gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 						idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
@@ -621,43 +873,16 @@ public:
 							gw.coef(idom,5) = 0.0;
 						}
 						else if (direction == 6)	{
-
-//! zzb 三段式蒸发模型
-// todo thetaf田间持水量0.3455对应饱和含水量0.36 
-// double thetaf =  0.3455;
-// if (kk == 1) {
-// 	if (gw.wc(iGlob,1) >= 0.65*thetaf) {
-// 		bcvals(ibc) = bcvals(ibc);
-// 		// std::cout << "111bcvals(ibc)"<<bcvals(ibc) << "\n";
-// 	}
-// 	else if (gw.wc(iGlob,1) < 0.65*thetaf && gw.wc(iGlob,1) >= 0.07) {
-// 		bcvals(ibc) = bcvals(ibc)*((gw.wc(iGlob,1)-0.07)/(0.65*thetaf-0.07));
-// 		// std::cout << "222bcvals(ibc)"<<bcvals(ibc) << "\n";
-// 	}
-// 	else {
-// 		bcvals(ibc) = 0;
-// 		// std::cout << "333bcvals(ibc)"<<bcvals(ibc) << "\n";
-// 	}
-
-// }								
 							gw.coef(idom,7) -= gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / gdom.dz(iGlob);
 							gw.coef(idom,7) -= gdom.dt * bcvals(ibc) / gdom.dz(iGlob);
 							// if (gdom.isRain)    {gw.coef(idom,7) += gdom.dt * gdom.rainRate(iGlobSW) / gdom.dz(iGlob);}
 							// if (gdom.isEvap)	{gw.coef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);}
 							gw.coef(idom,6) = 0.0;
-//! zzb gwbc形式模拟蒸发比例，限制上边界水头为-1000
-// if (kk == 1) {
-// 	if (gw.h(iGlob,1)<-1000){
-// 		gw.h(iGlob,1)=-1000;
-// 	}
-// }
-
-
-						}
-					});
-					break;
-                case SUB_BC_Q_T:    case SUB_BC_FD:
-                    Kokkos::parallel_for("gw_bc_q_fd", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc){
+						} });
+				break;
+			case SUB_BC_Q_T:
+			case SUB_BC_FD:
+				Kokkos::parallel_for("gw_bc_q_fd", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
 					// for (int ibc = 0; ibc < ncellsBC; ibc++)	{
                         int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
@@ -683,26 +908,32 @@ public:
 							gw.coef(idom,5) = 0.0;
 						}
 						else if (direction == 6)	{
+
+//! zzb 降雨径流边界
+
+							if (gw.h(iGlob,1) < 0){
+								// printf("iGlob=%d, h=%f\n",iGlob,gw.h(iGlob,1));
 							gw.coef(idom,7) -= gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / gdom.dz(iGlob);
 							gw.coef(idom,7) -= gdom.dt * qbc / gdom.dz(iGlob);
 							// if (gdom.isRain)    {gw.coef(idom,7) += gdom.dt * gdom.rainRate(iGlobSW) / gdom.dz(iGlob);}
 							// if (gdom.isEvap)	{gw.coef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);}
 							gw.coef(idom,6) = 0.0;
-						}
-                    });
-					// }
-                    break;
-            }
-        }
-    }
+							
+							}
 
-
+					} });
+				// }
+				break;
+			}
+		}
+	}
 };
 
-class SubsurfaceBoundaries{
-// This class should not be invoked form a parallel region as it contains strings
+class SubsurfaceBoundaries
+{
+	// This class should not be invoked form a parallel region as it contains strings
 public:
-  	std::string BoundaryTypes[9] = {"NOFLOW","CONST_H","CONST_Q","CONST_WT","H_TIMESERIES","Q_TIMESERIES","WT_TIMESERIES","SWEXCHANGE","FREE_DRAINAGE"};
+	std::string BoundaryTypes[9] = {"NOFLOW", "CONST_H", "CONST_Q", "CONST_WT", "H_TIMESERIES", "Q_TIMESERIES", "WT_TIMESERIES", "SWEXCHANGE", "FREE_DRAINAGE"};
 	std::vector<std::string> id;
 	std::vector<GwBC> gwbc;
 };
