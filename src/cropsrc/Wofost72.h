@@ -1,81 +1,178 @@
+/**
+ * @file Wofost72.h
+ * @brief Main container class for the WOFOST 7.2 crop growth simulation model.
+ *
+ * Wofost72 is the top-level orchestrator for the WOFOST (World Food Studies)
+ * crop growth model. It owns instances of all sub-modules and their state
+ * containers, and provides two primary operations:
+ *
+ *   1. initialize()  - Sets initial conditions from crop parameters, meteo
+ *                       data, and computed root-zone soil moisture.
+ *   2. calc_rates_and_integrate() - Executes one simulation time step:
+ *       a. Phenology: compute development rate, update DVS and stage.
+ *       b. Assimilation: compute potential gross CO2 assimilation (PGASS).
+ *       c. Evapotranspiration: compute water stress (RFTRA) and actual
+ *          transpiration/soil evaporation.
+ *       d. Partitioning: compute organ biomass fractions (FR, FL, FS, FO).
+ *       e. Respiration: compute potential maintenance respiration (PMRES).
+ *       f. Carbon balance: apply water stress to assimilation, subtract
+ *          respiration, compute dry matter increase (DMI).
+ *       g. Organ dynamics: distribute DMI to roots, stems, leaves, storage.
+ *       h. Integration: advance all state variables by one time step.
+ *       i. Accumulate totals: TAGP, GASST, MREST, CTRAT, CEVST, HI.
+ *
+ * All per-cell state is stored in Kokkos Views for GPU portability. Local
+ * variable captures (auto local_X = s.X) are used inside kernels to avoid
+ * capturing the 'this' pointer, which is incompatible with Kokkos lambda
+ * capture on the device.
+ *
+ * Key accumulated outputs:
+ *   - TAGP  : Total Above-Ground Production [kg/ha]
+ *   - GASST : Total Gross Assimilation [kg CH2O/ha]
+ *   - MREST : Total Maintenance Respiration [kg CH2O/ha]
+ *   - CTRAT : Cumulative Crop Transpiration [cm]
+ *   - CEVST : Cumulative Soil Evaporation [cm]
+ *   - HI    : Harvest Index [-] (storage organ DM / total above-ground DM)
+ *
+ * Reference: Boogaard, H.L., van Diepen, C.A., Rotter, R.P., Cabrera, J.C.M.C.A.,
+ *   van Laar, H.H. (1998). WOFOST 7.1 User Guide. Technical Document 52,
+ *   DLO Winand Staring Centre, Wageningen.
+ *
+ * @see CropDynamicState.h   for the main dynamic state structure.
+ * @see Phenology.h          for phenological development.
+ * @see Assimilation.h       for CO2 assimilation.
+ * @see Respiration.h        for maintenance respiration.
+ * @see Evapotranspiration.h for evapotranspiration and water stress.
+ * @see Partitioning.h       for biomass partitioning.
+ * @see RootDynamics.h       for root growth.
+ * @see StemDynamics.h       for stem growth.
+ * @see StorageOrganDynamics.h for storage organ growth.
+ * @see LeafDynamics.h       for leaf growth and senescence.
+ */
+
 /* -*- mode: c++; c-default-style: "linux" -*- */
 
 #ifndef _WOFOST72_H_
 #define _WOFOST72_H_
 
 #include "../define.h"
-#include "CropState.h"        // Static crop parameters
-#include "CropDynamicState.h" // Dynamic crop states (DVS, LAI, Biomass etc.)
-#include "MeteoState.h"       // Weather data for driving
 
-#include "Phenology.h"                 // Phenology module
-#include "Assimilation.h"              // Assimilation module
-#include "AssimilateState.h"           // Assimilation output states
-#include "Respiration.h"               // Respiration module
-#include "RespirationState.h"          // Respiration output states
-#include "Partitioning.h"              // Partitioning module
-#include "PartitioningState.h"         // Partitioning output states
-#include "RootDynamics.h"              // Root dynamics module
-#include "RootDynamicsState.h"         // Root dynamics output states
-#include "StemDynamics.h"              // Stem dynamics module
-#include "StemDynamicsState.h"         // Stem dynamics output states
-#include "StorageOrganDynamics.h"      // Storage organ dynamics module
-#include "StorageOrganDynamicsState.h" // Storage organ dynamics output states
-#include "LeafDynamics.h"              // Leaf dynamics module
-#include "LeafDynamicsState.h"         // Leaf dynamics output states
-#include "Evapotranspiration.h"        // Evapotranspiration module
-#include "EvapotranspirationState.h"   // Evapotranspiration output states
+/* --- Static parameters and dynamic state structures --- */
+#include "CropState.h"        /* Static crop parameters */
+#include "CropDynamicState.h" /* Dynamic crop states (DVS, LAI, etc.) */
+#include "MeteoState.h"       /* Weather driving data */
+
+/* --- Sub-module classes --- */
+#include "Phenology.h"                 /* Phenological development */
+#include "Assimilation.h"              /* CO2 assimilation */
+#include "AssimilateState.h"           /* Assimilation output states */
+#include "Respiration.h"               /* Maintenance respiration */
+#include "RespirationState.h"          /* Respiration output states */
+#include "Partitioning.h"              /* Biomass partitioning fractions */
+#include "PartitioningState.h"         /* Partitioning output states */
+#include "RootDynamics.h"              /* Root growth and depth */
+#include "RootDynamicsState.h"         /* Root dynamics output states */
+#include "StemDynamics.h"              /* Stem growth */
+#include "StemDynamicsState.h"         /* Stem dynamics output states */
+#include "StorageOrganDynamics.h"      /* Storage organ (grain/tuber) growth */
+#include "StorageOrganDynamicsState.h" /* Storage organ dynamics output states */
+#include "LeafDynamics.h"              /* Leaf growth and senescence */
+#include "LeafDynamicsState.h"         /* Leaf dynamics output states */
+#include "Evapotranspiration.h"        /* Evapotranspiration and water stress */
+#include "EvapotranspirationState.h"   /* Evapotranspiration output states */
 
 #include <cmath>
-#include <algorithm> // For fmin, fmax
+#include <algorithm>
 
 class Wofost72
 {
 
 public:
-    // Instance of sub-modules
-    Phenology pheno;
-    Assimilation assim;
-    Respiration mres;
-    Evapotranspiration evtra; // Note: This is our C++ simplified ET module
-    Partitioning part;
-    RootDynamics ro_dynamics;
-    StemDynamics st_dynamics;
-    StorageOrganDynamics so_dynamics;
-    LeafDynamics lv_dynamics;
+    /* ================================================================== */
+    /* Sub-module instances                                                */
+    /* ================================================================== */
 
-    // All dynamic states
-    CropDynamicState s;             // General crop states (DVS, LAI, total biomass etc.)
-    AssimilateState as;             // Assimilation specific outputs
-    RespirationState rs;            // Respiration specific outputs
-    PartitioningState ps;           // Partitioning fractions
-    RootDynamicsState rds;          // Root dynamics states
-    StemDynamicsState sds;          // Stem dynamics states
-    StorageOrganDynamicsState sods; // Storage organ dynamics states
-    LeafDynamicsState lds;          // Leaf dynamics states
-    EvapotranspirationState ets;    // Evapotranspiration states
+    Phenology pheno;                /**< Phenological development module. */
+    Assimilation assim;             /**< CO2 assimilation module. */
+    Respiration mres;               /**< Maintenance respiration module. */
+    Evapotranspiration evtra;       /**< Evapotranspiration and water stress module. */
+    Partitioning part;              /**< Biomass partitioning module. */
+    RootDynamics ro_dynamics;       /**< Root growth dynamics module. */
+    StemDynamics st_dynamics;       /**< Stem growth dynamics module. */
+    StorageOrganDynamics so_dynamics; /**< Storage organ dynamics module. */
+    LeafDynamics lv_dynamics;       /**< Leaf growth and senescence module. */
 
-    // Main WOFOST state variables
-    realArr TAGP;  // Total above-ground Production [kg ha-1]
-    realArr GASST; // Total gross assimilation [kg CH2O ha-1]
-    realArr MREST; // Total gross maintenance respiration [kg CH2O ha-1]
-    realArr CTRAT; // Total crop transpiration accumulated [cm]
-    realArr CEVST; // Total soil evaporation accumulated [cm]
-    realArr HI;    // Harvest Index [-]
-    // DOF, FINISH_TYPE would be flags or dates per cell, for now simplified
-    intArr CROP_FINISHED_FLAG; // 0=running, 1=finished
-    realArr CROP_FINISH_DVS;   // DVS at which crop finished
+    /* ================================================================== */
+    /* Dynamic state containers (per-cell Kokkos Views)                    */
+    /* ================================================================== */
 
-    // Default Constructor
+    CropDynamicState s;              /**< General crop states: DVS, TSUM, LAI, RD,
+                                          GASS, MRES, DMI, etc. */
+    AssimilateState as;              /**< Assimilation outputs: PGASS, etc. */
+    RespirationState rs;             /**< Respiration outputs: PMRES, etc. */
+    PartitioningState ps;            /**< Partitioning fractions: FR, FL, FS, FO. */
+    RootDynamicsState rds;           /**< Root states: WRT, TWRT, RD. */
+    StemDynamicsState sds;           /**< Stem states: WST, TWST, SAI. */
+    StorageOrganDynamicsState sods;  /**< Storage organ states: WSO, TWSO, PAI. */
+    LeafDynamicsState lds;           /**< Leaf states: WLV, TWLV, LAI, LASUM. */
+    EvapotranspirationState ets;     /**< ET outputs: RFTRA, TRA, TRAMX, EVS. */
+    MeteoState meteo;                /**< Local copy of meteorological state. */
+
+    /* ================================================================== */
+    /* Main WOFOST Accumulated Output Variables                            */
+    /* ================================================================== */
+
+    realArr TAGP;   /**< Total Above-Ground Production [kg/ha].
+                         TAGP = TWLV + TWST + TWSO (leaves + stems + storage).
+                         Accumulated over the growing season. */
+    realArr GASST;  /**< Total (cumulative) gross assimilation [kg CH2O/ha].
+                         Sum of daily GASS values over the season. */
+    realArr MREST;  /**< Total (cumulative) maintenance respiration [kg CH2O/ha].
+                         Sum of daily MRES values over the season. */
+    realArr CTRAT;  /**< Cumulative crop transpiration [cm].
+                         Sum of daily TRA values. */
+    realArr CEVST;  /**< Cumulative soil evaporation [cm].
+                         Sum of daily EVS values. */
+    realArr HI;     /**< Harvest Index [-].
+                         HI = TWSO / TAGP (ratio of storage organ DM
+                         to total above-ground DM). Range: 0.0 -- 1.0. */
+
+    /* ================================================================== */
+    /* Crop completion control                                             */
+    /* ================================================================== */
+
+    intArr  CROP_FINISHED_FLAG; /**< Per-cell flag: 0 = crop still growing,
+                                      1 = crop reached maturity. */
+    realArr CROP_FINISH_DVS;    /**< DVS value at which the crop finished [-].
+                                      Typically equal to DVSEND. */
+
+    /* ================================================================== */
+    /* Default Constructor                                                 */
+    /* ================================================================== */
+
+    /**
+     * @brief Default constructor. Does not allocate; call allocate() separately.
+     */
     Wofost72()
     {
-        // Do nothing, wait for allocate()
+        /* Intentionally empty: allocation is deferred to allocate(). */
     }
 
-    // Allocation method
+    /* ================================================================== */
+    /* Memory Allocation                                                   */
+    /* ================================================================== */
+
+    /**
+     * @brief Allocate all Kokkos View arrays for the given number of cells.
+     *
+     * Must be called once before initialize(). Delegates to sub-module
+     * state allocate() methods and creates the main WOFOST output arrays.
+     *
+     * @param nCells  Number of surface grid cells (one crop simulation per cell).
+     */
     void allocate(int nCells)
     {
-        // Allocate all dynamic state arrays
+        /* Allocate all sub-module state arrays */
         s.allocate(nCells);
         as.allocate(nCells);
         rs.allocate(nCells);
@@ -86,119 +183,213 @@ public:
         lds.allocate(nCells);
         ets.allocate(nCells);
 
-        TAGP = realArr("TAGP", nCells);
+        /* Allocate main WOFOST accumulated output arrays */
+        TAGP  = realArr("TAGP", nCells);
         GASST = realArr("GASST", nCells);
         MREST = realArr("MREST", nCells);
         CTRAT = realArr("CTRAT", nCells);
         CEVST = realArr("CEVST", nCells);
-        HI = realArr("HI", nCells);
+        HI    = realArr("HI", nCells);
+
+        /* Allocate crop completion control arrays */
         CROP_FINISHED_FLAG = intArr("CROP_FINISHED_FLAG", nCells);
-        CROP_FINISH_DVS = realArr("CROP_FINISH_DVS", nCells);
+        CROP_FINISH_DVS    = realArr("CROP_FINISH_DVS", nCells);
     }
 
-    // Main initialization function
-    // p: Static Crop Parameters (CropState)
-    // initial_root_zone_SM: initial average volumetric soil moisture in root zone from SERGHEI
+    /* ================================================================== */
+    /* Initialization                                                      */
+    /* ================================================================== */
+
+    /**
+     * @brief Initialize all WOFOST states from crop parameters and meteo data.
+     *
+     * Performs the following initialization sequence:
+     *   1. Initialize phenology (DVS, TSUM, STAGE).
+     *   2. Initialize partitioning (FR, FL, FS, FO from initial DVS).
+     *   3. Initialize organ dynamics (biomass distributed from TDWI, LAI
+     *      from LAIEM, rooting depth from RDI).
+     *   4. Synchronize cross-module states (LAI, SAI, PAI, RD) from
+     *      sub-modules into the shared CropDynamicState.
+     *   5. Zero all cumulative accumulators (TAGP, GASST, MREST, etc.).
+     *   6. Verify initial biomass partitioning (TDWI = TAGP + TWRT).
+     *
+     * @param p                      CropState with static parameters.
+     * @param m                      MeteoState with weather data.
+     * @param initial_root_zone_SM   Pre-computed root-zone soil moisture [cm3/cm3].
+     * @param current_day_of_year    Start day-of-year (1--365/366).
+     */
     void initialize(const CropState &p, const MeteoState &m, const realArr &initial_root_zone_SM, int current_day_of_year)
     {
-
-        // --- 1. Initialize Phenology ---
+        /* --- 1. Initialize Phenology: set DVS, TSUM, STAGE from crop params --- */
         pheno.initialize(s, p);
 
-        // --- 2. Initialize Partitioning (to get initial FR, FL, FS, FO) ---
-        // Needs initial DVS from phenology
+        /* --- 2. Initialize Partitioning: compute FR, FL, FS, FO at initial DVS --- */
         part.initialize(ps, p, s);
 
-        // --- CRITICAL FIX: Sync partitioning factors BEFORE organ dynamics ---
-        Kokkos::parallel_for("Wofost72_SyncPartitioning", s.nCells, KOKKOS_LAMBDA(const int i) {
-            s.FL(i) = ps.FL(i);
-            s.FR(i) = ps.FR(i);
-// Note: FS and FO are not stored in CropDynamicState, only in PartitioningState
-
-// DEBUG: Print partitioning factors
 #if DEBUG_CROP_GROWTH_MODEL
+        /*
+         * Debug: print initial partitioning fractions for each cell.
+         * Local variable captures are used to avoid capturing 'this'
+         * pointer inside Kokkos lambda on the device.
+         */
+        auto local_debug_FR = ps.FR;
+        auto local_debug_FL = ps.FL;
+        auto local_debug_FS = ps.FS;
+        auto local_debug_FO = ps.FO;
+        Kokkos::parallel_for("Wofost72_SyncPartitioning", s.nCells, KOKKOS_LAMBDA(const int i) {
             printf("[WOFOST-INIT] cell=%d, Partitioning - FR=%.4f, FL=%.4f, FS=%.4f, FO=%.4f\n",
-                   i, ps.FR(i), ps.FL(i), ps.FS(i), ps.FO(i));
-#endif
+                   i, local_debug_FR(i), local_debug_FL(i), local_debug_FS(i), local_debug_FO(i));
         });
+        Kokkos::fence(); /* Ensure kernel completes before proceeding */
+#endif
 
-        // --- 3. Initialize Organ Dynamics (needs initial FR, FL, FS, FO) ---
-        // Now s.FL, s.FR, s.FS, s.FO are properly set
+        /* --- 3. Initialize Organ Dynamics --- */
 
+        /*
+         * Roots: initial biomass = TDWI * FR, rooting depth = RDI.
+         * Stems: initial biomass = TDWI * (1-FR) * FS.
+         * Storage organs: initial biomass = TDWI * (1-FR) * FO.
+         * Leaves: initial LAI = LAIEM, biomass = TDWI * (1-FR) * FL.
+         */
         ro_dynamics.initialize(rds, p, s);
-        ro_dynamics.set_initial_biomass(rds, p, ps.FR); // Initial WRT based on TDWI and FR
+        ro_dynamics.set_initial_biomass(rds, p, ps.FR);
 
-        st_dynamics.initialize(sds, p, s, ps.FR, ps.FS); // Initial WST and SAI
-        so_dynamics.initialize(sods, p, ps.FR, ps.FO);   // Initial WSO and PAI
-        // lv_dynamics.initialize(lds, p, s); // Initial WLV, LAIEM, LASUM, LAIEXP, LAIMAX, LAI
+        st_dynamics.initialize(sds, p, s, ps.FR, ps.FS);
+        so_dynamics.initialize(sods, p, ps.FR, ps.FO);
         lv_dynamics.initialize(lds, p, s, ps.FR, ps.FL, sds.SAI, sods.PAI);
-        // --- 4. Initialize Evapotranspiration (needs initial LAI) ---
-        // No explicit init needed for our simplified ET module, as it computes rates based on inputs.
 
-        // --- 5. Initialize other states and sync from sub-modules ---
+        /* ================================================================== */
+        /* Synchronize cross-module states from sub-modules into shared state  */
+        /*                                                                    */
+        /* Because Kokkos lambda capture does not allow capturing 'this',     */
+        /* all Kokkos Views used inside the parallel_for must be captured     */
+        /* as local variables by value. This is a standard Kokkos pattern.    */
+        /* ================================================================== */
+
+        /* Shared area index and rooting depth variables */
+        auto local_s_LAI = s.LAI;
+        auto local_s_SAI = s.SAI;
+        auto local_s_PAI = s.PAI;
+        auto local_s_RD  = s.RD;
+
+        /* Sub-module area index and rooting depth sources */
+        auto local_lds_LAI   = lds.LAI;
+        auto local_sds_SAI   = sds.SAI;
+        auto local_sods_PAI  = sods.PAI;
+        auto local_rds_RD    = rds.RD;
+
+        /* Total biomass from sub-modules (for TAGP computation) */
+        auto local_lds_TWLV  = lds.TWLV;
+        auto local_sds_TWST  = sds.TWST;
+        auto local_sods_TWSO = sods.TWSO;
+        auto local_rds_TWRT  = rds.TWRT;
+
+        /* Main WOFOST accumulated output arrays */
+        auto local_TAGP              = TAGP;
+        auto local_GASST             = GASST;
+        auto local_MREST             = MREST;
+        auto local_CTRAT             = CTRAT;
+        auto local_CEVST             = CEVST;
+        auto local_HI                = HI;
+        auto local_CROP_FINISHED_FLAG = CROP_FINISHED_FLAG;
+        auto local_CROP_FINISH_DVS   = CROP_FINISH_DVS;
+
+        /* Extract scalar parameter for use in device kernel */
+        real p_TDWI = p.p.TDWI;
+
+        /* --- 5. Synchronize states and initialize accumulators --- */
         Kokkos::parallel_for("Wofost72_MainInit", s.nCells, KOKKOS_LAMBDA(const int i) {
-            // Sync biomass states from sub-modules to main state
-            s.WLV(i) = lds.WLV(i);
-            s.DWLV(i) = lds.DWLV(i);
-            s.TWLV(i) = lds.TWLV(i);
-            s.LAI(i) = lds.LAI(i);
-            
-            s.WST(i) = sds.WST(i);
-            s.DWST(i) = sds.DWST(i);
-            s.TWST(i) = sds.TWST(i);
-            s.SAI(i) = sds.SAI(i);
-            
-            s.WRT(i) = rds.WRT(i);
-            s.DWRT(i) = rds.DWRT(i);
-            s.TWRT(i) = rds.TWRT(i);
-            s.RD(i) = rds.RD(i);
-            
-            s.WSO(i) = sods.WSO(i);
-            s.DWSO(i) = sods.DWSO(i);
-            s.TWSO(i) = sods.TWSO(i);
-            s.PAI(i) = sods.PAI(i);
 
-            // Initial total above-ground biomass
-            TAGP(i) = lds.TWLV(i) + sds.TWST(i) + sods.TWSO(i);
-            GASST(i) = 0.0;
-            MREST(i) = 0.0;
-            CTRAT(i) = 0.0;
-            CEVST(i) = 0.0;
-            HI(i) = 0.0;
-            CROP_FINISHED_FLAG(i) = 0;
-            CROP_FINISH_DVS(i) = 0.0;
+            /* Copy area indices and rooting depth from sub-modules to shared state */
+            local_s_LAI(i) = local_lds_LAI(i);
+            local_s_SAI(i) = local_sds_SAI(i);
+            local_s_PAI(i) = local_sods_PAI(i);
+            local_s_RD(i)  = local_rds_RD(i);
 
-            // Check initial biomass partitioning (optional, for debugging)
-            real checksum = p.p.TDWI - TAGP(i) - rds.TWRT(i);
-            if (std::abs(checksum) > 0.0001) {
+            /* Initial total above-ground biomass [kg/ha] */
+            local_TAGP(i) = local_lds_TWLV(i) + local_sds_TWST(i) + local_sods_TWSO(i);
+
+            /* Zero all cumulative accumulators */
+            local_GASST(i) = 0.0;
+            local_MREST(i) = 0.0;
+            local_CTRAT(i) = 0.0;
+            local_CEVST(i) = 0.0;
+            local_HI(i)    = 0.0;
+
+            /* Crop is not yet finished */
+            local_CROP_FINISHED_FLAG(i) = 0;
+            local_CROP_FINISH_DVS(i)    = 0.0;
+
+            /*
+             * Verify initial biomass partitioning:
+             * TDWI should equal TAGP + TWRT (above-ground + root biomass).
+             * A non-zero checksum indicates an error in partitioning logic.
+             */
+            real checksum = p_TDWI - local_TAGP(i) - local_rds_TWRT(i);
+            if (Kokkos::fabs(checksum) > 0.0001)
+            {
                 printf("Error in partitioning of initial biomass (TDWI) at cell %d! Checksum: %f\n", i, checksum);
-            } });
+            }
+        });
+        Kokkos::fence();
     }
 
-    // Main daily step function for WOFOST
-    // current_day_of_year: from 1 to 365/366
-    // current_time_s: Current simulation time in seconds (for meteo index)
-    // root_zone_SM: average volumetric soil moisture from SERGHEI for the day
+    /* ================================================================== */
+    /* Main Simulation Step                                                */
+    /* ================================================================== */
+
+    /**
+     * @brief Execute one daily time step: compute rates and integrate all states.
+     *
+     * This is the core simulation loop for WOFOST. The execution order is:
+     *
+     *   Phase 1 - Rate Calculation:
+     *     1. Phenology:         development rate (DVR), temperature sum (DTSUM).
+     *     2. Emergence check:   skip growth modules if crop has not emerged.
+     *     3. Assimilation:      potential gross assimilation (PGASS).
+     *     4. Evapotranspiration: water stress factor (RFTRA), transpiration.
+     *     5. Partitioning:      organ fractions (FR, FL, FS, FO) at current DVS.
+     *     6. Respiration:       potential maintenance respiration (PMRES).
+     *     7. Carbon balance:    GASS = PGASS * RFTRA; MRES = min(GASS, PMRES);
+     *                           ASRC = GASS - MRES; DMI = CVF * ASRC.
+     *
+     *   Phase 2 - Organ Rate Calculation:
+     *     Root, stem, storage, and leaf growth rates from DMI partitioning.
+     *
+     *   Phase 3 - Integration:
+     *     Advance all state variables by delt_day.
+     *
+     *   Phase 4 - Accumulation:
+     *     Update cumulative totals (TAGP, GASST, MREST, CTRAT, CEVST).
+     *
+     * @param p                    CropState with static parameters.
+     * @param m                    MeteoState with weather driving data.
+     * @param current_time_s       Current simulation time [s] (for meteo indexing).
+     * @param root_zone_SM         Current root-zone soil moisture [cm3/cm3].
+     * @param current_day_of_year  Current day-of-year (1--365/366).
+     * @param delt_day             Time step length [d]. Default: 1.0 (daily).
+     */
     void calc_rates_and_integrate(const CropState &p, const MeteoState &m,
                                   real current_time_s, const realArr &root_zone_SM, int current_day_of_year, real delt_day = 1.0)
     {
-
+        /* Determine the meteorological record index for this time step */
         int drv_idx = m.get_index_at_time(current_time_s);
 
 #if DEBUG_CROP_GROWTH_MODEL
-
         if (s.nCells > 0)
         {
             printf("[WOFOST] Step: DOY=%d, Time=%.1f, drv_idx=%d\n", current_day_of_year, current_time_s, drv_idx);
             printf("[WOFOST] Meteo: TMIN=%.1f, TMAX=%.1f, IRRAD=%.1f, ET0=%.1f\n",
                    m.tmin(drv_idx), m.tmax(drv_idx), m.irrad(drv_idx), m.et0(drv_idx));
-            printf("[WOFOST] Before calc: LAI=%.2f, WRT=%.2f, WST=%.2f, WSO=%.2f, WLV=%.2f, DVS=%.2f\n",
-                   s.LAI(0), s.WRT(0), s.WST(0), s.WSO(0), s.WLV(0), s.DVS(0));
+            printf("[WOFOST] Before calc: LAI=%.2f, DVS=%.2f\n", s.LAI(0), s.DVS(0));
         }
-
 #endif
 
-        // --- 1. Phenology ---
+        /* ============================================================== */
+        /* Phase 1: Rate Calculation                                      */
+        /* ============================================================== */
+
+        /* --- 1. Phenology: compute development rate and update DVS/TSUM --- */
         pheno.calc_rates(s, p, m, drv_idx, current_day_of_year);
 
 #if DEBUG_CROP_GROWTH_MODEL
@@ -209,28 +400,37 @@ public:
         }
 #endif
 
-        // Check if crop has emerged. If not, skip most calculations.
+        /* --- 1b. Emergence check --- */
+        /*
+         * If the crop is still in the EMERGING stage (pre-emergence), set a
+         * per-cell flag to skip all growth-related calculations. Only
+         * phenology (temperature accumulation for emergence) is active.
+         */
+        auto local_STAGE = s.STAGE;
+        auto local_skip  = s.skip_other_modules;
+
         Kokkos::parallel_for("Wofost72_CheckEmergence", s.nCells, KOKKOS_LAMBDA(const int i) {
-            if (s.STAGE(i) == CropStage::EMERGING) {
-                s.skip_other_modules(i) = 1; // Mark this cell to skip other modules
+            if (local_STAGE(i) == CropStage::EMERGING) {
+                local_skip(i) = 1;  /* Skip growth modules for this cell */
             } else {
-                s.skip_other_modules(i) = 0;
-            } });
+                local_skip(i) = 0;  /* Normal operation */
+            }
+        });
+        Kokkos::fence();
+
 #if DEBUG_CROP_GROWTH_MODEL
-        // Debug: Check if skipping
         if (s.nCells > 0)
         {
             printf("[WOFOST-EMERG] skip_other_modules=%d\n", s.skip_other_modules(0));
         }
 #endif
 
-        // --- 2. Assimilation ---
+        /* --- 2. Assimilation: potential gross CO2 assimilation [kg CH2O/ha/h] --- */
         assim.calc_rates(as, p, s, m, drv_idx, current_day_of_year);
 
-        // --- 3. Evapotranspiration ---
+        /* --- 3. Evapotranspiration: water stress factor and actual fluxes --- */
         evtra.calc_rates(ets, p, s, m, drv_idx, root_zone_SM);
 
-// Debug: Check RFTRA and PGASS
 #if DEBUG_CROP_GROWTH_MODEL
         if (s.nCells > 0)
         {
@@ -240,179 +440,220 @@ public:
         }
 #endif
 
-        // --- 4. Partitioning Rates (needed before carbon loop) ---
-        part.update(ps, p, s); // Update partitioning factors based on current DVS
+        /* --- 4. Partitioning: organ biomass fractions at current DVS --- */
+        part.update(ps, p, s);
 
-        // --- Calculate Respiration Rates (outside Kokkos kernel) ---
-        mres.calc_rates(rs, p, s, m, drv_idx);
+        /* --- 5. Respiration: potential maintenance respiration --- */
+        mres.calc_rates(rs, p, s, m, drv_idx, lds, sds, rds, sods);
 
-        // --- Main Carbon Balance Loop ---
+        /* ============================================================== */
+        /* Main Carbon Balance Loop                                       */
+        /*                                                                */
+        /* Computes actual assimilation (GASS), maintenance respiration  */
+        /* (MRES), net available assimilates (ASRC), dry matter increase */
+        /* (DMI), and above-ground DMI (ADMI).                            */
+        /*                                                                */
+        /* Local variable captures are required for Kokkos lambda device */
+        /* execution (cannot capture 'this' pointer).                     */
+        /* ============================================================== */
+
+        /* Capture all Views needed inside the kernel */
+        auto local_GASS      = s.GASS;
+        auto local_PGASS     = as.PGASS;
+        auto local_RFTRA     = ets.RFTRA;
+        auto local_MRES      = s.MRES;
+        auto local_PMRES     = rs.PMRES;
+        auto local_ASRC      = s.ASRC;
+        auto local_FR        = ps.FR;
+        auto local_FL        = ps.FL;
+        auto local_FS        = ps.FS;
+        auto local_FO        = ps.FO;
+        auto local_DMI       = s.DMI;
+        auto local_ADMI      = s.ADMI;
+        auto local_REALLOC_LV = s.REALLOC_LV;
+        auto local_REALLOC_ST = s.REALLOC_ST;
+        auto local_REALLOC_SO = s.REALLOC_SO;
+
+        /* Capture scalar conversion efficiencies for device use */
+        real p_CVL = p.p.CVL;
+        real p_CVS = p.p.CVS;
+        real p_CVO = p.p.CVO;
+        real p_CVR = p.p.CVR;
+
         Kokkos::parallel_for("Wofost72_CarbonLoop", s.nCells, KOKKOS_LAMBDA(const int i) {
-            if (s.skip_other_modules(i) == 1)
-                return; // Skip if still emerging
+            /* Skip non-emerged cells */
+            if (local_skip(i) == 1) return;
 
-            // Water stress reduction on assimilation
-            // r.GASS = PGASS * k.RFTRA
-            s.GASS(i) = as.PGASS(i) * ets.RFTRA(i);
+            /* --- Actual gross assimilation (water-stress corrected) --- */
+            local_GASS(i) = local_PGASS(i) * local_RFTRA(i);
 
-            // Respiration (already calculated above)
-            // r.MRES  = min(r.GASS, PMRES)
-            s.MRES(i) = fmin(s.GASS(i), rs.PMRES(i));
+            /* --- Actual maintenance respiration (cannot exceed GASS) --- */
+            local_MRES(i) = fmin(local_GASS(i), local_PMRES(i));
 
-            // Net available assimilates
-            // r.ASRC  = r.GASS - r.MRES
-            s.ASRC(i) = s.GASS(i) - s.MRES(i);
+            /* --- Net available assimilates --- */
+            local_ASRC(i) = local_GASS(i) - local_MRES(i);
 
-            // DM partitioning factors (pf)
-            // part.calc_rates(day, drv) -> ps.FR, ps.FL, ps.FS, ps.FO
-            real FR = ps.FR(i);
-            real FL = ps.FL(i);
-            real FS = ps.FS(i);
-            real FO = ps.FO(i);
+            /* --- Weighted conversion efficiency (CVF) --- */
+            /*
+             * CVF converts CH2O assimilates to dry matter, accounting for
+             * different conversion costs per organ:
+             *   CVF = 1 / ( FL/CVL*(1-FR) + FS/CVS*(1-FR) + FO/CVO*(1-FR) + FR/CVR )
+             */
+            real FR = local_FR(i);
+            real FL = local_FL(i);
+            real FS = local_FS(i);
+            real FO = local_FO(i);
 
-            // Conversion factor (CVF)
-            // CVF = 1./((pf.FL/p.CVL + pf.FS/p.CVS + pf.FO/p.CVO) * (1.-pf.FR) + pf.FR/p.CVR)
-            real den = (FL / p.p.CVL + FS / p.p.CVS + FO / p.p.CVO) * (1.0 - FR) + FR / p.p.CVR;
+            real den = (FL / p_CVL + FS / p_CVS + FO / p_CVO) * (1.0 - FR) + FR / p_CVR;
             real CVF = (den != 0.0) ? (1.0 / den) : 0.0;
 
-            // Total dry matter increase (DMI)
-            // r.DMI = CVF * r.ASRC
-            s.DMI(i) = CVF * s.ASRC(i);
+            /* --- Total dry matter increase [kg DM/ha/d] --- */
+            local_DMI(i) = CVF * local_ASRC(i);
 
-            // Check carbon balance (simplified)
-            real py_checksum_den = fmax(0.0001, s.GASS(i));
-            real py_checksum = (s.GASS(i) - s.MRES(i) - (FR + (FL + FS + FO) * (1.0 - FR)) * s.DMI(i) / CVF) * 1.0 / py_checksum_den;
-            if (std::abs(py_checksum) >= 0.0001)
+            /*
+             * Carbon balance verification checksum:
+             * GASS - MRES - (FR + (FL+FS+FO)*(1-FR)) * DMI/CVF should equal 0.
+             * Normalised by GASS to give a relative error.
+             */
+            real py_checksum_den = fmax(0.0001, local_GASS(i));
+            real py_checksum = (local_GASS(i) - local_MRES(i) - (FR + (FL + FS + FO) * (1.0 - FR)) * local_DMI(i) / CVF) * 1.0 / py_checksum_den;
+            if (Kokkos::fabs(py_checksum) >= 0.0001)
             {
                 printf("Carbon balance error at cell %d, checksum: %f\n", i, py_checksum);
             }
 
-            // Reallocation (WOFOST72: always 0)
-            s.REALLOC_LV(i) = 0.0;
-            s.REALLOC_ST(i) = 0.0;
-            s.REALLOC_SO(i) = 0.0;
+            /* --- Reallocation fluxes (currently inactive, set to 0) --- */
+            local_REALLOC_LV(i) = 0.0;
+            local_REALLOC_ST(i) = 0.0;
+            local_REALLOC_SO(i) = 0.0;
 
-            // Above-ground dry matter increase
-            // r.ADMI = (1. - pf.FR) * r.DMI
-            s.ADMI(i) = (1.0 - FR) * s.DMI(i);
+            /* --- Above-ground dry matter increase [kg DM/ha/d] --- */
+            local_ADMI(i) = (1.0 - FR) * local_DMI(i);
 
-// DEBUG: Print carbon balance details for first cell
 #if DEBUG_CROP_GROWTH_MODEL
             if (i == 0)
             {
                 printf("[CARBON-LOOP] cell=%d, PGASS=%.6f, RFTRA=%.4f, GASS=%.6f, PMRES=%.6f, MRES=%.6f, ASRC=%.6f\n",
-                       i, as.PGASS(i), ets.RFTRA(i), s.GASS(i), rs.PMRES(i), s.MRES(i), s.ASRC(i));
+                       i, local_PGASS(i), local_RFTRA(i), local_GASS(i), local_PMRES(i), local_MRES(i), local_ASRC(i));
                 printf("[CARBON-LOOP] cell=%d, FR=%.4f, FL=%.4f, FS=%.4f, FO=%.4f, CVF=%.6f, DMI=%.6f, ADMI=%.6f\n",
-                       i, FR, FL, FS, FO, CVF, s.DMI(i), s.ADMI(i));
+                       i, FR, FL, FS, FO, CVF, local_DMI(i), local_ADMI(i));
             }
-
 #endif
         });
+        Kokkos::fence();
 
-        // --- Call Organ Dynamics calc_rates ---
-        ro_dynamics.calc_rates(rds, p, s, s.DMI, ps.FR);
-        st_dynamics.calc_rates(sds, p, s, s.ADMI, ps.FS, s.REALLOC_ST);
-        so_dynamics.calc_rates(sods, p, s.ADMI, ps.FO, s.REALLOC_SO);
-        lv_dynamics.calc_rates(lds, p, s, m, drv_idx, s.ADMI, ets);
+        /* ============================================================== */
+        /* Phase 2: Organ Rate Calculation                                */
+        /*                                                                */
+        /* Each organ module computes its growth rate from the partitioned */
+        /* DMI and applies senescence/mortality losses.                    */
+        /* ============================================================== */
 
-        // --- Integrate All States ---
+        ro_dynamics.calc_rates(rds, p, s, s.DMI, ps.FR);        /* Roots: growth from FR * DMI */
+        st_dynamics.calc_rates(sds, p, s, s.ADMI, ps.FS, s.REALLOC_ST);  /* Stems: growth from FS * ADMI */
+        so_dynamics.calc_rates(sods, p, s.ADMI, ps.FO, s.REALLOC_SO);    /* Storage: growth from FO * ADMI */
+        lv_dynamics.calc_rates(lds, p, s, m, drv_idx, s.ADMI, ets, ps);  /* Leaves: growth from FL * ADMI + senescence */
+
+        /* ============================================================== */
+        /* Phase 3: Integration                                           */
+        /*                                                                */
+        /* Advance all state variables by the time step (delt_day).       */
+        /* ============================================================== */
+
+        /* Phenology: advance DVS, TSUM, STAGE */
         pheno.integrate(s, p, delt_day);
 
-        // Skip integration if crop emerged just now, or was already emerging
-        // Note: pheno.integrate updates STAGE. If it was EMERGING and becomes VEGETATIVE,
-        // we might want to start other modules next step. Or check previous state.
-        // Python code: crop_stage = pheno.get_variable("STAGE") (before integration)
-        // Here we rely on s.skip_other_modules set earlier based on state BEFORE integration of this step.
+        /* Partitioning: re-compute fractions at new DVS */
+        part.update(ps, p, s);
 
-        part.update(ps, p, s); // Partitioning updated based on DVS (new DVS from pheno integrate?)
-        // In python: pheno.integrate -> part.integrate (which updates FR based on NEW DVS). Correct.
-        // BUT: Python `integrate` uses `rates` calculated with `OLD` state.
-        // Here: `ro_dynamics.integrate` uses `rds` (rates) calculated above.
-        // `rds` calculated using OLD FR/DVS.
-        // `pheno.integrate` updates DVS.
-        // `part.update` updates FR using NEW DVS?
-        // Python: part.integrate updates state (FR).
-        // Logic: calc_rates (all modules) -> integrate (all modules).
-        // Standard Euler integration: State_new = State_old + Rate(State_old) * dt.
-        // So update of FR should happen AFTER rate calculation for next step?
-        // Or FR is a state variable updated in integrate. Yes.
-
+        /* Organ states: integrate biomass, LAI, rooting depth */
         ro_dynamics.integrate(rds, delt_day);
         st_dynamics.integrate(sds, p, s, delt_day);
         so_dynamics.integrate(sods, p, delt_day);
-        lv_dynamics.integrate(lds, s, delt_day); // lds depends on s.SAI and s.PAI
+        lv_dynamics.integrate(lds, s, delt_day);
 
-        // --- Update Main WOFOST States ---
+        /* ============================================================== */
+        /* Phase 4: Accumulation and State Synchronization                */
+        /*                                                                */
+        /* After integration, synchronize the shared cross-module states  */
+        /* (LAI, SAI, PAI, RD) from organ modules, update cumulative     */
+        /* totals (TAGP, GASST, MREST, CTRAT, CEVST), and detect crop    */
+        /* maturity.                                                      */
+        /* ============================================================== */
+
+        /* Capture Views for the final synchronization kernel */
+        auto local_s_LAI     = s.LAI;
+        auto local_s_SAI     = s.SAI;
+        auto local_s_PAI     = s.PAI;
+        auto local_s_RD      = s.RD;
+
+        auto local_lds_LAI   = lds.LAI;
+        auto local_sds_SAI   = sds.SAI;
+        auto local_sods_PAI  = sods.PAI;
+        auto local_rds_RD    = rds.RD;
+
+        auto local_TAGP      = TAGP;
+        auto local_lds_TWLV  = lds.TWLV;
+        auto local_sds_TWST  = sds.TWST;
+        auto local_sods_TWSO = sods.TWSO;
+
+        auto local_GASST     = GASST;
+        auto local_s_GASS    = s.GASS;
+        auto local_MREST     = MREST;
+        auto local_s_MRES    = s.MRES;
+
+        auto local_CTRAT     = CTRAT;
+        auto local_ets_TRA   = ets.TRA;
+        auto local_CEVST     = CEVST;
+        auto local_ets_EVS   = ets.EVS;
+
+        auto local_CROP_FINISHED_FLAG = CROP_FINISHED_FLAG;
+        auto local_CROP_FINISH_DVS    = CROP_FINISH_DVS;
+        auto local_s_DVS              = s.DVS;
+
+        real local_delt_day = delt_day;
+
         Kokkos::parallel_for("Wofost72_MainIntegrate", s.nCells, KOKKOS_LAMBDA(const int i) {
-            if (s.skip_other_modules(i) == 1 && s.STAGE(i) == CropStage::EMERGING) {
+            /* Skip non-emerged cells (they only accumulate phenology for emergence) */
+            if (local_skip(i) == 1 && local_STAGE(i) == CropStage::EMERGING) {
                 return;
             }
 
-            // Sync biomass states from sub-modules to main state (CRITICAL FIX)
-            s.WLV(i) = lds.WLV(i);
-            s.DWLV(i) = lds.DWLV(i);
-            s.TWLV(i) = lds.TWLV(i);
-            s.LAI(i) = lds.LAI(i);
-            
-            s.WST(i) = sds.WST(i);
-            s.DWST(i) = sds.DWST(i);
-            s.TWST(i) = sds.TWST(i);
-            s.SAI(i) = sds.SAI(i);
-            
-            s.WRT(i) = rds.WRT(i);
-            s.DWRT(i) = rds.DWRT(i);
-            s.TWRT(i) = rds.TWRT(i);
-            s.RD(i) = rds.RD(i);
-            
-            s.WSO(i) = sods.WSO(i);
-            s.DWSO(i) = sods.DWSO(i);
-            s.TWSO(i) = sods.TWSO(i);
-            s.PAI(i) = sods.PAI(i);
+            /* --- Synchronize area indices and rooting depth from sub-modules --- */
+            local_s_LAI(i) = local_lds_LAI(i);
+            local_s_SAI(i) = local_sds_SAI(i);
+            local_s_PAI(i) = local_sods_PAI(i);
+            local_s_RD(i)  = local_rds_RD(i);
 
-            // Integrate total (living+dead) above-ground biomass
-            TAGP(i) = lds.TWLV(i) + sds.TWST(i) + sods.TWSO(i);
+            /* --- Update total above-ground production [kg/ha] --- */
+            local_TAGP(i) = local_lds_TWLV(i) + local_sds_TWST(i) + local_sods_TWSO(i);
 
-           
+            /* --- Accumulate daily carbon fluxes into seasonal totals --- */
+            local_GASST(i) += local_s_GASS(i) * local_delt_day;  /* [kg CH2O/ha] */
+            local_MREST(i) += local_s_MRES(i) * local_delt_day;  /* [kg CH2O/ha] */
 
-            // Total gross assimilation and maintenance respiration
-            GASST(i) += s.GASS(i) * delt_day;
-            MREST(i) += s.MRES(i) * delt_day;
-            
-            // Total crop transpiration and soil evaporation
-            CTRAT(i) += ets.TRA(i) * delt_day;
-            CEVST(i) += ets.EVS(i) * delt_day; 
-            
-            // Check for crop maturity
-            if (s.STAGE(i) == CropStage::MATURE && CROP_FINISHED_FLAG(i) == 0) {
-                CROP_FINISHED_FLAG(i) = 1;
-                CROP_FINISH_DVS(i) = s.DVS(i);
-            } });
+            /* --- Accumulate daily water fluxes into seasonal totals --- */
+            local_CTRAT(i) += local_ets_TRA(i) * local_delt_day;  /* [cm] */
+            local_CEVST(i) += local_ets_EVS(i) * local_delt_day;  /* [cm] */
 
-// Debug: Check final results after integration
+            /* --- Detect crop maturity --- */
+            if (local_STAGE(i) == CropStage::MATURE && local_CROP_FINISHED_FLAG(i) == 0) {
+                local_CROP_FINISHED_FLAG(i) = 1;
+                local_CROP_FINISH_DVS(i) = local_s_DVS(i);
+            }
+        });
+        Kokkos::fence();
+
 #if DEBUG_CROP_GROWTH_MODEL
         if (s.nCells > 0)
         {
-            printf("[WOFOST-RESULT] After integrate: LAI=%.2f, WRT=%.2f, WST=%.2f, WSO=%.2f, WLV=%.2f, DVS=%.2f\n",
-                   s.LAI(0), s.WRT(0), s.WST(0), s.WSO(0), s.WLV(0), s.DVS(0));
+            printf("[WOFOST-RESULT] After integrate: LAI=%.2f, DVS=%.2f\n",
+                   s.LAI(0), s.DVS(0));
             printf("[WOFOST-RESULT] Rates: GASS=%.2f, MRES=%.2f, DMI=%.2f, ADMI=%.2f\n",
                    s.GASS(0), s.MRES(0), s.DMI(0), s.ADMI(0));
-            printf("[WOFOST-RESULT] Organ rates: DWRT=%.2f, DWLV=%.2f, DWST=%.2f, DWSO=%.2f\n",
-                   rds.DWRT(0), lds.DWLV(0), sds.DWST(0), sods.DWSO(0));
         }
 #endif
     }
-
-    // // Finalization (e.g., calculate Harvest Index)
-    // void finalize() {
-    //     Kokkos::parallel_for("Wofost72_Finalize", s.nCells, KOKKOS_LAMBDA(const int i) {
-    //         if (TAGP(i) > 0.0) {
-    //             HI(i) = sods.TWSO(i) / TAGP(i);
-    //         } else {
-    //             HI(i) = -1.0;
-    //         }
-    //     });
-    // }
-    //
 };
 
-#endif
+#endif /* _WOFOST72_H_ */

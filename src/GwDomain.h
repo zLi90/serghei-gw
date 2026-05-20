@@ -4,9 +4,11 @@
 #include "define.h"
 #include "Domain.h"
 
-class GwDomain : public Domain {
+class GwDomain : public Domain
+{
 
 public:
+    int hc = 1; // halo cells, must be 1 for subsurface model
     // Time stepping options
     real dt_init, dt_max, dtOld;
     real dt;
@@ -23,34 +25,42 @@ public:
     real wc_ic;
     // Numerical scheme
     int gw_scheme, cg_iter = 1000000;
-	real cg_tol = 1e-8;
+    real cg_tol = 1e-8;
     bool async;
     // Kokkos views
     realArr x, y, z, dz, depth, sinx, cosx, siny, cosy, rainRate, evapRate, etpmRate;
     intArr isnodata, onboundary;
+
+    //Activate the concealed pipe drainage function
+    bool hasTileDrainage;
 
     // other variables
     int BCtype;
     realArr globalBuffer;
     geometry::point extent[2];
 
-    KOKKOS_INLINE_FUNCTION void unpackIndicesGw(int const iGlob, int nz, int ny, int nx, int &k, int &j, int &i) const{
-      unpackIndicesUniformGrid(iGlob,nz,ny,nx,k,j,i);
+    KOKKOS_INLINE_FUNCTION void unpackIndicesGw(int const iGlob, int nz, int ny, int nx, int &k, int &j, int &i) const
+    {
+        unpackIndicesUniformGrid(iGlob, nz, ny, nx, k, j, i);
     };
-    KOKKOS_INLINE_FUNCTION void unpackIndices(int const iGlob, int &k, int &j, int &i) const{
+    KOKKOS_INLINE_FUNCTION void unpackIndices(int const iGlob, int &k, int &j, int &i) const
+    {
         unpackIndicesUniformGrid(iGlob, nz, ny, nx, k, j, i);
     };
 
-    KOKKOS_INLINE_FUNCTION void unpackIndicesHalo(int const iGlob, int &k, int &j, int &i) const{
+    KOKKOS_INLINE_FUNCTION void unpackIndicesHalo(int const iGlob, int &k, int &j, int &i) const
+    {
         unpackIndicesUniformGrid(iGlob, nzhc, nyhc, nxhc, k, j, i);
     };
 
-    KOKKOS_INLINE_FUNCTION int getHaloExtension(const int i, const int j, const int k) const {
-        return( (hc+k)*(nx+2*hc)*(ny+2*hc) + (hc+j)*(nx+2*hc) + hc+i ); //index for the extended domain (including halo cells)
+    KOKKOS_INLINE_FUNCTION int getHaloExtension(const int i, const int j, const int k) const
+    {
+        return ((hc + k) * (nx + 2 * hc) * (ny + 2 * hc) + (hc + j) * (nx + 2 * hc) + hc + i); // index for the extended domain (including halo cells)
     };
 
-    KOKKOS_INLINE_FUNCTION int getSubdomainExtension(const Parallel &par, const int i, const int j, const int k) const{
-        return( k*nx_glob*ny_glob + (par.j_beg+j)*nx_glob + par.i_beg+i ); //index for the subdomain (par.j_beg+j,par.i_beg+i)
+    KOKKOS_INLINE_FUNCTION int getSubdomainExtension(const Parallel &par, const int i, const int j, const int k) const
+    {
+        return (k * nx_glob * ny_glob + (par.j_beg + j) * nx_glob + par.i_beg + i); // index for the subdomain (par.j_beg+j,par.i_beg+i)
     };
     // Initialize surface domain
     // void initialise() {
@@ -63,17 +73,15 @@ public:
     //     globalBuffer = realArr("globalBuffer", nCellGlobal);
     // };
 
-    void fetchFieldFromGlobalBuffer(const Parallel &par, realArr &data){
-        Kokkos::parallel_for("fetch_from_global_buffer", nCell , KOKKOS_CLASS_LAMBDA (int iGlob) {
+    void fetchFieldFromGlobalBuffer(const Parallel &par, realArr &data)
+    {
+        Kokkos::parallel_for("fetch_from_global_buffer", nCell, KOKKOS_CLASS_LAMBDA(int iGlob) {
             int i,j,k;
             unpackIndices(iGlob,k,j,i);
             int ii1 = getHaloExtension(i,j,k);
             int ii2 = getSubdomainExtension(par,i,j,k);
-            data(ii1) = globalBuffer(ii2);
-        });
+            data(ii1) = globalBuffer(ii2); });
     }
-
 };
-
 
 #endif

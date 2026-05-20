@@ -1,7 +1,32 @@
+/**
+ * @file WofostInit.h
+ * @brief Top-level initialization routine for the WOFOST 7.2 crop growth model.
+ *
+ * Orchestrates the complete initialization sequence:
+ *   1. Read crop parameters from the input file (via CropInit).
+ *   2. Read meteorological driving data from the input file (via MeteoInit).
+ *   3. Allocate memory for all WOFOST dynamic state arrays.
+ *   4. Compute the initial root-zone soil moisture by integrating the
+ *      volumetric water content from the groundwater model over the
+ *      initial rooting depth (RDI).
+ *   5. Determine the simulation start day-of-year (DOY) from meteo data.
+ *   6. Initialize all internal WOFOST states (phenology, partitioning,
+ *      organ biomass, LAI, etc.).
+ *   7. Initialize the crop output file.
+ *
+ * This class bridges the SERGHEI hydrological framework (Domain, GwState,
+ * GwDomain) with the standalone WOFOST crop model (Wofost72).
+ *
+ * @see Wofost72.h    for the main model class being initialized.
+ * @see CropInit.h    for the crop parameter file reader.
+ * @see MeteoInit.h   for the meteorological data file reader.
+ */
+
 /* -*- mode: c++; c-default-style: "linux" -*- */
 
 #ifndef _WOFOST_INIT_H_
 #define _WOFOST_INIT_H_
+
 #include "../define.h"
 #include "Wofost72.h"
 #include "CropState.h"
@@ -19,19 +44,40 @@ class WofostInit
 {
 
 public:
-    // Main initialization function
-    // Returns 1 on success, 0 on failure
+    /**
+     * @brief Main initialization entry point for the WOFOST crop model.
+     *
+     * Reads all input data, allocates memory, computes initial conditions
+     * (particularly root-zone soil moisture from the groundwater state),
+     * and initializes all WOFOST sub-modules.
+     *
+     * @param wofost       WOFOST model container to initialize.
+     * @param cropParam    CropState to populate with static parameters.
+     * @param meteo        MeteoState to populate with weather data.
+     * @param cropInit     Crop parameter reader instance.
+     * @param meteoInit    Meteorological data reader instance.
+     * @param gw           Groundwater state (provides volumetric water content).
+     * @param gdom         Groundwater domain grid (provides cell geometry).
+     * @param dom          Surface domain (provides nCell and start time).
+     * @param par          Parallel controller (for masterproc output).
+     * @param io           File I/O controller (for output file initialization).
+     * @param inFolder     Input directory path (trailing slash expected).
+     * @param outFolder    Output directory path (trailing slash expected).
+     * @return 1 on success, 0 on failure.
+     */
     int initialize_wofost(Wofost72 &wofost, CropState &cropParam, MeteoState &meteo,
                           CropInit &cropInit, MeteoInit &meteoInit,
-                          GwState &gw, GwDomain &gdom, Domain &dom, // dom needed for start time
+                          GwState &gw, GwDomain &gdom, Domain &dom,
                           Parallel &par, FileIO &io, std::string inFolder, std::string outFolder)
     {
 
         if (par.masterproc)
             std::cout << GOK "Initializing WOFOST Crop Model..." << std::endl;
 
-        // 1. Read Crop Parameters
-        std::string cropFile = inFolder + "crop.input";
+        /* ================================================================ */
+        /* Step 1: Read crop parameters from input file                     */
+        /* ================================================================ */
+        std::string cropFile = inFolder + "cropparameter.input";
         if (!cropInit.readCropParameters(cropFile, cropParam, par))
         {
             if (par.masterproc)
@@ -39,8 +85,10 @@ public:
             return 0;
         }
 
-        // 2. Read Meteo Data
-        std::string meteoFile = inFolder + "meteo.input";
+        /* ================================================================ */
+        /* Step 2: Read meteorological driving data                         */
+        /* ================================================================ */
+        std::string meteoFile = inFolder + "cropmeteo.input";
         if (!meteoInit.readMeteoFile(meteoFile, meteo, par))
         {
             if (par.masterproc)
@@ -48,119 +96,126 @@ public:
             return 0;
         }
 
-        // 3. Allocate Wofost Memory based on subsurface grid (with Halo)
-        // int n_crop_cells = gdom.nCellSw;
+        /* ================================================================ */
+        /* Step 3: Allocate all WOFOST dynamic state arrays                 */
+        /*                                                                  */
+        /* Uses the number of surface grid cells (without halo) so that     */
+        /* each cell has its own crop simulation state.                     */
+        /* ================================================================ */
         int n_crop_cells = dom.nCell;
-
-        // Ensure Wofost memory is allocated
         wofost.allocate(n_crop_cells);
 
-        // 4. Calculate Initial Root Zone Soil Moisture
-        // We need a temporary view to hold initial SM for initialization
+        /* ================================================================ */
+        /* Step 4: Compute initial root-zone soil moisture                  */
+        /*                                                                  */
+        /* The initial root-zone soil moisture is calculated by integrating */
+        /* the volumetric water content (gw.wc) over the vertical soil      */
+        /* column from the surface down to the initial rooting depth (RDI). */
+        /*                                                                  */
+        /* For each surface cell:                                           */
+        /*   - RDI is converted from cm to metres.                          */
+        /*   - The vertical soil column is traversed top to bottom.         */
+        /*   - Each layer's contribution is weighted by its overlap with    */
+        /*     the root zone [0, RDI_metres].                               */
+        /*   - The result is a depth-averaged volumetric water content.     */
+        /*                                                                  */
+        /* Edge case: if RDI is effectively zero, the top-layer water       */
+        /* content is used directly.                                        */
+        /* ================================================================ */
         realArr init_root_zone_SM("InitRootSM", n_crop_cells);
 
-        // Assuming we can compute this from gw.wc (volumetric water content)
-        // We need to know the initial rooting depth (RDI) to average over.
+        /* Initial rooting depth from crop parameters */
         real RDI = cropParam.p.RDI;
 
-        // 计算初始根区含水量方法一
-        // wofost初始根区含水率由serghei中gw读取
-        // 但是这里没有根除初始根长计算根区含水量，而是简化为取地表层（第一层）含水量作为初始根区含水量
-        // Kokkos::parallel_for("WofostInit_CalcSM", n_crop_cells, KOKKOS_LAMBDA(int iGlob) {
-        //     int ii, jj;
-        //     // nxhc and nyhc are dimensions with halo
-        //     unpackIndicesUniformGrid(iGlob, gdom.ny + 2 * hc, gdom.nx + 2 * hc, jj, ii);
-        //     real total_water = 0.0;
-        //     real total_depth = 0.0;
-        //     int k_top = 0; // Assuming k=0 is top physical layer
-        //     int iGlobGWTop = (hc+k_top)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-        //     real top_wc = gw.wc(iGlobGWTop, 0); // Use index 0 for init
-        //     init_root_zone_SM(iGlob) = top_wc;
-        // });
-
-        // 计算初始含水量方法二：根据初始根长EDI计算根区含水量
-        //  Cache halo cells to avoid macro expansion issues
-
-        const int nx = gdom.nx;
+        /* Cache halo and grid dimensions for index computation */
+        const int nx   = gdom.nx;
         const int nxhc = gdom.nxhc;
         const int nyhc = gdom.nyhc;
-        const int nz = gdom.nz;
+        const int nz   = gdom.nz;
 
-        // Convert RDI from cm to meters
+        /* Convert RDI from [cm] to [m] */
         real rd_m = RDI * 0.01;
 
-        Kokkos::parallel_for("CalcRootSM", gdom.nCellSw, KOKKOS_LAMBDA(const int i_surf) {
+        Kokkos::parallel_for("CalcRootSM", n_crop_cells, KOKKOS_LAMBDA(const int i_surf) {
+
+            /* Edge case: negligible rooting depth -> use top-layer water content */
             if (rd_m <= 1e-6)
             {
-                // 如果根深极小，取表层含水率
-                // 映射到地表单元对应的顶层地下网格单元 (k=0, top layer)
+                /*
+                 * Map the surface cell index to the corresponding top-layer
+                 * groundwater cell (k=0 is the top layer in SERGHEI).
+                 */
                 int j = i_surf / nx;
                 int i = i_surf % nx;
-                int iGlob_top = (hc + 0) * nxhc * nyhc +
-                                (hc + j) * nxhc +
-                                (hc + i);
-                init_root_zone_SM(i_surf) = gw.wc(iGlob_top, 0); // Use init step (index 0)
+                int iGlob_top = (gdom.hc + 0) * nxhc * nyhc +
+                                (gdom.hc + j) * nxhc +
+                                (gdom.hc + i);
+                init_root_zone_SM(i_surf) = gw.wc(iGlob_top, 0);
                 return;
             }
 
-            real total_water_depth = 0.0; // [m]
-            real total_eff_depth = 0.0;   // [m]
+            /* Accumulate depth-weighted water content over the root zone */
+            real total_water_depth = 0.0;   /* [m] depth-integrated water */
+            real total_eff_depth  = 0.0;    /* [m] total effective depth   */
 
-            // 2. 遍历该地表单元对应的垂直土柱
+            /* Unpack surface cell index to (i, j) on the uniform grid */
             int i, j;
-
-            // Manual unpack for uniform grid (row-major)
             j = i_surf / nx;
             i = i_surf % nx;
 
-            // In SERGHEI, k=0 is TOP LAYER (smallest depth), k=nz-1 is BOTTOM (largest depth)
-            // So we iterate from top (k=0) to bottom (k=nz-1)
-
+            /*
+             * Iterate over the vertical soil column.
+             * In SERGHEI: k=0 is the TOP layer, k=nz-1 is the BOTTOM layer.
+             * Each layer's overlap with the root zone [0, rd_m] is computed
+             * and the water content is weighted accordingly.
+             */
             for (int k = 0; k < nz; k++)
             {
-                int iGlob = (hc + k) * nxhc * nyhc +
-                            (hc + j) * nxhc +
-                            (hc + i);
+                int iGlob = (gdom.hc + k) * nxhc * nyhc +
+                            (gdom.hc + j) * nxhc +
+                            (gdom.hc + i);
 
-                real dz = gdom.dz(iGlob);              // Layer thickness [m]
-                real depth_center = gdom.depth(iGlob); // Depth of cell center [m]
-                real depth_top = depth_center - 0.5 * dz;
-                real depth_bot = depth_center + 0.5 * dz;
+                real dz           = gdom.dz(iGlob);           /* Layer thickness [m]      */
+                real depth_center = gdom.depth(iGlob);        /* Depth of cell centre [m] */
+                real depth_top    = depth_center - 0.5 * dz;  /* Top of layer [m]         */
+                real depth_bot    = depth_center + 0.5 * dz;  /* Bottom of layer [m]      */
 
-                // Intersection of layer [depth_top, depth_bot] with root zone [0, rd_m]
+                /* Compute intersection of this layer with the root zone [0, rd_m] */
                 real overlap_top = fmax(0.0, depth_top);
                 real overlap_bot = fmin(rd_m, depth_bot);
-
                 real eff_dz = overlap_bot - overlap_top;
 
                 if (eff_dz <= 0.0)
                 {
-                    // Layer is completely below root zone
+                    /* This layer is entirely below the root zone; stop iterating */
                     break;
                 }
 
-                // Accumulate water
-                // gw.wc is volumetric water content [-]
-                total_water_depth += gw.wc(iGlob, 0) * eff_dz; // Use init step (index 0)
-                total_eff_depth += eff_dz;
+                /*
+                 * Accumulate water: gw.wc is volumetric water content [m3/m3].
+                 * Multiplying by effective thickness gives water depth [m].
+                 */
+                total_water_depth += gw.wc(iGlob, 0) * eff_dz;
+                total_eff_depth  += eff_dz;
             }
 
+            /* Depth-averaged volumetric water content in the root zone */
             if (total_eff_depth > 0.0)
             {
                 init_root_zone_SM(i_surf) = total_water_depth / total_eff_depth;
             }
             else
             {
-                init_root_zone_SM(i_surf) = 0.0; // Should not happen if rd_m > 0
+                init_root_zone_SM(i_surf) = 0.0;  /* Should not occur if rd_m > 0 */
             }
-#if DEBUG_CROP_GROWTH_MODEL
-            printf("i_surf: %d, rd: %f, root_zone_SM: %f\n", i_surf, rd_m, init_root_zone_SM(i_surf));
-
-#endif
         });
 
-        // 5. Calculate start DOY (Day of Year) - REPLACED LOGIC
-        // Use the start DOY detected from the Meteo file
+        /* ================================================================ */
+        /* Step 5: Determine simulation start day-of-year (DOY)             */
+        /*                                                                  */
+        /* The start DOY is extracted from the meteorological input file,   */
+        /* which records the date of the first weather record.              */
+        /* ================================================================ */
         int start_doy = meteo.start_doy;
 
         if (par.masterproc)
@@ -170,18 +225,25 @@ public:
             printf("  > Start DOY : %d\n", start_doy);
         }
 
-        // 6. Initialize WOFOST Internal States
+        /* ================================================================ */
+        /* Step 6: Initialize all WOFOST internal states                   */
+        /*                                                                  */
+        /* This sets phenology (DVS, TSUM, STAGE), partitioning fractions, */
+        /* organ biomass from TDWI, LAI from LAIEM, rooting depth from RDI,*/
+        /* and zeroes all cumulative accumulators.                          */
+        /* ================================================================ */
         wofost.initialize(cropParam, meteo, init_root_zone_SM, start_doy);
 
-        // 初始化输出结果文件
+        /* ================================================================ */
+        /* Step 7: Initialize the crop output results file                  */
+        /* ================================================================ */
         io.outputIniCrop(wofost, dom, par, outFolder);
 
-        // Debug: Check initial values
+        /* --- Debug: verify initial values on master process --- */
         if (par.masterproc)
         {
             printf("[INIT-DEBUG] After WOFOST initialize:\n");
             printf("  s.LAI(0) = %.4f\n", wofost.s.LAI(0));
-            printf("  s.WLV(0) = %.4f\n", wofost.s.WLV(0));
             printf("  s.DVS(0) = %.4f\n", wofost.s.DVS(0));
             printf("  lds.LAI(0) = %.4f\n", wofost.lds.LAI(0));
             printf("  lds.WLV(0) = %.4f\n", wofost.lds.WLV(0));
@@ -195,4 +257,4 @@ public:
     }
 };
 
-#endif
+#endif /* _WOFOST_INIT_H_ */

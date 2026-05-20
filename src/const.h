@@ -3,6 +3,11 @@
 #ifndef _PARAMS_H_
 #define _PARAMS_H_
 
+#include <iostream>
+
+#define SERGHEI_OK 1
+#define SERGHEI_ERROR 0
+
 // Index for variables
 #define idH 0
 #define idHU 1
@@ -22,14 +27,19 @@
 // Some physical constants
 #define GRAV 9.81
 #define SQRTGRAV 3.132091953
+#define RHOA 1.225
+#define PI 3.14159265358979323846
 
-// #define GRAV 9.807
-// #define SQRTGRAV 3.13161300291
+#define RHOW 1000.0
+#define RHOS 2650.0
+#define VISCMU 0.0012349    // Water dynamic viscosity (Pa*s) at 12oC
+#define VISCNU 0.0000012356 // Water kinematic viscosity (m2/s) at 12oC
 
 // Some tolerances
 #define TOL4 1e-4
 #define TOL5 1e-5
 #define TOL6 1e-6
+#define TOL6NEG -1e-6
 #define TOL8 1e-8
 #define TOL8NEG -1e-8
 #define TOL9 1e-9
@@ -47,40 +57,72 @@
 
 // model component defaults
 
-#ifndef SERGHEI_SWE_GW
-#define SERGHEI_SWE_GW 0
+// [MERGED] Renamed from Code1's SERGHEI_SWE_GW → SERGHEI_SWE_RE, SERGHEI_SUBSURFACE_MODEL → SERGHEI_RE_MODEL
+// Default set to 1 (ON) to preserve Code1's active functionality
+#ifndef SERGHEI_SWE_RE
+#define SERGHEI_SWE_RE 1
 #endif
 
-#ifndef SERGHEI_SUBSURFACE_MODEL
-#define SERGHEI_SUBSURFACE_MODEL 1
-#endif
-
-#ifndef SERGHEI_SUBSURFACE_TRANSPORT
-#define SERGHEI_SUBSURFACE_TRANSPORT 0
+#ifndef SERGHEI_RE_MODEL
+#define SERGHEI_RE_MODEL 1
 #endif
 
 #ifndef SERGHEI_SWE_MODEL
-#define SERGHEI_SWE_MODEL 0
-#endif
-
-#ifndef SERGHEI_SURFACE_TRANSPORT
-#define SERGHEI_SURFACE_TRANSPORT 0
-#endif
-
-#ifndef CROP_GROWTH_MODEL //! ZZB 20241210
-#define CROP_GROWTH_MODEL 1
-#endif
-
-#ifndef DEBUG_CROP_GROWTH_MODEL //! ZZB 20241210
-#define DEBUG_CROP_GROWTH_MODEL 0
-#endif
-
-#ifndef SW_GW_EVAPORATION_TRANSPIRATION_MODEL //! ZZB 20241210
-#define SW_GW_EVAPORATION_TRANSPIRATION_MODEL 0
+#define SERGHEI_SWE_MODEL 1
 #endif
 
 #ifndef SERGHEI_KOKKOSKERNELS_SOLVER
 #define SERGHEI_KOKKOSKERNELS_SOLVER 1
+#endif
+
+#ifndef SERGHEI_SUBSURFACE_TRANSPORT
+#define SERGHEI_SUBSURFACE_TRANSPORT 1
+#endif
+#ifndef SERGHEI_SURFACE_TRANSPORT
+#define SERGHEI_SURFACE_TRANSPORT 1
+#endif
+
+#ifndef CROP_GROWTH_MODEL
+#define CROP_GROWTH_MODEL 1
+#endif
+
+#ifndef SW_GW_EVAPORATION_TRANSPIRATION_MODEL
+#define SW_GW_EVAPORATION_TRANSPIRATION_MODEL 1
+#endif
+
+#ifndef SERGHEI_KOKKOSKERNELS_SOLVER
+#define SERGHEI_KOKKOSKERNELS_SOLVER 1
+#endif
+
+#ifndef DEBUG_CROP_GROWTH_MODEL
+#define DEBUG_CROP_GROWTH_MODEL 0
+#endif
+
+#ifndef DEBUG_SERGHEI_SURFACE_TRANSPORT
+#define DEBUG_SERGHEI_SURFACE_TRANSPORT 0
+#endif
+
+#ifndef DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
+#define DEBUG_SERGHEI_SUBSURFACE_TRANSPORT 0
+#endif
+
+// 调试输出宏
+#if DEBUG_CROP_GROWTH_MODEL
+#define DEBUG_CROP_PRINT(...) printf("[DEBUG_CROP] " __VA_ARGS__)
+#else
+#define DEBUG_CROP_PRINT(...) ((void)0)
+#endif
+
+#if DEBUG_SERGHEI_SURFACE_TRANSPORT
+#define DEBUG_SURFACE_TRANSPORT_PRINT(...) printf("[DEBUG_SW_TRANSPORT] " __VA_ARGS__)
+#else
+#define DEBUG_SURFACE_TRANSPORT_PRINT(...) ((void)0)
+#endif
+
+#if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
+#define DEBUG_SUBSURFACE_TRANSPORT_PRINT(...) printf("[DEBUG_GW_TRANSPORT] " __VA_ARGS__)
+#else
+#define DEBUG_SUBSURFACE_TRANSPORT_PRINT(...) ((void)0)
 #endif
 
 // friction model (0-->upwind or 1-->pointwise-centered)
@@ -107,7 +149,7 @@
 #define PNETCDF_N_INPUT_VARIABLES 9 // number of variables in an initial input file
 
 // halo cells (overlapping cells between domains for MPI)
-#define hc 1
+// #define hc 1
 
 // program options
 #ifndef SERGHEI_DEBUG_PARALLEL_DECOMPOSITION
@@ -137,8 +179,36 @@
 #ifndef SERGHEI_DEBUG_MASS_CONS
 #define SERGHEI_DEBUG_MASS_CONS 0
 #endif
+#ifndef SERGHEI_DEBUG_SCALAR_TRANSPORT
+#define SERGHEI_DEBUG_SCALAR_TRANSPORT 0
+#endif
 #ifndef SERGHEI_VEGETATION_MODEL
 #define SERGHEI_VEGETATION_MODEL 0
+#endif
+#ifndef SERGHEI_EROSIVE_SHEAR
+#define SERGHEI_EROSIVE_SHEAR 0             // erosive shear forcing calculation
+#define SERGHEI_EROSIVE_SHEAR_FORMULATION 1 // mode for erosive shear forcing: 1->shear strees
+#endif
+#ifndef SERGHEI_SCALAR_TRANSPORT
+#define SERGHEI_SCALAR_TRANSPORT 0
+#endif
+#ifndef SERGHEI_SEDIMENT_TRANSPORT
+#define SERGHEI_SEDIMENT_TRANSPORT 0
+#endif
+#ifndef SERGHEI_UPWIND_BED
+#define SERGHEI_UPWIND_BED 0
+#endif
+#ifndef SERGHEI_SUSPENDED_SEDIMENT
+#define SERGHEI_SUSPENDED_SEDIMENT 0
+#endif
+#ifndef SERGHEI_BEDLOAD_SEDIMENT
+#define SERGHEI_BEDLOAD_SEDIMENT 0
+#endif
+#ifndef SERGHEI_SCALAR_DIFFUSION
+#define SERGHEI_SCALAR_DIFFUSION 0
+#endif
+#ifndef SERGHEI_ANALYTICAL_DIFFUSION
+#define SERGHEI_ANALYTICAL_DIFFUSION 0
 #endif
 #ifndef SERGHEI_DEBUG_MPI
 #define SERGHEI_DEBUG_MPI 0
@@ -148,6 +218,36 @@
 #endif
 #ifndef SERGHEI_DEBUG_INPUT_NETCDF
 #define SERGHEI_DEBUG_INPUT_NETCDF 0
+#endif
+#ifndef SERGHEI_DEBUG_RAINFALL
+#define SERGHEI_DEBUG_RAINFALL 0
+#endif
+#ifndef SERGHEI_LPT
+#define SERGHEI_LPT 0
+#endif
+#ifndef SERGHEI_LPT_DIFFUSIVE
+#define SERGHEI_LPT_DIFFUSIVE 0
+#endif
+#ifndef SERGHEI_LPT_MICROPLASTICS
+#define SERGHEI_LPT_MICROPLASTICS 0
+#endif
+#ifndef SERGHEI_HYDRODYNAMIC_NOT_EVOLUTION
+#define SERGHEI_HYDRODYNAMIC_NOT_EVOLUTION 0
+#endif
+#ifndef SERGHEI_PARTICLE_NO_OUTPUT
+#define SERGHEI_PARTICLE_NO_OUTPUT 0
+#endif
+#ifndef SERGHEI_VERTICAL_VELOCITY
+#define SERGHEI_VERTICAL_VELOCITY 0
+#endif
+#ifndef SERGHEI_VERTICAL_VELOCITY_Z
+#define SERGHEI_VERTICAL_VELOCITY_Z 0
+#endif
+#ifndef SERGHEI_DEBUG_SEDIMENT
+#define SERGHEI_DEBUG_SEDIMENT 0
+#endif
+#ifndef SERGHEI_SWE_DRY_RUNOFF_START_DT
+#define SERGHEI_SWE_DRY_RUNOFF_START_DT 0
 #endif
 
 // colors
@@ -172,6 +272,7 @@
 #define REXC RED << "[!] " << RESET
 #define RERROR RED << "[ERROR] " << RESET
 #define GGD GRAY << "[DEBUG] " << RESET
+#define NCERROR RED << "[NETCDF ERROR] " << RESET
 
 #define NO_DATA -999;
 
@@ -187,29 +288,29 @@ int const OUTPUT_PRECISION = 6;
 
 int getIOvarID(std::string vname)
 {
-    int varid = -1;
-    if (!vname.compare("h"))
-        varid = ioH;
-    if (!vname.compare("hu"))
-        varid = ioHV;
-    if (!vname.compare("hv"))
-        varid = ioHU;
-    if (!vname.compare("z"))
-        varid = ioZ;
-    if (!vname.compare("h+z"))
-        varid = ioHZ;
-    if (!vname.compare("n"))
-        varid = ioR;
-    if (!vname.compare("u"))
-        varid = ioU;
-    if (!vname.compare("v"))
-        varid = ioV;
-    if (varid < 0)
-    {
-        std::cerr << RERROR << "IO variable " << vname << " not handled by " << __FUNCTION__ << std::endl;
+  int varid = -1;
+  if (!vname.compare("h"))
+    varid = ioH;
+  if (!vname.compare("hu"))
+    varid = ioHV;
+  if (!vname.compare("hv"))
+    varid = ioHU;
+  if (!vname.compare("z"))
+    varid = ioZ;
+  if (!vname.compare("h+z"))
+    varid = ioHZ;
+  if (!vname.compare("roughness"))
+    varid = ioR;
+  if (!vname.compare("u"))
+    varid = ioU;
+  if (!vname.compare("v"))
+    varid = ioV;
+  if (varid < 0)
+  {
+    std::cerr << RERROR << "IO variable " << vname << " not handled by " << __FUNCTION__ << std::endl;
 
-        return -1;
-    }
-    return varid;
+    return -1;
+  }
+  return varid;
 }
 #endif

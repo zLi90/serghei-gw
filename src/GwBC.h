@@ -3,7 +3,8 @@
 #ifndef _GWBC_H_
 #define _GWBC_H_
 
-#if SERGHEI_SUBSURFACE_MODEL
+// [MERGED] Preprocessor guard: SERGHEI_SUBSURFACE_MODEL renamed to SERGHEI_RE_MODEL per merge requirements
+#if SERGHEI_RE_MODEL
 
 #include "define.h"
 #include "Indexing.h"
@@ -51,16 +52,18 @@ public:
 		std::vector<int> tmpbcells;	 // array of indexes of boundary cells
 		std::vector<int> tmpgcells;	 // array of indexes of ghost cells
 		std::vector<int> subdomains; // keeps track of which subdomains are associated to the BC
+
 		// Loop over the entire domain to find bc cells
 		int onBoundary;
 
+		// [FROM CODE2] Uses gdom.hc instead of bare hc for correct halo indexing
 		for (int kk = 0; kk < gdom.nz; kk++)
 		{
 			for (int jj = 0; jj < gdom.ny; jj++)
 			{
 				for (int ii = 0; ii < gdom.nx; ii++)
 				{
-					int iGlob = (hc + kk) * gdom.nxhc * gdom.nyhc + (hc + jj) * gdom.nxhc + ii + hc;
+					int iGlob = (gdom.hc + kk) * gdom.nxhc * gdom.nyhc + (gdom.hc + jj) * gdom.nxhc + ii + gdom.hc;
 					foundInSubdom = -1;
 					real xCoord = gdom.xll + (par.i_beg + ii + 0.5) * gdom.dx;
 					real yCoord = gdom.yll + gdom.ny_glob * gdom.dx - (par.j_beg + jj + 0.5) * gdom.dx;
@@ -203,7 +206,8 @@ public:
 			{
 				swgw_type = intArr("swgw_type", ncellsBC);
 			}
-#ifdef __NVCC__
+// [FROM CODE2] Use KOKKOS_ENABLE_CUDA instead of __NVCC__ for broader GPU backend support
+#ifdef KOKKOS_ENABLE_CUDA
 			cudaMemcpyAsync(bcells.data(), tmpbcells.data(), ncellsBC * sizeof(int), cudaMemcpyHostToDevice);
 			cudaMemcpyAsync(gcells.data(), tmpgcells.data(), ncellsBC * sizeof(int), cudaMemcpyHostToDevice);
 			cudaDeviceSynchronize();
@@ -316,7 +320,7 @@ public:
 					t_next = t_idx;
 				}
 
-				// std::cout << t_idx << ", " << ts.np << ", " << ts.nc << ", " << ncellsBC <<", " << hbc <<"\n";
+				// std::cout << t_idx << ", " << ts.np << ", " << ts.nc << "\n";
 				Kokkos::parallel_for("gw_bc_wt", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
                     int ivg, iGlob = bcells[ibc], iGhost = gcells[ibc];
                     real wcs, wcr, alpha, n, wtbc;
@@ -333,55 +337,38 @@ public:
 					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr); });
 			}
 			// Surface-subsurface exchange
+			// [FROM CODE1] Detailed SW-GW exchange type classification with descriptive comments
+			// [FROM CODE1] Root water uptake, evapotranspiration coupling support
 			else if (bctype == SUB_BC_SWE)
 			{
 #if SERGHEI_SWE_MODEL
 				if (direction == 6)
 				{
 					Kokkos::parallel_for("gw_bc_swe", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
-						int iGlob = bcells[ibc], iGhost = gcells[ibc], ivg = gw.soilID(iGlob) * NVG;
-						real ks = gw.vgTable(ivg);
+	                    int iGlob = bcells[ibc], iGhost = gcells[ibc], ivg = gw.soilID(iGlob) * NVG;
+	                    real ks = gw.vgTable(ivg);
 						int ii, jj, kk, iGlobSW;
 						gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-						iGlobSW = jj * gdom.nxhc + ii;
-						gw.h(iGhost, 1) = gw.hs(iGlobSW); // 将地下水边界条件（虚拟单元）的水头设置为对应位置的地表水水头
+						iGlobSW = jj*gdom.nxhc + ii;
+						// [FROM CODE1] Set ghost cell head to surface water head
+						gw.h(iGhost,1) = gw.hs(iGlobSW);
 						// get sw-gw exchange type
-						/*
-						swgw_type(ibc) = 1; // 下渗 (无地表水干涸风险)
-						 swgw_type(ibc) = 2; // 下渗导致地表水干涸
-						 swgw_type(ibc) = 0; // 无交换
-						*/
-						// if (gw.h(iGhost,1) > 0.0)//地表有水时
-						//! zzb 修改，为了避免农田下渗或者蒸发导致地表水深为0，无法施加流量边界
-						// 将水深限制在一个非常小的正值以上,TimeIntegrator.h中已经做了类似处理
-						if (gw.h(iGhost, 1) > gdom.hmin)
-						{
-							real q_infilt = 2.0 * ks * (gw.h(iGlob, 1) - gw.h(iGhost, 1)) / gdom.dz(iGlob) - ks;
-							if (-q_infilt * gdom.dt <= gw.h(iGhost, 1))
-							{
-								swgw_type(ibc) = 1; //  下渗 (无地表水干涸风险)
-							}
-							else
-							{
-								swgw_type(ibc) = 2; // 饱和入渗，地表有水且入渗量超过地表水深（按最大入渗率）
-							}
+						// [FROM CODE1] Detailed exchange type classification:
+						//   swgw_type = 1: Infiltration (no surface drying risk) or exfiltration
+						//   swgw_type = 2: Infiltration exceeding surface water depth (saturation-limited)
+						//   swgw_type = 0: No exchange (surface dry or insufficient GW head)
+						if (gw.h(iGhost,1) > 0.0)    {
+							// [FROM CODE1] Surface has water - compute potential infiltration
+							real q_infilt = 2.0 * ks * (gw.h(iGlob,1) - gw.h(iGhost,1)) / gdom.dz(iGlob) - ks;
+							if (-q_infilt * gdom.dt <= gw.h(iGhost,1))   {swgw_type(ibc) = 1;}
+							else {swgw_type(ibc) = 2;}
 						}
-						else
-						{ // 地表无水时
-							// exfiltration
-							if (gw.h(iGlob, 1) > gw.h(iGhost, 1) + 0.5 * gdom.dz(iGlob))
-							{
-								swgw_type(ibc) = 1; // 地下水排泄到地表​：地下水水头 > 边界位置高程 + 半单元厚度
-							}
-							// no flow
-							else
-							{
-								swgw_type(ibc) = 0; // 无交换，地表无水或地下水水头不足以渗出
-							}
-						}
-
-						// printf("ibc = %d, swgw_type(ibc) = %d\n", ibc, swgw_type(ibc));
-					});
+						else {
+							// exfiltration: groundwater head > ghost cell head + half cell thickness
+							if (gw.h(iGlob,1) > gw.h(iGhost,1) + 0.5*gdom.dz(iGlob)) {swgw_type(ibc) = 1;}
+							// no flow: no surface water and insufficient GW head to exfiltrate
+							else {swgw_type(ibc) = 0;}
+						} });
 				}
 				else
 				{
@@ -450,10 +437,12 @@ public:
 						else {gw.k(iGlob,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
 					}
 				}
+				// [FROM CODE2] Fixed: uses proper unsaturated K average instead of hard-coded 0.0
+				// [FROM CODE1] Alternative: gw.k(iGhost,2) = 0.0 for strict no-flow when unsaturated
+				// Decision: Code2's approach is more physically consistent for Richards equation
 				else if (direction == 6)	{
 					if (gw.h(iGhost,1) >= 0.0)   {gw.k(iGhost,2) = ks;}
-					else {gw.k(iGhost,2) = 0.0;}
-					//else {gw.k(iGhost,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
+					else {gw.k(iGhost,2) = 0.5 * ks * (gw.k(iGlob,3) + gw.k(iGhost,3));}
 				} });
 		}
 	}
@@ -507,22 +496,11 @@ public:
 			case SUB_BC_WT_T:
 				Kokkos::parallel_for("gw_bc_h_const", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
                         int iGlob = bcells[ibc], iGhost = gcells[ibc];
-
-						//! ZZB
-						int ii, jj, kk;
-						gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-						// idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
-
-
-
 						if (direction == 1)	{
 							gw.q(iGlob,0) = 2.0 * gw.k(iGlob,0) * (gw.h(iGlob+1,1) - gw.h(iGlob,1)) / gdom.dx;
 						}
 						else if (direction == 2)	{
-//! ZZB 
-// if (kk < 40){
 							gw.q(iGhost,0) = 2.0 * gw.k(iGhost,0) * (gw.h(iGlob,1) - gw.h(iGhost,1)) / gdom.dx;
-// }						
 						}
 						else if (direction == 3)	{
 							gw.q(iGlob,1) = 2.0 * gw.k(iGlob,1) * (gw.h(iGlob+gdom.nxhc,1) - gw.h(iGlob,1)) / gdom.dy;
@@ -535,7 +513,6 @@ public:
 						}
 						else if (direction == 6)	{
 							gw.q(iGhost,2) = 2.0 * gw.k(iGhost,2) * (gw.h(iGlob,1) - gw.h(iGhost,1)) / gdom.dz(iGlob) - gw.k(iGhost,2);
-							
 						} });
 				break;
 			case SUB_BC_SWE:
@@ -543,32 +520,24 @@ public:
 				if (direction == 6)
 				{
 					Kokkos::parallel_for("gw_swe_fd", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
-						int ii, jj, kk, iGlobSW, iGlob = bcells[ibc], iGhost = gcells[ibc], ivg = gw.soilID(iGlob) * NVG;
-						gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-						iGlobSW = (jj - 1) * gdom.nx + ii - 1;
-						real wcs = gw.vgTable(ivg + 2);
-						if (gdom.isnodata(iGlob) == 0)
-						{
-							if (swgw_type(ibc) == 0)
-							{
-								gw.q(iGhost, 2) = 0.0;
-							}
-							else if (swgw_type(ibc) == 2)
-							{
-								gw.q(iGhost, 2) = -gw.h(iGhost, 1) / gdom.dt;
-							}
-							else
-							{
-								gw.q(iGhost, 2) = 2.0 * gw.k(iGhost, 2) * (gw.h(iGlob, 1) - gw.h(iGhost, 1)) / gdom.dz(iGlob) - gw.k(iGhost, 2);
-							}
-						}
-						else
-						{
-							gw.q(iGhost, 2) = 0.0;
-						}
-						// Get exchange flux
-						gw.qss(iGlobSW) = gw.q(iGhost, 2);
-					});
+	                        int ii, jj, kk, iGlobSW, iGlob = bcells[ibc], iGhost = gcells[ibc], ivg = gw.soilID(iGlob) * NVG;
+	                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+	                        iGlobSW = (jj-1)*gdom.nx + ii - 1;
+	                        real wcs = gw.vgTable(ivg+2);
+                            if (gdom.isnodata(iGlob) == 0)  {
+    							if (swgw_type(ibc) == 0)    {
+    								gw.q(iGhost,2) = 0.0;
+    							}
+    							else if (swgw_type(ibc) == 2)   {
+    								gw.q(iGhost,2) = -gw.h(iGhost,1) / gdom.dt;
+    							}
+    							else {
+    								gw.q(iGhost,2) = 2.0 * gw.k(iGhost,2) * (gw.h(iGlob,1) - gw.h(iGhost,1)) / gdom.dz(iGlob) - gw.k(iGhost,2);
+    							}
+                            }
+                            else {gw.q(iGhost,2) = 0.0;}
+							// Get exchange flux
+							gw.qss(iGlobSW) = gw.q(iGhost,2); });
 				}
 				else
 				{
@@ -578,6 +547,8 @@ public:
 					}
 				}
 #endif
+				// [MERGE NOTE] Intentional fall-through from SUB_BC_SWE to SUB_BC_Q_CONST
+				// This exists in both Code1 and Code2 - SUB_BC_SWE may also need Q_CONST handling
 			case SUB_BC_Q_CONST:
 				Kokkos::parallel_for("gw_bc_q_const", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
 						int ii, jj, kk, iGlobSW, iGlob = bcells[ibc], iGhost = gcells[ibc];
@@ -594,19 +565,20 @@ public:
 							gw.q(iGhost,1) = bcvals(ibc);
 						}
 						else if (direction == 6)	{
-							// rainfall
+							// rainfall / top boundary flux
 							gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 							iGlobSW = jj*gdom.nxhc + ii;
+// [FROM CODE2] Properly handles soil evaporation when SWE model is active (ZhiLi20250111)
+// When surface domain is dry, apply bcvals as soil evaporation flux
+#if SERGHEI_SWE_MODEL
+                            // soil evaporation when surface domain is dry
+                            // NOTE: should add a limiter to reduce evaporation when soil is dry, ZhiLi20250111
+                            if (gw.h(iGhost,1) <= 0.0)  {gw.q(iGhost,2) = bcvals(ibc);}
+#else
+							// [FROM CODE1] Rain handling for standalone subsurface model (no SWE coupling)
 							gw.q(iGhost,2) = bcvals(ibc);
-							
 							if (gdom.isRain)    {gw.q(iGhost,2) -= gdom.rainRate(iGlobSW);}
-
-//! zzb gwbc形式模拟蒸发比例，限制上边界水头为-1000
-if (kk == 1) {
-	if (gw.h(iGlob,1)<-1000){
-		gw.h(iGlob,1)=-1000;
-	}
-}							
+#endif
 						} });
 				break;
 			case SUB_BC_Q_T:
@@ -625,13 +597,22 @@ if (kk == 1) {
 							gw.q(iGhost,1) = qbc;
 						}
 						else if (direction == 6)	{
-							// rainfall
+							// rainfall / top boundary flux
 							gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 							iGlobSW = jj*gdom.nxhc + ii;
+// [FROM CODE2] Properly handles soil evaporation when SWE model is active (ZhiLi20250111)
+#if SERGHEI_SWE_MODEL
+                            // soil evaporation when surface domain is dry
+                            // NOTE: should add a limiter to reduce evaporation when soil is dry, ZhiLi20250111
+                            if (gw.h(iGhost,1) <= 0.0)  {gw.q(iGhost,2) = qbc;}
+#else
+							// [FROM CODE1] Rain handling for standalone subsurface model
 							gw.q(iGhost,2) = qbc;
 							if (gdom.isRain)    {gw.q(iGhost,2) -= gdom.rainRate(iGlobSW);}
+#endif
 						} });
 				break;
+			// [FROM CODE2] SUB_BC_FD properly separated as its own case
 			case SUB_BC_FD:
 				if (direction == 5)
 				{
@@ -718,14 +699,21 @@ if (kk == 1) {
 					Qoutflow = -Qtot;
 				}
 			}
-			// else if (direction == 6)    {
-			//                 Kokkos::parallel_reduce("reducez", ncellsBC, KOKKOS_CLASS_LAMBDA (int ibc, real &tmp){
-			//                     int iGlob = bcells[ibc], iGhost = gcells[ibc];
-			//                     tmp += gw.q(iGhost,2) * gdom.dx * gdom.dy;
-			//                 }, Kokkos::Sum<real>(Qtot));
-			//                 if (Qtot < 0)    {Qinflow = -Qtot;}
-			//                 else {Qoutflow = Qtot;}
-			//             }
+			// [FROM CODE2] Direction 6 flow totals - was commented out in Code1, now active
+			else if (direction == 6)
+			{
+				Kokkos::parallel_reduce("reducez", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+                    int iGlob = bcells[ibc], iGhost = gcells[ibc];
+                    tmp += gw.q(iGhost,2) * gdom.dx * gdom.dy; }, Kokkos::Sum<real>(Qtot));
+				if (Qtot < 0)
+				{
+					Qinflow = -Qtot;
+				}
+				else
+				{
+					Qoutflow = Qtot;
+				}
+			}
 		}
 	}
 
@@ -771,18 +759,16 @@ if (kk == 1) {
 				Kokkos::parallel_for("gw_bc_h_const", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
                         int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc], iGhost = gcells[ibc];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                        // [FROM CODE2] Uses gdom.hc instead of bare hc
+                        idom = (kk-gdom.hc)*gdom.nx*gdom.ny + (jj-gdom.hc)*gdom.nx + ii - gdom.hc;
 						iGlobSW = jj*gdom.nxhc + ii;
 						if (direction == 1)	{
 							gw.coef(idom,1) = gw.coef(idom,1) * 2.0;
 							gw.coef(idom,7) -= gw.coef(idom,1) * gw.h(iGlob+1,1);
 						}
 						else if (direction == 2)	{
-//! ZZB 变水头边界中，下部分边界零流量边界
-// if (kk < 40){
 							gw.coef(idom,2) = gw.coef(idom,2) * 2.0;
 							gw.coef(idom,7) -= gw.coef(idom,2) * gw.h(iGlob-1,1);
-// }						
 						}
 						else if (direction == 3)	{
 							gw.coef(idom,3) = gw.coef(idom,3) * 2.0;
@@ -799,15 +785,10 @@ if (kk == 1) {
 						else if (direction == 6)	{
 							gw.coef(idom,6) = gw.coef(idom,6) * 2.0;
 							gw.coef(idom,7) -= gw.coef(idom,6) * gw.h(iGlob-gdom.nxhc*gdom.nyhc,1);
+							// [FROM CODE1] Evaporation support (commented out, available for activation)
 							// if (gdom.isEvap)	{
 							// 	gw.coef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);
 							// }
-//! zzb gwbc形式模拟蒸发比例，限制上边界水头为-1000
-if (kk == 1) {
-	if (gw.h(iGlob,1)<-1000){
-		gw.h(iGlob,1)=-1000;
-	}
-}						
 						} });
 				break;
 			case SUB_BC_SWE:
@@ -817,7 +798,7 @@ if (kk == 1) {
 					Kokkos::parallel_for("gw_bc_swe_const", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
 	                        int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc];
 	                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-	                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+	                        idom = (kk-gdom.hc)*gdom.nx*gdom.ny + (jj-gdom.hc)*gdom.nx + ii - gdom.hc;
 							iGlobSW = jj*gdom.nxhc + ii;
 							if (swgw_type(ibc) == 2)    {
 								real q_infilt = gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) / gdom.dt;
@@ -833,7 +814,8 @@ if (kk == 1) {
 								gw.coef(idom,6) = gw.coef(idom,6) * 2.0;
 								gw.coef(idom,7) -= gw.coef(idom,6) * gw.h(iGlob-gdom.nxhc*gdom.nyhc,1);
 							}
-							// evaporation
+							// [FROM CODE1] Surface evaporation coupling for SW-GW exchange boundary
+							// Activated when isEvap flag is set in GwDomain
 							if (gdom.isEvap)	{
 								gw.coef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);
 							} });
@@ -851,7 +833,7 @@ if (kk == 1) {
 				Kokkos::parallel_for("gw_bc_q", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
 						int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc];
 						gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-						idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+						idom = (kk-gdom.hc)*gdom.nx*gdom.ny + (jj-gdom.hc)*gdom.nx + ii - gdom.hc;
 						iGlobSW = jj*gdom.nxhc + ii;
 						if (direction == 1)	{
 							gw.coef(idom,7) += gdom.dt * bcvals(ibc) / gdom.dx;
@@ -873,11 +855,21 @@ if (kk == 1) {
 							gw.coef(idom,5) = 0.0;
 						}
 						else if (direction == 6)	{
+// [FROM CODE2] SWE-aware handling for top boundary Q_CONST
+#if SERGHEI_SWE_MODEL
+							// When surface is dry, apply prescribed flux as top boundary condition
+                            if (gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) <= 0.0)   {
+                                gw.coef(idom,7) -= gdom.dt * bcvals(ibc) / gdom.dz(iGlob);
+                            }
+#else
+							// [FROM CODE1] Standalone subsurface: full flux BC with gravity drainage
 							gw.coef(idom,7) -= gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / gdom.dz(iGlob);
 							gw.coef(idom,7) -= gdom.dt * bcvals(ibc) / gdom.dz(iGlob);
+							// [FROM CODE1] Rain/evaporation support (commented out, available for activation)
 							// if (gdom.isRain)    {gw.coef(idom,7) += gdom.dt * gdom.rainRate(iGlobSW) / gdom.dz(iGlob);}
 							// if (gdom.isEvap)	{gw.coef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);}
 							gw.coef(idom,6) = 0.0;
+#endif
 						} });
 				break;
 			case SUB_BC_Q_T:
@@ -886,7 +878,7 @@ if (kk == 1) {
 					// for (int ibc = 0; ibc < ncellsBC; ibc++)	{
                         int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc];
                         gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
-                        idom = (kk-hc)*gdom.nx*gdom.ny + (jj-hc)*gdom.nx + ii - hc;
+                        idom = (kk-gdom.hc)*gdom.nx*gdom.ny + (jj-gdom.hc)*gdom.nx + ii - gdom.hc;
 						iGlobSW = jj*gdom.nxhc + ii;
 						if (direction == 1)	{
 							gw.coef(idom,7) += gdom.dt * qbc / gdom.dx;
@@ -908,20 +900,22 @@ if (kk == 1) {
 							gw.coef(idom,5) = 0.0;
 						}
 						else if (direction == 6)	{
-
-//! zzb 降雨径流边界
-
-							if (gw.h(iGlob,1) < 0){
-								// printf("iGlob=%d, h=%f\n",iGlob,gw.h(iGlob,1));
+// [FROM CODE2] SWE-aware handling for top boundary Q_T / FD
+#if SERGHEI_SWE_MODEL
+							// When surface is dry, apply prescribed flux as top boundary condition
+                            if (gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) <= 0.0)   {
+                                gw.coef(idom,7) -= gdom.dt * qbc / gdom.dz(iGlob);
+                            }
+#else
+							// [FROM CODE1] Standalone subsurface: full flux BC with gravity drainage
 							gw.coef(idom,7) -= gdom.dt * gw.k(iGlob-gdom.nxhc*gdom.nyhc,2) / gdom.dz(iGlob);
 							gw.coef(idom,7) -= gdom.dt * qbc / gdom.dz(iGlob);
+							// [FROM CODE1] Rain/evaporation support (commented out, available for activation)
 							// if (gdom.isRain)    {gw.coef(idom,7) += gdom.dt * gdom.rainRate(iGlobSW) / gdom.dz(iGlob);}
 							// if (gdom.isEvap)	{gw.coef(idom,7) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);}
 							gw.coef(idom,6) = 0.0;
-							
-							}
-
-					} });
+#endif
+						} });
 				// }
 				break;
 			}

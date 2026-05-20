@@ -7,7 +7,7 @@
 #ifndef _GW_STATE_H_
 #define _GW_STATE_H_
 
-#if SERGHEI_SUBSURFACE_MODEL
+#if SERGHEI_RE_MODEL
 
 #include "const.h"
 #include "define.h"
@@ -95,6 +95,7 @@ public:
         // }
 #if SW_GW_EVAPORATION_TRANSPIRATION_MODEL
         surfaceWaterEvapActual = realArr("surfaceWaterEvapActual", gdom.nCellSwMem); //! zzb 地表水实际蒸发量
+        Kokkos::deep_copy(surfaceWaterEvapActual, 0.0);
 #endif
         // #if SERGHEI_SUBSURFACE_TRANSPORT
         // // concentration is (n by 2): c_now, c_old

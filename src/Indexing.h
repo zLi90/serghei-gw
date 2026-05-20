@@ -4,24 +4,29 @@
 #include "define.h"
 
 // Unpack 2D indices
-template <class I1, class I2> KOKKOS_INLINE_FUNCTION int packIndicesUniformGrid(I1 n1, I1 n2, I2 i1, I2 i2) {
+template <class I1, class I2>
+KOKKOS_INLINE_FUNCTION int packIndicesUniformGrid(I1 n1, I1 n2, I2 i1, I2 i2)
+{
   // i1 = j
   // i2 = i
-  return(i2 + n2*i1);
+  return (i2 + n2 * i1);
 }
 
 // Unpack 2D indices
-template <class I1, class I2, class I3> KOKKOS_INLINE_FUNCTION void unpackIndicesUniformGrid(I1 iGlob, I2 n1, I2 n2, I3 &i1, I3 &i2) {
-  i1 = (iGlob/(n2))     ;
-  i2 = (iGlob     ) % n2;
+template <class I1, class I2, class I3>
+KOKKOS_INLINE_FUNCTION void unpackIndicesUniformGrid(I1 iGlob, I2 n1, I2 n2, I3 &i1, I3 &i2)
+{
+  i1 = (iGlob / (n2));
+  i2 = (iGlob) % n2;
 }
 
-
 // Unpack 3D indices
-template <class I1, class I2, class I3> KOKKOS_INLINE_FUNCTION void unpackIndicesUniformGrid(I1 iGlob, I2 n1, I2 n2, I2 n3, I3 &i1, I3 &i2, I3 &i3) {
-  i1 = (iGlob/(n3*n2))     ;
-  i2 = (iGlob/(n3   )) % n2;
-  i3 = (iGlob        ) % n3;
+template <class I1, class I2, class I3>
+KOKKOS_INLINE_FUNCTION void unpackIndicesUniformGrid(I1 iGlob, I2 n1, I2 n2, I2 n3, I3 &i1, I3 &i2, I3 &i3)
+{
+  i1 = (iGlob / (n3 * n2));
+  i2 = (iGlob / (n3)) % n2;
+  i3 = (iGlob) % n3;
 }
 /*
 
