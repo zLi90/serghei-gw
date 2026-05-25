@@ -42,7 +42,7 @@ public:
 	int location, bctype, isInDomain, direction;
 	realArr bcvals, bcdata;
 	TimeSeries ts;
-	real Qtot, Qinflow, Qoutflow;
+	real Qtot = 0.0, Qinflow = 0.0, Qoutflow = 0.0, Qabsflow = 0.0;
 
 	MPI_Comm comm; // communicator for ranks associated to the BC
 
@@ -294,6 +294,7 @@ public:
                     wcs = gw.vgTable(ivg+2);    wcr = gw.vgTable(ivg+3);
                     n = gw.vgTable(ivg+4);  alpha = gw.vgTable(ivg+6);
 					gw.h(iGhost,1) = bcvals(ibc) - gdom.z(iGlob);
+
 					gw.wc(iGhost,1) = h2wc(gw.h(iGhost,1), alpha, n, wcs, wcr); });
 			}
 			// H Time series
@@ -450,6 +451,12 @@ public:
 	// Apply boundary conditions for Q
 	inline void applyQBC(GwState &gw, GwDomain &gdom, Parallel &par)
 	{
+		// reset accumulators every step to avoid stale values
+		Qtot = 0.0;
+		Qinflow = 0.0;
+		Qoutflow = 0.0;
+		Qabsflow = 0.0;
+
 		// Check if on global boundaries
 		bool onBoundary = 0;
 		if (direction == 2 && par.px == 0)
@@ -513,6 +520,9 @@ public:
 						}
 						else if (direction == 6)	{
 							gw.q(iGhost,2) = 2.0 * gw.k(iGhost,2) * (gw.h(iGlob,1) - gw.h(iGhost,1)) / gdom.dz(iGlob) - gw.k(iGhost,2);
+							// if (iGhost == 200) {
+							// 	printf("-%d- : q(iGhost,2) = %f (depth = %f, head = %f)\n", iGlob, 1e6*gw.q(iGhost,2), gw.h(iGhost,1), gw.h(iGlob,1));
+							// }
 						} });
 				break;
 			case SUB_BC_SWE:
@@ -634,6 +644,9 @@ public:
 				Kokkos::parallel_reduce("reducex", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 					int iGlob = bcells[ibc];
 					tmp += gw.q(iGlob,0) * gdom.dz(iGlob) * gdom.dy; }, Kokkos::Sum<real>(Qtot));
+				Kokkos::parallel_reduce("reducex_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+					int iGlob = bcells[ibc];
+					tmp += myfabs(gw.q(iGlob,0) * gdom.dz(iGlob) * gdom.dy); }, Kokkos::Sum<real>(Qabsflow));
 				if (Qtot > 0)
 				{
 					Qinflow = Qtot;
@@ -648,6 +661,9 @@ public:
 				Kokkos::parallel_reduce("reducex", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 					int iGlob = bcells[ibc], iGhost = gcells[ibc];
 					tmp += gw.q(iGhost,0) * gdom.dz(iGlob) * gdom.dy; }, Kokkos::Sum<real>(Qtot));
+				Kokkos::parallel_reduce("reducex_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+					int iGlob = bcells[ibc], iGhost = gcells[ibc];
+					tmp += myfabs(gw.q(iGhost,0) * gdom.dz(iGlob) * gdom.dy); }, Kokkos::Sum<real>(Qabsflow));
 				if (Qtot < 0)
 				{
 					Qinflow = -Qtot;
@@ -662,6 +678,9 @@ public:
 				Kokkos::parallel_reduce("reducey", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 					int iGlob = bcells[ibc];
 					tmp += gw.q(iGlob,1) * gdom.dz(iGlob) * gdom.dx; }, Kokkos::Sum<real>(Qtot));
+				Kokkos::parallel_reduce("reducey_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+					int iGlob = bcells[ibc];
+					tmp += myfabs(gw.q(iGlob,1) * gdom.dz(iGlob) * gdom.dx); }, Kokkos::Sum<real>(Qabsflow));
 				if (Qtot > 0)
 				{
 					Qinflow = Qtot;
@@ -676,6 +695,9 @@ public:
 				Kokkos::parallel_reduce("reducey", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 					int iGlob = bcells[ibc], iGhost = gcells[ibc];
 					tmp += gw.q(iGhost,1) * gdom.dz(iGlob) * gdom.dx; }, Kokkos::Sum<real>(Qtot));
+				Kokkos::parallel_reduce("reducey_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+					int iGlob = bcells[ibc], iGhost = gcells[ibc];
+					tmp += myfabs(gw.q(iGhost,1) * gdom.dz(iGlob) * gdom.dx); }, Kokkos::Sum<real>(Qabsflow));
 				if (Qtot < 0)
 				{
 					Qinflow = -Qtot;
@@ -690,6 +712,9 @@ public:
 				Kokkos::parallel_reduce("reducez", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 					int iGlob = bcells[ibc];
 					tmp += gw.q(iGlob,2) * gdom.dx * gdom.dy; }, Kokkos::Sum<real>(Qtot));
+				Kokkos::parallel_reduce("reducez_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+					int iGlob = bcells[ibc];
+					tmp += myfabs(gw.q(iGlob,2) * gdom.dx * gdom.dy); }, Kokkos::Sum<real>(Qabsflow));
 				if (Qtot > 0)
 				{
 					Qinflow = Qtot;
@@ -705,6 +730,9 @@ public:
 				Kokkos::parallel_reduce("reducez", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
                     int iGlob = bcells[ibc], iGhost = gcells[ibc];
                     tmp += gw.q(iGhost,2) * gdom.dx * gdom.dy; }, Kokkos::Sum<real>(Qtot));
+				Kokkos::parallel_reduce("reducez_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+                    int iGlob = bcells[ibc], iGhost = gcells[ibc];
+                    tmp += myfabs(gw.q(iGhost,2) * gdom.dx * gdom.dy); }, Kokkos::Sum<real>(Qabsflow));
 				if (Qtot < 0)
 				{
 					Qinflow = -Qtot;

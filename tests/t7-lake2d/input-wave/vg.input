@@ -1,0 +1,7 @@
+// van Genuchten parameters
+alpha : 0.93
+n : 1.38
+Ks : 2.9e-06
+Phi : 0.44
+ThetaR : 0.1
+ThetaS : 0.44

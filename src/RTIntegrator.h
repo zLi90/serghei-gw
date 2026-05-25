@@ -42,6 +42,7 @@
 #include "Indexing.h"
 #include <vector>
 #include <algorithm>
+#include <string>
 
 /**
  * @class RTIntegrator
@@ -89,6 +90,10 @@ public:
     realArr QMassOutBC_spec;         ///< Boundary mass outflow per species (local rank) [mg/s]
     realArr QMassInBC_spec_glob;     ///< Boundary mass inflow per species (global) [mg/s]
     realArr QMassOutBC_spec_glob;    ///< Boundary mass outflow per species (global) [mg/s]
+    std::vector<std::vector<real>> QMassNetBC_spec_per_boundary;        ///< Per-species per-boundary net flux (local) [mg/s]
+    std::vector<std::vector<real>> QMassAbsBC_spec_per_boundary;        ///< Per-species per-boundary abs flux (local) [mg/s]
+    std::vector<std::vector<real>> QMassNetBC_spec_per_boundary_glob;   ///< Per-species per-boundary net flux (global) [mg/s]
+    std::vector<std::vector<real>> QMassAbsBC_spec_per_boundary_glob;   ///< Per-species per-boundary abs flux (global) [mg/s]
 
     // --- Source/sink fluxes [mg/s] ---
     realArr QMassInSS_spec;          ///< Source mass inflow per species (local rank) [mg/s]
@@ -336,6 +341,14 @@ public:
         send_buf[n_mass * 8] = (real)ncellsBC;
 
         // Iterate over each solute species
+        int nbc = static_cast<int>(rtbc.size());
+        if (static_cast<int>(QMassNetBC_spec_per_boundary.size()) != n_mass || (n_mass > 0 && static_cast<int>(QMassNetBC_spec_per_boundary[0].size()) != nbc))
+        {
+            QMassNetBC_spec_per_boundary.assign(n_mass, std::vector<real>(nbc, 0.0));
+            QMassAbsBC_spec_per_boundary.assign(n_mass, std::vector<real>(nbc, 0.0));
+            QMassNetBC_spec_per_boundary_glob.assign(n_mass, std::vector<real>(nbc, 0.0));
+            QMassAbsBC_spec_per_boundary_glob.assign(n_mass, std::vector<real>(nbc, 0.0));
+        }
         for (int iSpec = 0; iSpec < n_mass; ++iSpec)
         {
             // ==================================================================
@@ -398,8 +411,17 @@ public:
                 // on this MPI rank
                 if (rtbc[k].ncellsBC > 0)
                 {
-                    qin_bc += rtbc[k].QMassInflow;
-                    qout_bc += rtbc[k].QMassOutflow;
+                    const real qin_k = rtbc[k].QMassInflow;
+                    const real qout_k = rtbc[k].QMassOutflow;
+                    qin_bc += qin_k;
+                    qout_bc += qout_k;
+                    QMassNetBC_spec_per_boundary[iSpec][k] = qin_k - qout_k;
+                    QMassAbsBC_spec_per_boundary[iSpec][k] = rtbc[k].QMassAbsflow;
+                }
+                else
+                {
+                    QMassNetBC_spec_per_boundary[iSpec][k] = 0.0;
+                    QMassAbsBC_spec_per_boundary[iSpec][k] = 0.0;
                 }
             }
             QMassInBC_spec(iSpec) = qin_bc;
@@ -578,6 +600,20 @@ public:
         // overhead for large numbers of species.
         // ==================================================================
         MPI_Allreduce(send_buf.data(), recv_buf.data(), total_mpi_vars, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
+        if (nbc > 0)
+        {
+            for (int iSpec = 0; iSpec < n_mass; ++iSpec)
+            {
+                MPI_Allreduce(
+                    QMassNetBC_spec_per_boundary[iSpec].data(),
+                    QMassNetBC_spec_per_boundary_glob[iSpec].data(),
+                    nbc, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
+                MPI_Allreduce(
+                    QMassAbsBC_spec_per_boundary[iSpec].data(),
+                    QMassAbsBC_spec_per_boundary_glob[iSpec].data(),
+                    nbc, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
+            }
+        }
 
         // Unpack the global results from the receive buffer
         for (int iSpec = 0; iSpec < n_mass; ++iSpec)

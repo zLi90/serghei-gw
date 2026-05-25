@@ -1,0 +1,9 @@
+bccount : 1
+
+id : rtlake_top
+direction : 6
+rtbctype : 2
+bcvals : 0.0
+polygon : polygonlake.input
+spec_0_bctype : 2
+spec_0_bcval : 0.0

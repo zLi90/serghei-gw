@@ -1,5 +1,7 @@
 #pragma once
 
+#if SERGHEI_USE_PNETCDF
+
 #include <mpi.h>
 #include <pnetcdf.h>
 #include "define.h"
@@ -494,3 +496,110 @@ int readTime(const Parallel &par, Domain &dom, realArr &time){
 
 };
 
+#else
+
+#include <mpi.h>
+#include <string>
+#include "define.h"
+#include "units.h"
+
+#ifndef NC_CLOBBER
+#define NC_CLOBBER 0
+#endif
+#ifndef NC_DOUBLE
+#define NC_DOUBLE 6
+#endif
+#ifndef NC_FLOAT
+#define NC_FLOAT 5
+#endif
+#ifndef NC_NOERR
+#define NC_NOERR 0
+#endif
+#ifndef NC_ENOTVAR
+#define NC_ENOTVAR -49
+#endif
+#ifndef NC_ENOTATT
+#define NC_ENOTATT -43
+#endif
+#ifndef NC_FILL_USHORT
+#define NC_FILL_USHORT 65535
+#endif
+#ifndef NC_WRITE
+#define NC_WRITE 0
+#endif
+
+using nc_type = int;
+
+inline std::string ncVarType(nc_type) { return "PNETCDF_DISABLED"; }
+inline const char *ncmpi_strerror(int) { return "PNETCDF disabled at compile time"; }
+inline void ncwrap(int, int, int) {}
+inline void ncwrap(int, int) {}
+inline void ncwrap(int, std::string, int) {}
+
+class ncVarStrings
+{
+public:
+  std::string fname;
+  std::string name;
+  std::string units;
+};
+
+class ncVar
+{
+public:
+  ncVarStrings *s = nullptr;
+  int *fid = nullptr;
+  int id = -1;
+  int ndim = 0;
+  real factor = 1.0;
+  float nodata = SERGHEI_NAN;
+  int tStride = 0;
+  nc_type type = 0;
+  bool allowUnitless = false;
+
+  inline void initialise(ncVarStrings &sp, const std::string &filename, const std::string vname)
+  {
+    s = &sp;
+    s->fname = filename;
+    s->name = vname;
+  }
+  template <typename T>
+  int readField(const Parallel &, const Domain &, T &) { return NC_ENOTVAR; }
+  template <typename T>
+  int readFieldExtended(const Parallel &, const Domain &, T &) { return NC_ENOTVAR; }
+  int read(const Parallel &, Domain &, State &) { return NC_ENOTVAR; }
+  int findFieldData(const Parallel &, const Domain &) { return NC_ENOTVAR; }
+};
+
+class ncStreamStrings
+{
+public:
+  std::string fname;
+  ncVarStrings t, n, z, h, u, v, rain;
+  ncVarStrings landuse, soilmap;
+  ncVarStrings infRate;
+};
+
+class ncStream
+{
+public:
+  ncStreamStrings *s = nullptr;
+  int nTime = 0;
+  ncVar varTime, varn, varz, varh, varu, varv, varRain;
+  ncVar varInfRateCap;
+  ncVar varSoilMap, varLandUse;
+
+  inline void initialise(ncStreamStrings &ncs, const std::string filename)
+  {
+    s = &ncs;
+    s->fname = filename;
+  }
+  inline void initialise(ncStreamStrings &ncs) { s = &ncs; }
+  inline void initialiseSurfaceVariables() {}
+  inline void close() {}
+  int readNetCDFheader(const Parallel &, Domain &, bool) { return SERGHEI_ERROR; }
+  int readNetCDFcoordinates(const Parallel &, Domain &) { return SERGHEI_ERROR; }
+  int readTime(const Parallel &, Domain &, realArr &) { return SERGHEI_ERROR; }
+};
+
+#endif

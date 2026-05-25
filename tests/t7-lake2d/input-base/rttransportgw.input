@@ -1,0 +1,12 @@
+// Groundwater reactive transport setup (single species)
+n_mass : 1
+id : 0
+aq_mode : 0
+aq_val : 100.0
+diffusion_molecular : 1e-09
+alpha_L : 0.1
+alpha_T : 0.01
+rt_scheme : 2
+Up_Weighting_vplus : 1.0
+Up_Weighting_vminus : 0.0
+ReactionModule : 0

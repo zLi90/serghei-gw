@@ -5,7 +5,11 @@
 #include <ctime>
 #include <unistd.h>
 #ifndef KOKKOS_ENABLE_CUDA
+#if defined(__has_include)
+#if __has_include(<cpuid.h>)
 #include <cpuid.h>
+#endif
+#endif
 #endif
 #include "const.h"
 #include <iostream>
@@ -112,6 +116,7 @@ public:
   bool writeRoughness = 0;
   bool writeInfParameters = 0;
   ShallowWater sw;
+  WaveBoundary wave;
 
 protected:
   int ncid;
@@ -195,7 +200,13 @@ public:
     numOut = 0;
     if (outFormat == OUT_NETCDF)
     {
+#if !SERGHEI_USE_PNETCDF
+      if (par.masterproc)
+        std::cerr << RERROR << "OUT_NETCDF requested but SERGHEI was built with SERGHEI_USE_PNETCDF=0." << std::endl;
+      MPI_Abort(MPI_COMM_WORLD, 1);
+#else
       outputInitNETCDF(state, dom, ss, par, outFolder);
+#endif
     }
     if (outFormat == OUT_VTK)
     {
@@ -215,17 +226,37 @@ public:
   {
     numOut = 0;
     nOut = floor(dom.simLength / outFreq);
+#if !SERGHEI_USE_PNETCDF
+    if (outFormat == OUT_NETCDF)
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "Surface transport NetCDF output requires SERGHEI_USE_PNETCDF=1." << std::endl;
+      MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+    return;
+#else
     outputInitNETCDFRTSW(rtsw, state, dom, par, dir);
+#endif
     numOut++;
   }
 
   void outputTransportSW(const RTStateSW &rtsw, const State &state, Domain const &dom, Parallel const &par, std::string dir)
   {
     timer.reset();
+#if !SERGHEI_USE_PNETCDF
+    if (outFormat == OUT_NETCDF)
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "Surface transport NetCDF output requires SERGHEI_USE_PNETCDF=1." << std::endl;
+      MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+    return;
+#else
     numOut--;
     outputNETCDFTransportSW(rtsw, state, dom, par, dir);
     numOut++;
     dom.timers.swe.io.out += timer.seconds(); // Adapting to Code 2's timer system
+#endif
   }
 #endif
 
@@ -234,16 +265,36 @@ public:
   void outputIniRT(const RTStateGW &rt, GwDomain const &gdom, Parallel const &par, std::string dir)
   {
     nOut = floor(gdom.simLength / outFreq);
+#if !SERGHEI_USE_PNETCDF
+    if (outFormat == OUT_NETCDF)
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "Subsurface transport NetCDF output requires SERGHEI_USE_PNETCDF=1." << std::endl;
+      MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+    return;
+#else
     outputInitNETCDFRT(rt, gdom, par, dir);
+#endif
   }
   void outputTransport(const RTStateGW &rt, GwDomain const &gdom, Parallel const &par, std::string dir)
   {
     timer.reset();
+#if !SERGHEI_USE_PNETCDF
+    if (outFormat == OUT_NETCDF)
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "Subsurface transport NetCDF output requires SERGHEI_USE_PNETCDF=1." << std::endl;
+      MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+    return;
+#else
     numOut--;
     outputNETCDFTransport(rt, gdom, par, dir);
     numOut++;
 #if SERGHEI_RE_MODEL
     gdom.timers.re.out += timer.seconds();
+#endif
 #endif
   }
 #endif
@@ -256,7 +307,13 @@ public:
     numOutCrop = 0;
     if (outFormat == OUT_NETCDF)
     {
+#if !SERGHEI_USE_PNETCDF
+      if (par.masterproc)
+        std::cerr << RERROR << "Crop NetCDF output requires SERGHEI_USE_PNETCDF=1." << std::endl;
+      MPI_Abort(MPI_COMM_WORLD, 1);
+#else
       outputInitNETCDFCrop(wofost, dom, par, dir);
+#endif
     }
     numOutCrop++;
   }
@@ -266,7 +323,13 @@ public:
     timer.reset();
     if (outFormat == OUT_NETCDF)
     {
+#if !SERGHEI_USE_PNETCDF
+      if (par.masterproc)
+        std::cerr << RERROR << "Crop NetCDF output requires SERGHEI_USE_PNETCDF=1." << std::endl;
+      MPI_Abort(MPI_COMM_WORLD, 1);
+#else
       outputNETCDFCrop(wofost, dom, par, dir);
+#endif
     }
     numOutCrop++;
     dom.timers.swe.io.out += timer.seconds();
@@ -277,7 +340,17 @@ public:
   void outputIniSub(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir)
   {
     nOut = floor(gdom.simLength / outFreq);
+#if !SERGHEI_USE_PNETCDF
+    if (outFormat == OUT_NETCDF)
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "Subsurface NetCDF output requires SERGHEI_USE_PNETCDF=1." << std::endl;
+      MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+    return;
+#else
     outputInitNETCDFSub(gw, gdom, par, dir);
+#endif
   }
 
   void outputSubsurface(const GwState &gw, GwDomain const &gdom, Parallel const &par, std::string dir)
@@ -286,7 +359,19 @@ public:
 #if SERGHEI_SWE_MODEL
     numOut--;
 #endif
+#if !SERGHEI_USE_PNETCDF
+    if (outFormat == OUT_NETCDF)
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "Subsurface NetCDF output requires SERGHEI_USE_PNETCDF=1." << std::endl;
+      MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+    numOut++;
+    gdom.timers.re.out += timer.seconds();
+    return;
+#else
     outputNETCDFSubsurface(gw, gdom, par, dir);
+#endif
     numOut++;
     gdom.timers.re.out += timer.seconds();
   }
@@ -304,6 +389,11 @@ public:
 
     if (outFormat == OUT_NETCDF)
     {
+#if !SERGHEI_USE_PNETCDF
+      if (par.masterproc)
+        std::cerr << RERROR << "OUT_NETCDF requested but SERGHEI was built with SERGHEI_USE_PNETCDF=0." << std::endl;
+      MPI_Abort(MPI_COMM_WORLD, 1);
+#else
       outputNETCDF(state, dom, ss, par, outFolder);
 #if SERGHEI_LPT
       timer_particles.reset();
@@ -312,6 +402,7 @@ public:
       outputNETCDF_particles(particles, dom, par, dir); // Particle Tracking
 #endif
       dom.timers.lpt.out += timer_particles.seconds();
+#endif
 #endif
     }
     if (outFormat == OUT_VTK)
@@ -351,6 +442,7 @@ public:
 #endif
   }
 
+  #if SERGHEI_USE_PNETCDF
   template <typename T, typename TNC>
   void writeNetCDFfield(const Domain &dom, int ncid, int ncvar, MPI_Offset *st, MPI_Offset *ct, const boolArr &mask, const T &myview, TNC &data)
   {
@@ -2062,6 +2154,8 @@ public:
 #ifdef SERGHEI_SURFACE_TRANSPORT
         logFile << "SERGHEI_SURFACE_TRANSPORT : " << SERGHEI_SURFACE_TRANSPORT << std::endl;
 #endif
+        logFile << "SERGHEI_WAVE_MODEL : " << SERGHEI_WAVE_MODEL << std::endl;
+        logFile << "SERGHEI_USE_PNETCDF : " << SERGHEI_USE_PNETCDF << std::endl;
         logFile << "SERGHEI_REBALANCE_SOLVER_CONTRIBUTIONS : " << SERGHEI_REBALANCE_SOLVER_CONTRIBUTIONS << std::endl;
         logFile << "SERGHEI_UPWIND_BED : " << SERGHEI_UPWIND_BED << std::endl;
         logFile << "SERGHEI_BEDLOAD_SEDIMENT : " << SERGHEI_BEDLOAD_SEDIMENT << std::endl;
@@ -2432,8 +2526,9 @@ public:
     std::string filename = dir + "SubsurfaceTimeSeries.out";
     SubsurfaceOutputFile.open(filename);
 
+
     if (SubsurfaceOutputFile.is_open())
-    {
+    {   
       // Write the header
       SubsurfaceOutputFile << "Time ";
       SubsurfaceOutputFile << "SubSurfaceVolume [m3] ";
@@ -2445,6 +2540,16 @@ public:
       // [CODE 1] 新增根系蒸腾与土壤蒸发边界流量输出
       SubsurfaceOutputFile << "Source/SinkOutflow_RootTransp[m3/s] ";
       SubsurfaceOutputFile << "Source/SinkOutflow_SoilEvap[m3/s] ";
+      std::size_t nBoundaryFlux = gint.QnetBC_glob.size();
+      if (nBoundaryFlux == 0 && gint.gwbc != nullptr)
+      {
+        nBoundaryFlux = gint.gwbc->size();
+      }
+      for (std::size_t ib = 0; ib < nBoundaryFlux; ++ib)
+      {
+        SubsurfaceOutputFile << "BoundaryFluxNet_" << ib << "[m3/s] ";
+        SubsurfaceOutputFile << "BoundaryFluxAbs_" << ib << "[m3/s] ";
+      }
       SubsurfaceOutputFile << std::endl;
     }
     else
@@ -2474,6 +2579,18 @@ public:
     SubsurfaceOutputFile << std::scientific << gint.QoutSS_glob << " ";
     SubsurfaceOutputFile << std::scientific << gint.QoutSS_RootTransp_glob << " "; // [CODE 1]
     SubsurfaceOutputFile << std::scientific << gint.QoutSS_SoilEvap_glob << " ";   // [CODE 1]
+    std::size_t nBoundaryFlux = gint.QnetBC_glob.size();
+    if (nBoundaryFlux == 0 && gint.gwbc != nullptr)
+    {
+      nBoundaryFlux = gint.gwbc->size();
+    }
+    for (std::size_t ib = 0; ib < nBoundaryFlux; ++ib)
+    {
+      const real qnet = (ib < gint.QnetBC_glob.size()) ? gint.QnetBC_glob[ib] : 0.0;
+      const real qabs = (ib < gint.QabsBC_glob.size()) ? gint.QabsBC_glob[ib] : 0.0;
+      SubsurfaceOutputFile << std::scientific << qnet << " ";
+      SubsurfaceOutputFile << std::scientific << qabs << " ";
+    }
     SubsurfaceOutputFile << std::endl;
   }
 
@@ -2524,34 +2641,45 @@ public:
   int writeRTSubsurfaceTimeSeriesIni(Domain const &dom, RTStateGW const &rt, RTIntegrator const &rtint, Parallel const &par, std::string dir)
   {
     numObs = 0;
-    if (par.masterproc)
-    {
-      std::string filename = dir + "RTSubsurfaceTimeSeries.out";
-      RTSubsurfaceOutputFile.open(filename);
+    std::string filename = dir + "RTSubsurfaceTimeSeries.out";
+    RTSubsurfaceOutputFile.open(filename);
 
-      if (RTSubsurfaceOutputFile.is_open())
+    if (RTSubsurfaceOutputFile.is_open())
+    {
+      RTSubsurfaceOutputFile << "Time[s] ";
+      std::size_t nBoundaryFlux = 0;
+      if (!rtint.QMassNetBC_spec_per_boundary_glob.empty())
       {
-        RTSubsurfaceOutputFile << "Time[s] ";
-        for (int is = 0; is < rt.n_mass; is++)
+        nBoundaryFlux = rtint.QMassNetBC_spec_per_boundary_glob[0].size();
+      }
+      else if (rtint.rtbc != nullptr)
+      {
+        nBoundaryFlux = rtint.rtbc->size();
+      }
+      for (int is = 0; is < rt.n_mass; is++)
+      {
+        std::string specName = "spec" + std::to_string(is);
+        RTSubsurfaceOutputFile << specName << "_LiquidMass[mg] ";
+        RTSubsurfaceOutputFile << specName << "_SolidMass[mg] ";
+        RTSubsurfaceOutputFile << specName << "_MassExch[mg/s] ";
+        RTSubsurfaceOutputFile << specName << "_BCInflow[mg/s] ";
+        RTSubsurfaceOutputFile << specName << "_BCOutflow[mg/s] ";
+        RTSubsurfaceOutputFile << specName << "_SSInflow[mg/s] ";
+        RTSubsurfaceOutputFile << specName << "_SSOutflow[mg/s] ";
+        RTSubsurfaceOutputFile << specName << "_Reaction[mg/s] ";
+        for (std::size_t ib = 0; ib < nBoundaryFlux; ++ib)
         {
-          std::string specName = "spec" + std::to_string(is);
-          RTSubsurfaceOutputFile << specName << "_LiquidMass[mg] ";
-          RTSubsurfaceOutputFile << specName << "_SolidMass[mg] ";
-          RTSubsurfaceOutputFile << specName << "_MassExch[mg/s] ";
-          RTSubsurfaceOutputFile << specName << "_BCInflow[mg/s] ";
-          RTSubsurfaceOutputFile << specName << "_BCOutflow[mg/s] ";
-          RTSubsurfaceOutputFile << specName << "_SSInflow[mg/s] ";
-          RTSubsurfaceOutputFile << specName << "_SSOutflow[mg/s] ";
-          RTSubsurfaceOutputFile << specName << "_Reaction[mg/s] ";
+          RTSubsurfaceOutputFile << specName << "_BoundaryFluxNet_" << ib << "[mg/s] ";
+          RTSubsurfaceOutputFile << specName << "_BoundaryFluxAbs_" << ib << "[mg/s] ";
         }
-        RTSubsurfaceOutputFile << std::endl;
-        writeRTSubsurfaceTimeSeries(dom, rtint);
       }
-      else
-      {
-        std::cerr << RERROR "Could not create RTSubsurfaceTimeSeries.out file" << std::endl;
-        return 0;
-      }
+      RTSubsurfaceOutputFile << std::endl;
+      writeRTSubsurfaceTimeSeries(dom, rtint);
+    }
+    else
+    {
+      std::cerr << RERROR "Could not create RTSubsurfaceTimeSeries.out file" << std::endl;
+      return 0;
     }
     numObs++;
     return 1;
@@ -2572,6 +2700,28 @@ public:
       RTSubsurfaceOutputFile << std::scientific << rtint.QMassInSS_spec_glob(is) << " ";
       RTSubsurfaceOutputFile << std::scientific << rtint.QMassOutSS_spec_glob(is) << " ";
       RTSubsurfaceOutputFile << std::scientific << rtint.QMassReaction_spec_glob(is) << " ";
+      std::size_t nBoundaryFlux = 0;
+      if (!rtint.QMassNetBC_spec_per_boundary_glob.empty())
+      {
+        nBoundaryFlux = rtint.QMassNetBC_spec_per_boundary_glob[0].size();
+      }
+      else if (rtint.rtbc != nullptr)
+      {
+        nBoundaryFlux = rtint.rtbc->size();
+      }
+      for (std::size_t ib = 0; ib < nBoundaryFlux; ++ib)
+      {
+        const real qnet = (is < static_cast<int>(rtint.QMassNetBC_spec_per_boundary_glob.size()) &&
+                           ib < rtint.QMassNetBC_spec_per_boundary_glob[is].size())
+                              ? rtint.QMassNetBC_spec_per_boundary_glob[is][ib]
+                              : 0.0;
+        const real qabs = (is < static_cast<int>(rtint.QMassAbsBC_spec_per_boundary_glob.size()) &&
+                           ib < rtint.QMassAbsBC_spec_per_boundary_glob[is].size())
+                              ? rtint.QMassAbsBC_spec_per_boundary_glob[is][ib]
+                              : 0.0;
+        RTSubsurfaceOutputFile << std::scientific << qnet << " ";
+        RTSubsurfaceOutputFile << std::scientific << qabs << " ";
+      }
     }
     RTSubsurfaceOutputFile << std::endl;
   }
@@ -3219,6 +3369,252 @@ public:
     Kokkos::parallel_for("write_crop_rzsm", dom.nCell, KOKKOS_LAMBDA(int iGlob) { data(iGlob) = view_rzsm(iGlob); });
     Kokkos::fence();
     ncwrap(ncmpi_put_vara_real_all(ncid, rzsmVar, st, ct, data.data()), __LINE__, par.myrank);
+  }
+#endif
+
+#else
+  template <typename... Args>
+  void outputInitNETCDF(Args &&...) {}
+  template <typename... Args>
+  void outputNETCDF(Args &&...) {}
+  template <typename... Args>
+  void outputInitParticlesNETCDF(Args &&...) {}
+  template <typename... Args>
+  void outputNETCDF_particles(Args &&...) {}
+  template <typename... Args>
+  void outputInitNETCDFSub(Args &&...) {}
+  template <typename... Args>
+  void outputNETCDFSubsurface(Args &&...) {}
+  template <typename... Args>
+  void outputInitNETCDFRT(Args &&...) {}
+  template <typename... Args>
+  void outputNETCDFTransport(Args &&...) {}
+  template <typename... Args>
+  void outputInitNETCDFRTSW(Args &&...) {}
+  template <typename... Args>
+  void outputNETCDFTransportSW(Args &&...) {}
+  template <typename... Args>
+  void outputInitNETCDFCrop(Args &&...) {}
+  template <typename... Args>
+  void outputNETCDFCrop(Args &&...) {}
+  template <typename... Args>
+  void outputVTK(Args &&...) {}
+  template <typename... Args>
+  void initBIN(Args &&...) {}
+  template <typename... Args>
+  void outputBIN(Args &&...) {}
+  template <typename... Args>
+  void writeTimeSeriesIni(Args &&...) {}
+  template <typename... Args>
+  void writeRTSurfaceTimeSeriesIni(Args &&...) {}
+  #if SERGHEI_RE_MODEL
+  int writeSubTimeSeriesIni(GwDomain const &gdom, GwIntegrator const &gint, Parallel const &par, std::string dir)
+  {
+    numObs = 0;
+    std::string filename = dir + "SubsurfaceTimeSeries.out";
+    SubsurfaceOutputFile.open(filename);
+
+    if (SubsurfaceOutputFile.is_open())
+    {
+      SubsurfaceOutputFile << "Time ";
+      SubsurfaceOutputFile << "SubSurfaceVolume [m3] ";
+      SubsurfaceOutputFile << "ExchangeRate [m3/s] ";
+      SubsurfaceOutputFile << "BoundaryInflow ";
+      SubsurfaceOutputFile << "BoundaryOutflow ";
+      SubsurfaceOutputFile << "Source/SinkInflow [m3/s] ";
+      SubsurfaceOutputFile << "Source/SinkOutflow [m3/s] ";
+      SubsurfaceOutputFile << "Source/SinkOutflow_RootTransp[m3/s] ";
+      SubsurfaceOutputFile << "Source/SinkOutflow_SoilEvap[m3/s] ";
+      std::size_t nBoundaryFlux = gint.QnetBC_glob.size();
+      if (nBoundaryFlux == 0 && gint.gwbc != nullptr)
+      {
+        nBoundaryFlux = gint.gwbc->size();
+      }
+      for (std::size_t ib = 0; ib < nBoundaryFlux; ++ib)
+      {
+        SubsurfaceOutputFile << "BoundaryFluxNet_" << ib << "[m3/s] ";
+        SubsurfaceOutputFile << "BoundaryFluxAbs_" << ib << "[m3/s] ";
+      }
+      SubsurfaceOutputFile << std::endl;
+    }
+    else
+    {
+      std::cerr << RERROR "Could not create SubsurfaceTimeSeries.out file" << std::endl;
+      return 0;
+    }
+
+    if (par.masterproc)
+    {
+      writeSubsurfaceTimeSeries(gdom, gint);
+    }
+    numObs++;
+    return 1;
+  }
+  #else
+  template <typename... Args>
+  int writeSubTimeSeriesIni(Args &&...) { return 1; }
+  #endif
+  #if SERGHEI_SUBSURFACE_TRANSPORT
+  int writeRTSubsurfaceTimeSeriesIni(Domain const &dom, RTStateGW const &rt, RTIntegrator const &rtint, Parallel const &par, std::string dir)
+  {
+    numObs = 0;
+    std::string filename = dir + "RTSubsurfaceTimeSeries.out";
+    RTSubsurfaceOutputFile.open(filename);
+
+    if (RTSubsurfaceOutputFile.is_open())
+    {
+      RTSubsurfaceOutputFile << "Time[s] ";
+      std::size_t nBoundaryFlux = 0;
+      if (!rtint.QMassNetBC_spec_per_boundary_glob.empty())
+      {
+        nBoundaryFlux = rtint.QMassNetBC_spec_per_boundary_glob[0].size();
+      }
+      else if (rtint.rtbc != nullptr)
+      {
+        nBoundaryFlux = rtint.rtbc->size();
+      }
+      for (int is = 0; is < rt.n_mass; is++)
+      {
+        std::string specName = "spec" + std::to_string(is);
+        RTSubsurfaceOutputFile << specName << "_LiquidMass[mg] ";
+        RTSubsurfaceOutputFile << specName << "_SolidMass[mg] ";
+        RTSubsurfaceOutputFile << specName << "_MassExch[mg/s] ";
+        RTSubsurfaceOutputFile << specName << "_BCInflow[mg/s] ";
+        RTSubsurfaceOutputFile << specName << "_BCOutflow[mg/s] ";
+        RTSubsurfaceOutputFile << specName << "_SSInflow[mg/s] ";
+        RTSubsurfaceOutputFile << specName << "_SSOutflow[mg/s] ";
+        RTSubsurfaceOutputFile << specName << "_Reaction[mg/s] ";
+        for (std::size_t ib = 0; ib < nBoundaryFlux; ++ib)
+        {
+          RTSubsurfaceOutputFile << specName << "_BoundaryFluxNet_" << ib << "[mg/s] ";
+          RTSubsurfaceOutputFile << specName << "_BoundaryFluxAbs_" << ib << "[mg/s] ";
+        }
+      }
+      RTSubsurfaceOutputFile << std::endl;
+      writeRTSubsurfaceTimeSeries(dom, rtint);
+    }
+    else
+    {
+      std::cerr << RERROR "Could not create RTSubsurfaceTimeSeries.out file" << std::endl;
+      return 0;
+    }
+    numObs++;
+    return 1;
+  }
+  #else
+  template <typename... Args>
+  void writeRTSubsurfaceTimeSeriesIni(Args &&...) {}
+  #endif
+  template <typename... Args>
+  void writeRootZoneTimeSeriesIni(Args &&...) {}
+  template <typename... Args>
+  void writeTimeSeries(Args &&...) {}
+  template <typename... Args>
+  void writeRTSurfaceTimeSeries(Args &&...) {}
+  #if SERGHEI_RE_MODEL
+  void writeSubsurfaceTimeSeries(GwDomain const &gdom, GwIntegrator const &gint)
+  {
+    std::cout.precision(OUTPUT_PRECISION);
+    SubsurfaceOutputFile << std::scientific << gdom.etime << " ";
+    SubsurfaceOutputFile << std::scientific << gint.Vtot_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.Vexch_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.QinBC_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.QoutBC_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.QinSS_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.QoutSS_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.QoutSS_RootTransp_glob << " ";
+    SubsurfaceOutputFile << std::scientific << gint.QoutSS_SoilEvap_glob << " ";
+    std::size_t nBoundaryFlux = gint.QnetBC_glob.size();
+    if (nBoundaryFlux == 0 && gint.gwbc != nullptr)
+    {
+      nBoundaryFlux = gint.gwbc->size();
+    }
+    for (std::size_t ib = 0; ib < nBoundaryFlux; ++ib)
+    {
+      const real qnet = (ib < gint.QnetBC_glob.size()) ? gint.QnetBC_glob[ib] : 0.0;
+      const real qabs = (ib < gint.QabsBC_glob.size()) ? gint.QabsBC_glob[ib] : 0.0;
+      SubsurfaceOutputFile << std::scientific << qnet << " ";
+      SubsurfaceOutputFile << std::scientific << qabs << " ";
+    }
+    SubsurfaceOutputFile << std::endl;
+  }
+  #else
+  template <typename... Args>
+  void writeSubsurfaceTimeSeries(Args &&...) {}
+  #endif
+  #if SERGHEI_SUBSURFACE_TRANSPORT
+  void writeRTSubsurfaceTimeSeries(Domain const &dom, RTIntegrator const &rtint)
+  {
+    std::cout.precision(OUTPUT_PRECISION);
+    RTSubsurfaceOutputFile << std::scientific << dom.etime << " ";
+
+    for (int is = 0; is < rtint.n_mass; is++)
+    {
+      RTSubsurfaceOutputFile << std::scientific << rtint.LiquidMassTot_spec_glob(is) << " ";
+      RTSubsurfaceOutputFile << std::scientific << rtint.SolidMassTot_spec_glob(is) << " ";
+      RTSubsurfaceOutputFile << std::scientific << rtint.MassExch_spec_glob(is) << " ";
+      RTSubsurfaceOutputFile << std::scientific << rtint.QMassInBC_spec_glob(is) << " ";
+      RTSubsurfaceOutputFile << std::scientific << rtint.QMassOutBC_spec_glob(is) << " ";
+      RTSubsurfaceOutputFile << std::scientific << rtint.QMassInSS_spec_glob(is) << " ";
+      RTSubsurfaceOutputFile << std::scientific << rtint.QMassOutSS_spec_glob(is) << " ";
+      RTSubsurfaceOutputFile << std::scientific << rtint.QMassReaction_spec_glob(is) << " ";
+      std::size_t nBoundaryFlux = 0;
+      if (!rtint.QMassNetBC_spec_per_boundary_glob.empty())
+      {
+        nBoundaryFlux = rtint.QMassNetBC_spec_per_boundary_glob[0].size();
+      }
+      else if (rtint.rtbc != nullptr)
+      {
+        nBoundaryFlux = rtint.rtbc->size();
+      }
+      for (std::size_t ib = 0; ib < nBoundaryFlux; ++ib)
+      {
+        const real qnet = (is < static_cast<int>(rtint.QMassNetBC_spec_per_boundary_glob.size()) &&
+                           ib < rtint.QMassNetBC_spec_per_boundary_glob[is].size())
+                              ? rtint.QMassNetBC_spec_per_boundary_glob[is][ib]
+                              : 0.0;
+        const real qabs = (is < static_cast<int>(rtint.QMassAbsBC_spec_per_boundary_glob.size()) &&
+                           ib < rtint.QMassAbsBC_spec_per_boundary_glob[is].size())
+                              ? rtint.QMassAbsBC_spec_per_boundary_glob[is][ib]
+                              : 0.0;
+        RTSubsurfaceOutputFile << std::scientific << qnet << " ";
+        RTSubsurfaceOutputFile << std::scientific << qabs << " ";
+      }
+    }
+    RTSubsurfaceOutputFile << std::endl;
+  }
+  #else
+  template <typename... Args>
+  void writeRTSubsurfaceTimeSeries(Args &&...) {}
+  #endif
+  template <typename... Args>
+  void writeRootZoneWaterContentTimeSeries(Args &&...) {}
+  void writeLogFile(Domain const &dom, Parallel const &par, std::string dir)
+  {
+    if (par.masterproc)
+    {
+      std::string filename = dir + "log.out";
+      logFile.open(filename);
+      if (logFile.is_open())
+      {
+        logFile << "DomainArea [m2]: " << dom.areaGlobal << std::endl;
+        logFile << "nCell(SW) : " << dom.nCellGlobal << std::endl;
+        logFile << "nCellValid(SW) : " << dom.nCellValidGlobal << std::endl;
+        logFile << "SERGHEI_RE_MODEL : " << SERGHEI_RE_MODEL << std::endl;
+        logFile << "SERGHEI_USE_PNETCDF : " << SERGHEI_USE_PNETCDF << std::endl;
+      }
+      else
+      {
+        std::cerr << RERROR << "Could not create log.out file" << std::endl;
+      }
+    }
+  }
+  void closeOutputStreams()
+  {
+    domainOutputFile.close();
+    SubsurfaceOutputFile.close();
+    RTSubsurfaceOutputFile.close();
+    logFile.close();
   }
 #endif
 

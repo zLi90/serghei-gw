@@ -495,8 +495,11 @@ public:
   inline void dtMatchOutput(Domain &dom, const FileIO &io){
 			// correction to match output times
 			// std::cout << GGD << dom.etime << "\t" << dom.etime+dom.dt << "\t" << io.numOut << "\t" << io.outFreq*io.numOut << "\t" << io.numOut*io.outFreq + dom.startTime << std::endl;
-			if (dom.etime + dom.dt > dom.startTime + io.numOut * io.outFreq)
-				dom.dt = io.numOut * io.outFreq + dom.startTime - dom.etime;
+			real nextOutTime = dom.startTime + io.numOut * io.outFreq;
+			// Only clip dt when the next output time is strictly ahead.
+			// This avoids dt collapsing to zero when etime is already on an output boundary.
+			if (nextOutTime > dom.etime + TOL12 && dom.etime + dom.dt > nextOutTime)
+				dom.dt = nextOutTime - dom.etime;
 			if (dom.etime + dom.dt > dom.endTime)
 			{
 				dom.dt = dom.endTime - dom.etime;

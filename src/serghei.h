@@ -46,6 +46,10 @@
 #include "GwState.h"
 #include "GwSolver.h"
 #include "GwIntegrator.h"
+#if SERGHEI_WAVE_MODEL
+#include "WaveBoundaryInit.h"
+#include "WaveBoundary.h"
+#endif
 #endif
 
 // [CODE1] Subsurface transport module
@@ -98,6 +102,11 @@ public:
 	GwMatrix A;
 	GwIntegrator gint;
 	GwSolver<Kokkos::DefaultExecutionSpace> gsolver;
+#if SERGHEI_WAVE_MODEL
+	WaveBoundaryState waveBC;
+	WaveBoundaryInit waveInit;
+        WaveBoundaryModel waveBoundary;
+#endif
 #endif
 
 // [CODE1] Subsurface transport members
@@ -209,6 +218,17 @@ public:
 			return 0;
 		};
 
+#if SERGHEI_WAVE_MODEL
+#if !SERGHEI_RE_MODEL
+		if (dom.isWave)
+		{
+			if (par.masterproc)
+				std::cerr << RERROR << "Wave module requires SERGHEI_RE_MODEL to be enabled." << std::endl;
+			return 0;
+		}
+#endif
+#endif
+
 // [CODE2] LPT initialization
 #if SERGHEI_LPT
 		if (!parser.readParticles(io.inFolder, par, &parTrack))
@@ -242,6 +262,16 @@ public:
 			std::cerr << RERROR "Unable to initialize the subsurface domain" << "\n";
 			return 0;
 		};
+#if SERGHEI_WAVE_MODEL
+		if (dom.isWave)
+		{
+			if (!waveInit.initialize(waveBC, gdom, gbc.gwbc, par, io))
+			{
+				std::cerr << RERROR << "Unable to initialize wave boundary preprocessing" << "\n";
+				return 0;
+			}
+		}
+#endif
 		A.init(gdom);
 		gsolver.init(A, gdom);
 		if (par.masterproc)
@@ -507,6 +537,7 @@ public:
 		// Main Time Loop
 		while (dom.etime < dom.endTime)
 		{
+			// printf("Model Time = %f\n", dom.etime);
 			// previous mass
 			oldVolume = sint.surfaceVolumeG;
 #if SERGHEI_SUSPENDED_SEDIMENT // [CODE2]
@@ -669,17 +700,33 @@ public:
 					if (gdom.gw_scheme == 1)
 					{
 #if CROP_GROWTH_MODEL
+#if SERGHEI_WAVE_MODEL
+						gwf.pca_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, wofost, &waveBoundary, &waveBC, &ss.swss, &dom, &io);
+#else
 						gwf.pca_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, wofost);
+#endif
+#else
+#if SERGHEI_WAVE_MODEL
+						gwf.pca_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, &waveBoundary, &waveBC, &ss.swss, &dom, &io);
 #else
 						gwf.pca_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
+#endif
 #endif
 					}
 					else
 					{
 #if CROP_GROWTH_MODEL
+#if SERGHEI_WAVE_MODEL
+						gwf.picard_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, wofost, &waveBoundary, &waveBC, &ss.swss, &dom, &io);
+#else
 						gwf.picard_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, wofost);
+#endif
+#else
+#if SERGHEI_WAVE_MODEL
+						gwf.picard_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, &waveBoundary, &waveBC, &ss.swss, &dom, &io);
 #else
 						gwf.picard_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
+#endif
 #endif
 					}
 // [CODE1] Subsurface transport solve (async)
@@ -704,17 +751,33 @@ public:
 				if (gdom.gw_scheme == 1)
 				{
 #if CROP_GROWTH_MODEL
+#if SERGHEI_WAVE_MODEL
+					gwf.pca_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, wofost, &waveBoundary, &waveBC, &ss.swss, &dom, &io);
+#else
 					gwf.pca_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, wofost);
+#endif
+#else
+#if SERGHEI_WAVE_MODEL
+					gwf.pca_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, &waveBoundary, &waveBC, &ss.swss, &dom, &io);
 #else
 					gwf.pca_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
+#endif
 #endif
 				}
 				else
 				{
 #if CROP_GROWTH_MODEL
+#if SERGHEI_WAVE_MODEL
+					gwf.picard_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, wofost, &waveBoundary, &waveBC, &ss.swss, &dom, &io);
+#else
 					gwf.picard_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, wofost);
+#endif
+#else
+#if SERGHEI_WAVE_MODEL
+					gwf.picard_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par, &waveBoundary, &waveBC, &ss.swss, &dom, &io);
 #else
 					gwf.picard_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
+#endif
 #endif
 				}
 // [CODE1] Subsurface transport solve (sync)
@@ -1104,6 +1167,18 @@ public:
 #elif SERGHEI_RE_MODEL
 			dom.dt = gdom.dt;
 			tint.dtMatchOutput(dom, io);
+			if (dom.dt <= 0.0)
+			{
+				if (par.masterproc)
+				{
+					std::cerr << RERROR << "Non-positive dt detected after dtMatchOutput. "
+					          << "etime=" << dom.etime << ", dt=" << dom.dt
+					          << ", numOut=" << io.numOut << ", outFreq=" << io.outFreq
+					          << ". This usually indicates inconsistent output counters."
+					          << std::endl;
+				}
+				return 0;
+			}
 			gdom.dt = dom.dt;
 #elif !SERGHEI_SWE_MODEL
 			std::cout << RERROR << "Impossible configuration without SWE nor GW model" << std::endl;

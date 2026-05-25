@@ -1,0 +1,7 @@
+bccount : 1
+
+id : lake_top
+direction : 6
+bctype : 4
+bcvals : 0.5
+polygon : polygonlake.input

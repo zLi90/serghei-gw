@@ -267,4 +267,23 @@ public:
   real hmin = -1;
 };
 
+class WaveBoundary
+{
+public:
+  int enabled = 0;
+  std::string waveMethod = "smb";
+  std::string windSource = "windfile";
+  std::string fetchSource = "precomputed";
+  std::string fetchFile = "fetch.input";
+  std::string phaseMode = "fetchprojection";
+  real meanLakeLevel = SERGHEI_NAN;
+  real windSpeedConst = SERGHEI_NAN;
+  real windDirectionConst = SERGHEI_NAN;
+
+  std::set<std::string> waveMethods = {"smb", "jonswap_simple"};
+  std::set<std::string> windSources = {"windfile", "constant"};
+  std::set<std::string> fetchSources = {"precomputed", "boundarylist"};
+  std::set<std::string> phaseModes = {"fetchprojection", "xcoordinate"};
+};
+
 #endif

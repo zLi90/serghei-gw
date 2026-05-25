@@ -1,0 +1,10 @@
+// Wave boundary module control
+waveEnable : 1
+waveMethod : smb
+windSource : constant
+fetchSource : precomputed
+fetchFile : fetch.input
+phaseMode : fetchprojection
+meanLakeLevel : 0.5
+windSpeed : 10.0
+windDirection : 0.0

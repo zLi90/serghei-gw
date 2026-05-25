@@ -31,7 +31,7 @@ inline void printKokkosInitArguments(Parallel const &par)
 {
   std::cout << "MPI Rank " << par.myrank << "\tnum_threads " << Kokkos::num_threads() << std::endl;
   std::cout << "MPI Rank " << par.myrank << "\tdevice_id " << Kokkos::device_id() << std::endl;
-  std::cout << "MPI Rank " << par.myrank << "\tndevices " << Kokkos::num_devices() << std::endl;
+  std::cout << "MPI Rank " << par.myrank << "\tndevices " << Kokkos::DefaultExecutionSpace::concurrency() << std::endl;
   // std::cout << "MPI Rank " << par.myrank << "\tskip_device " << Kokkos::skip_device() << std::endl;
 }
 

@@ -185,7 +185,7 @@ public:
 	 * QMassInflow   - Total mass flux entering the domain (positive value).
 	 * QMassOutflow  - Total mass flux leaving the domain (positive value).
 	 * ------------------------------------------------------------------ */
-	real QMassTot = 0, QMassInflow = 0, QMassOutflow = 0;
+	real QMassTot = 0, QMassInflow = 0, QMassOutflow = 0, QMassAbsflow = 0;
 
 	/* ------------------------------------------------------------------
 	 * Member Data: Multi-Species Boundary Condition Support
@@ -477,6 +477,7 @@ public:
 		QMassTot = 0;
 		QMassInflow = 0;
 		QMassOutflow = 0;
+		QMassAbsflow = 0;
 
 		// Determine whether this subdomain actually lies on the global
 		// domain boundary face specified by 'direction'.  Only subdomains
@@ -678,12 +679,37 @@ public:
 				// Cross-section area for an X-face = dy * dz.  [m^2]
 				Kokkos::parallel_reduce("reducexRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								// Sum mass flux over all mass-balanced species.
-								// Factor of 1/1000 converts [mg/L * m/s * m^2] to [g/s]
-								// (or adjusts for unit consistency).  [mg/s]
-								tmp += rt.aveVB(iGlob, 0) * rt.c(s, iGlob, 1) * gdom.dy * gdom.dz(iGlob) /1000.0;
-							} }, Kokkos::Sum<real>(QMassTot));
+							const int iGhost = gcells[ibc];
+							const int kkOff = gdom.nxhc * gdom.nyhc;
+							const real area = gdom.dy * gdom.dz(iGlob);
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (cGhost - cCell) / gdom.dx;
+							const real dcdy = (rt.c(target_spec, iGlob + gdom.nxhc, 1) - rt.c(target_spec, iGlob - gdom.nxhc, 1)) / (2.0 * gdom.dy);
+							const real dcdz = (rt.c(target_spec, iGlob + kkOff, 1) - rt.c(target_spec, iGlob - kkOff, 1)) / (2.0 * gdom.dz(iGlob));
+							// Per-species total boundary mass flux (advective + dispersive/diffusive).
+							const real qAdv = rt.aveVB(iGlob, 0) * cCell * area / 1000.0; // preserve legacy x+ scaling
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 0) * dcdx +
+												 rt.dcal(target_spec, iGlob, 3) * dcdy +
+												 rt.dcal(target_spec, iGlob, 4) * dcdz) * area / 1000.0;
+							tmp += qAdv + qDisp;
+							}, Kokkos::Sum<real>(QMassTot));
+				Kokkos::parallel_reduce("reducexRT_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+							int iGlob = bcells[ibc];
+							const int iGhost = gcells[ibc];
+							const int kkOff = gdom.nxhc * gdom.nyhc;
+							const real area = gdom.dy * gdom.dz(iGlob);
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (cGhost - cCell) / gdom.dx;
+							const real dcdy = (rt.c(target_spec, iGlob + gdom.nxhc, 1) - rt.c(target_spec, iGlob - gdom.nxhc, 1)) / (2.0 * gdom.dy);
+							const real dcdz = (rt.c(target_spec, iGlob + kkOff, 1) - rt.c(target_spec, iGlob - kkOff, 1)) / (2.0 * gdom.dz(iGlob));
+							const real qAdv = rt.aveVB(iGlob, 0) * cCell * area / 1000.0;
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 0) * dcdx +
+												 rt.dcal(target_spec, iGlob, 3) * dcdy +
+												 rt.dcal(target_spec, iGlob, 4) * dcdz) * area / 1000.0;
+							real qcell = qAdv + qDisp;
+							tmp += myfabs(qcell); }, Kokkos::Sum<real>(QMassAbsflow));
 				if (QMassTot > 0)
 				{
 					QMassOutflow = QMassTot;
@@ -697,9 +723,36 @@ public:
 			{
 				Kokkos::parallel_reduce("reducexRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								tmp += rt.aveVB(iGlob, 0) * rt.c(s, iGlob, 1) * gdom.dy * gdom.dz(iGlob);
-							} }, Kokkos::Sum<real>(QMassTot));
+							const int iGhost = gcells[ibc];
+							const int kkOff = gdom.nxhc * gdom.nyhc;
+							const real area = gdom.dy * gdom.dz(iGlob);
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (cCell - cGhost) / gdom.dx;
+							const real dcdy = (rt.c(target_spec, iGlob + gdom.nxhc, 1) - rt.c(target_spec, iGlob - gdom.nxhc, 1)) / (2.0 * gdom.dy);
+							const real dcdz = (rt.c(target_spec, iGlob + kkOff, 1) - rt.c(target_spec, iGlob - kkOff, 1)) / (2.0 * gdom.dz(iGlob));
+							const real qAdv = rt.aveVB(iGlob, 0) * cCell * area;
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 0) * dcdx +
+												 rt.dcal(target_spec, iGlob, 3) * dcdy +
+												 rt.dcal(target_spec, iGlob, 4) * dcdz) * area;
+							tmp += qAdv + qDisp;
+							}, Kokkos::Sum<real>(QMassTot));
+				Kokkos::parallel_reduce("reducexRT_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+							int iGlob = bcells[ibc];
+							const int iGhost = gcells[ibc];
+							const int kkOff = gdom.nxhc * gdom.nyhc;
+							const real area = gdom.dy * gdom.dz(iGlob);
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (cCell - cGhost) / gdom.dx;
+							const real dcdy = (rt.c(target_spec, iGlob + gdom.nxhc, 1) - rt.c(target_spec, iGlob - gdom.nxhc, 1)) / (2.0 * gdom.dy);
+							const real dcdz = (rt.c(target_spec, iGlob + kkOff, 1) - rt.c(target_spec, iGlob - kkOff, 1)) / (2.0 * gdom.dz(iGlob));
+							const real qAdv = rt.aveVB(iGlob, 0) * cCell * area;
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 0) * dcdx +
+												 rt.dcal(target_spec, iGlob, 3) * dcdy +
+												 rt.dcal(target_spec, iGlob, 4) * dcdz) * area;
+							real qcell = qAdv + qDisp;
+							tmp += myfabs(qcell); }, Kokkos::Sum<real>(QMassAbsflow));
 				if (QMassTot > 0)
 				{
 					QMassInflow = QMassTot;
@@ -718,9 +771,36 @@ public:
 				// Cross-section area for a Y-face = dx * dz.  [m^2]
 				Kokkos::parallel_reduce("reduceyRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								tmp += rt.aveVB(iGlob, 1) * rt.c(s, iGlob, 1) * gdom.dx * gdom.dz(iGlob);
-							} }, Kokkos::Sum<real>(QMassTot));
+							const int iGhost = gcells[ibc];
+							const int kkOff = gdom.nxhc * gdom.nyhc;
+							const real area = gdom.dx * gdom.dz(iGlob);
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (rt.c(target_spec, iGlob + 1, 1) - rt.c(target_spec, iGlob - 1, 1)) / (2.0 * gdom.dx);
+							const real dcdy = (cGhost - cCell) / gdom.dy;
+							const real dcdz = (rt.c(target_spec, iGlob + kkOff, 1) - rt.c(target_spec, iGlob - kkOff, 1)) / (2.0 * gdom.dz(iGlob));
+							const real qAdv = rt.aveVB(iGlob, 1) * cCell * area;
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 5) * dcdx +
+												 rt.dcal(target_spec, iGlob, 1) * dcdy +
+												 rt.dcal(target_spec, iGlob, 6) * dcdz) * area;
+							tmp += qAdv + qDisp;
+							}, Kokkos::Sum<real>(QMassTot));
+				Kokkos::parallel_reduce("reduceyRT_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+							int iGlob = bcells[ibc];
+							const int iGhost = gcells[ibc];
+							const int kkOff = gdom.nxhc * gdom.nyhc;
+							const real area = gdom.dx * gdom.dz(iGlob);
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (rt.c(target_spec, iGlob + 1, 1) - rt.c(target_spec, iGlob - 1, 1)) / (2.0 * gdom.dx);
+							const real dcdy = (cGhost - cCell) / gdom.dy;
+							const real dcdz = (rt.c(target_spec, iGlob + kkOff, 1) - rt.c(target_spec, iGlob - kkOff, 1)) / (2.0 * gdom.dz(iGlob));
+							const real qAdv = rt.aveVB(iGlob, 1) * cCell * area;
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 5) * dcdx +
+												 rt.dcal(target_spec, iGlob, 1) * dcdy +
+												 rt.dcal(target_spec, iGlob, 6) * dcdz) * area;
+							real qcell = qAdv + qDisp;
+							tmp += myfabs(qcell); }, Kokkos::Sum<real>(QMassAbsflow));
 				if (QMassTot > 0)
 				{
 					QMassOutflow = QMassTot;
@@ -734,9 +814,36 @@ public:
 			{
 				Kokkos::parallel_reduce("reduceyRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								tmp += rt.aveVB(iGlob, 1) * rt.c(s, iGlob, 1) * gdom.dx * gdom.dz(iGlob);
-							} }, Kokkos::Sum<real>(QMassTot));
+							const int iGhost = gcells[ibc];
+							const int kkOff = gdom.nxhc * gdom.nyhc;
+							const real area = gdom.dx * gdom.dz(iGlob);
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (rt.c(target_spec, iGlob + 1, 1) - rt.c(target_spec, iGlob - 1, 1)) / (2.0 * gdom.dx);
+							const real dcdy = (cCell - cGhost) / gdom.dy;
+							const real dcdz = (rt.c(target_spec, iGlob + kkOff, 1) - rt.c(target_spec, iGlob - kkOff, 1)) / (2.0 * gdom.dz(iGlob));
+							const real qAdv = rt.aveVB(iGlob, 1) * cCell * area;
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 5) * dcdx +
+												 rt.dcal(target_spec, iGlob, 1) * dcdy +
+												 rt.dcal(target_spec, iGlob, 6) * dcdz) * area;
+							tmp += qAdv + qDisp;
+							}, Kokkos::Sum<real>(QMassTot));
+				Kokkos::parallel_reduce("reduceyRT_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+							int iGlob = bcells[ibc];
+							const int iGhost = gcells[ibc];
+							const int kkOff = gdom.nxhc * gdom.nyhc;
+							const real area = gdom.dx * gdom.dz(iGlob);
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (rt.c(target_spec, iGlob + 1, 1) - rt.c(target_spec, iGlob - 1, 1)) / (2.0 * gdom.dx);
+							const real dcdy = (cCell - cGhost) / gdom.dy;
+							const real dcdz = (rt.c(target_spec, iGlob + kkOff, 1) - rt.c(target_spec, iGlob - kkOff, 1)) / (2.0 * gdom.dz(iGlob));
+							const real qAdv = rt.aveVB(iGlob, 1) * cCell * area;
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 5) * dcdx +
+												 rt.dcal(target_spec, iGlob, 1) * dcdy +
+												 rt.dcal(target_spec, iGlob, 6) * dcdz) * area;
+							real qcell = qAdv + qDisp;
+							tmp += myfabs(qcell); }, Kokkos::Sum<real>(QMassAbsflow));
 				if (QMassTot > 0)
 				{
 					QMassInflow = QMassTot;
@@ -753,9 +860,34 @@ public:
 				// Cross-section area for a Z-face = dx * dy.  [m^2]
 				Kokkos::parallel_reduce("reducezRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								tmp += rt.aveVB(iGlob, 2) * rt.c(s, iGlob, 1) * gdom.dx * gdom.dy;
-							} }, Kokkos::Sum<real>(QMassTot));
+							const int iGhost = gcells[ibc];
+							const real area = gdom.dx * gdom.dy;
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (rt.c(target_spec, iGlob + 1, 1) - rt.c(target_spec, iGlob - 1, 1)) / (2.0 * gdom.dx);
+							const real dcdy = (rt.c(target_spec, iGlob + gdom.nxhc, 1) - rt.c(target_spec, iGlob - gdom.nxhc, 1)) / (2.0 * gdom.dy);
+							const real dcdz = (cGhost - cCell) / gdom.dz(iGlob);
+							const real qAdv = rt.aveVB(iGlob, 2) * cCell * area;
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 7) * dcdx +
+												 rt.dcal(target_spec, iGlob, 8) * dcdy +
+												 rt.dcal(target_spec, iGlob, 2) * dcdz) * area;
+							tmp += qAdv + qDisp;
+							}, Kokkos::Sum<real>(QMassTot));
+				Kokkos::parallel_reduce("reducezRT_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+							int iGlob = bcells[ibc];
+							const int iGhost = gcells[ibc];
+							const real area = gdom.dx * gdom.dy;
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (rt.c(target_spec, iGlob + 1, 1) - rt.c(target_spec, iGlob - 1, 1)) / (2.0 * gdom.dx);
+							const real dcdy = (rt.c(target_spec, iGlob + gdom.nxhc, 1) - rt.c(target_spec, iGlob - gdom.nxhc, 1)) / (2.0 * gdom.dy);
+							const real dcdz = (cGhost - cCell) / gdom.dz(iGlob);
+							const real qAdv = rt.aveVB(iGlob, 2) * cCell * area;
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 7) * dcdx +
+												 rt.dcal(target_spec, iGlob, 8) * dcdy +
+												 rt.dcal(target_spec, iGlob, 2) * dcdz) * area;
+							real qcell = qAdv + qDisp;
+							tmp += myfabs(qcell); }, Kokkos::Sum<real>(QMassAbsflow));
 				if (QMassTot > 0)
 				{
 					QMassOutflow = QMassTot;
@@ -769,9 +901,34 @@ public:
 			{
 				Kokkos::parallel_reduce("reducezRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
 							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								tmp += rt.aveVB(iGlob, 2) * rt.c(s, iGlob, 1) * gdom.dx * gdom.dy;
-							} }, Kokkos::Sum<real>(QMassTot));
+							const int iGhost = gcells[ibc];
+							const real area = gdom.dx * gdom.dy;
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (rt.c(target_spec, iGlob + 1, 1) - rt.c(target_spec, iGlob - 1, 1)) / (2.0 * gdom.dx);
+							const real dcdy = (rt.c(target_spec, iGlob + gdom.nxhc, 1) - rt.c(target_spec, iGlob - gdom.nxhc, 1)) / (2.0 * gdom.dy);
+							const real dcdz = (cCell - cGhost) / gdom.dz(iGlob);
+							const real qAdv = rt.aveVB(iGlob, 2) * cCell * area;
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 7) * dcdx +
+												 rt.dcal(target_spec, iGlob, 8) * dcdy +
+												 rt.dcal(target_spec, iGlob, 2) * dcdz) * area;
+							tmp += qAdv + qDisp;
+							}, Kokkos::Sum<real>(QMassTot));
+				Kokkos::parallel_reduce("reducezRT_abs", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+							int iGlob = bcells[ibc];
+							const int iGhost = gcells[ibc];
+							const real area = gdom.dx * gdom.dy;
+							const real cCell = rt.c(target_spec, iGlob, 1);
+							const real cGhost = rt.c(target_spec, iGhost, 1);
+							const real dcdx = (rt.c(target_spec, iGlob + 1, 1) - rt.c(target_spec, iGlob - 1, 1)) / (2.0 * gdom.dx);
+							const real dcdy = (rt.c(target_spec, iGlob + gdom.nxhc, 1) - rt.c(target_spec, iGlob - gdom.nxhc, 1)) / (2.0 * gdom.dy);
+							const real dcdz = (cCell - cGhost) / gdom.dz(iGlob);
+							const real qAdv = rt.aveVB(iGlob, 2) * cCell * area;
+							const real qDisp = -(rt.dcal(target_spec, iGlob, 7) * dcdx +
+												 rt.dcal(target_spec, iGlob, 8) * dcdy +
+												 rt.dcal(target_spec, iGlob, 2) * dcdz) * area;
+							real qcell = qAdv + qDisp;
+							tmp += myfabs(qcell); }, Kokkos::Sum<real>(QMassAbsflow));
 				if (QMassTot > 0)
 				{
 					QMassInflow = QMassTot;

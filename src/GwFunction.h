@@ -13,8 +13,13 @@
 #include "GwState.h"
 #include "GwIntegrator.h"
 #include "State.h"
+#include "SourceSink.h"
+#include "FileIO.h"
 #include <set>
 #include <math.h>
+#if SERGHEI_WAVE_MODEL
+#include "WaveBoundary.h"
+#endif
 // [CODE1] Crop growth model (WOFOST) coupling support
 #if CROP_GROWTH_MODEL
 #include "./cropsrc/Wofost72.h"
@@ -34,17 +39,34 @@ public:
 #if CROP_GROWTH_MODEL
 	template <typename execution_space, typename type_solver>
     inline void pca_solve(GwState &gw, GwDomain &gdom, std::vector<GwBC> &gbc,
-            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, GwIntegrator &gint, Parallel &par, Wofost72 &wofost)  {
+            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, GwIntegrator &gint, Parallel &par, Wofost72 &wofost
+#if SERGHEI_WAVE_MODEL
+                , WaveBoundaryModel *waveBoundary = nullptr, WaveBoundaryState *waveState = nullptr, SourceSinkData *swss = nullptr, Domain const *dom = nullptr, FileIO const *io = nullptr
+#endif
+            )  {
 #else
 	template <typename execution_space, typename type_solver>
     inline void pca_solve(GwState &gw, GwDomain &gdom, std::vector<GwBC> &gbc,
-            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, GwIntegrator &gint, Parallel &par)  {
+            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, GwIntegrator &gint, Parallel &par
+#if SERGHEI_WAVE_MODEL
+                , WaveBoundaryModel *waveBoundary = nullptr, WaveBoundaryState *waveState = nullptr, SourceSinkData *swss = nullptr, Domain const *dom = nullptr, FileIO const *io = nullptr
+#endif
+            )  {
 #endif
         int iter, ierr=1;
         real dt_tmp;
 
 		timer.reset();
 		timer2.reset();
+#if SERGHEI_WAVE_MODEL
+        if (waveBoundary != nullptr && waveState != nullptr && swss != nullptr && dom != nullptr && io != nullptr && dom->isWave)
+        {
+            waveBoundary->update_wave_boundary(*waveState, *swss, *dom, gdom, *io);
+            waveBoundary->apply_wave_head_to_bc(*waveState, gbc);
+        }
+#endif
+
+// printf(" START: h = %f\n", gw.h(200,1));
 		for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyHBC(gw, gdom, par);
         }
@@ -77,6 +99,8 @@ public:
             iGlob = (gdom.hc+kk)*gdom.nxhc*gdom.nyhc + (gdom.hc+jj)*gdom.nxhc + ii + gdom.hc;
             gw.h(iGlob,1) = A.x(idom);
         });
+
+        // printf(" SOLVE: h = %f\n", gw.h(200,1));
 
 		timer.reset();
         gmpi.mpi_sendrecv(gw.h, gdom, par);
@@ -134,6 +158,9 @@ public:
 		gdom.timers.re.gwIntegrate += timer.seconds();
 
 		gdom.timers.re.gw += timer2.seconds();
+
+        // printf(" FINAL: h = %f\n", gw.h(200,1));
+        // printf(" ----- \n\n");
     }
 
     /* --------------------------------------------------
@@ -143,17 +170,32 @@ public:
 #if CROP_GROWTH_MODEL
 	template <typename execution_space, typename type_solver>
     inline void picard_solve(GwState &gw, GwDomain &gdom, std::vector<GwBC> &gbc,
-            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, GwIntegrator &gint, Parallel &par, Wofost72 &wofost)  {
+            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, GwIntegrator &gint, Parallel &par, Wofost72 &wofost
+#if SERGHEI_WAVE_MODEL
+            , WaveBoundaryModel *waveBoundary = nullptr, WaveBoundaryState *waveState = nullptr, SourceSinkData *swss = nullptr, Domain const *dom = nullptr, FileIO const *io = nullptr
+#endif
+            )  {
 #else
 	template <typename execution_space, typename type_solver>
     inline void picard_solve(GwState &gw, GwDomain &gdom, std::vector<GwBC> &gbc,
-            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, GwIntegrator &gint, Parallel &par)  {
+            GwMatrix &A, type_solver &gsolver, std::vector<GwSS> &gss, GwMPI &gmpi, GwIntegrator &gint, Parallel &par
+#if SERGHEI_WAVE_MODEL
+            , WaveBoundaryModel *waveBoundary = nullptr, WaveBoundaryState *waveState = nullptr, SourceSinkData *swss = nullptr, Domain const *dom = nullptr, FileIO const *io = nullptr
+#endif
+            )  {
 #endif
         int iter, iter_cg, iter_max = 50, ierr=1;
         real eps_diff = 1.0, eps_old = 1.0, eps = 1.0, eps_diff_tmp = 1.0, eps_old_emp = 1.0, eps_tmp = 1.0;
 		real eps_min = 1e-5, dt_tmp;
 		timer.reset();
 		timer2.reset();
+#if SERGHEI_WAVE_MODEL
+        if (waveBoundary != nullptr && waveState != nullptr && swss != nullptr && dom != nullptr && io != nullptr && dom->isWave)
+        {
+            waveBoundary->update_wave_boundary(*waveState, *swss, *dom, gdom, *io);
+            waveBoundary->apply_wave_head_to_bc(*waveState, gbc);
+        }
+#endif
         for (int k = 0; k < gbc.size(); k++) {
             gbc[k].applyHBC(gw, gdom, par);
         }

@@ -27,6 +27,10 @@ public:
 	int ncellsBC, ncellsBC_glob, ncellsIT, ncellsIT_glob;
 	real QinBC, QoutBC, QinSS, QoutSS;
 	real QinBC_glob, QoutBC_glob, QinSS_glob, QoutSS_glob;
+	std::vector<real> QnetBC;		// local signed flux per boundary (+inflow, -outflow)
+	std::vector<real> QnetBC_glob; // globally reduced signed flux per boundary
+	std::vector<real> QabsBC;		// local exchange intensity per boundary (sum over cells of |q_face|*area)
+	std::vector<real> QabsBC_glob; // globally reduced exchange intensity per boundary
 
 	// [Code1] Extended source/sink tracking for soil evaporation, root transpiration, and tile drainage
 	real QoutSS_SoilEvap, QoutSS_RootTransp, QoutSS_TileDrainage;
@@ -113,6 +117,11 @@ public:
 		// [Code2] Base boundary flow logic preserved
 		QinBC = 0.0;
 		QoutBC = 0.0;
+		ncellsBC = 0;
+		QnetBC.assign(gwbc.size(), 0.0);
+		QnetBC_glob.assign(gwbc.size(), 0.0);
+		QabsBC.assign(gwbc.size(), 0.0);
+		QabsBC_glob.assign(gwbc.size(), 0.0);
 		for (int k = 0; k < gwbc.size(); k++)
 		{
 			int _ncellsBC;
@@ -120,12 +129,19 @@ public:
 			ncellsBC += _ncellsBC;
 			QinBC += gwbc[k].Qinflow;
 			QoutBC += gwbc[k].Qoutflow;
+			QnetBC[k] = gwbc[k].Qinflow - gwbc[k].Qoutflow;
+			QabsBC[k] = gwbc[k].Qabsflow;
 		}
 		QinBC_glob = 0.0;
 		QoutBC_glob = 0.0;
 		ncellsBC_glob = 0;
 		ierr = MPI_Allreduce(&QinBC, &QinBC_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
 		ierr = MPI_Allreduce(&QoutBC, &QoutBC_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
+		if (!QnetBC.empty())
+		{
+			ierr = MPI_Allreduce(QnetBC.data(), QnetBC_glob.data(), static_cast<int>(QnetBC.size()), SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
+			ierr = MPI_Allreduce(QabsBC.data(), QabsBC_glob.data(), static_cast<int>(QabsBC.size()), SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
+		}
 		ierr = MPI_Allreduce(&ncellsBC, &ncellsBC_glob, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
 		MPI_Barrier(MPI_COMM_WORLD);
 
@@ -133,6 +149,7 @@ public:
 		// [Merge] Base structure from Code2, extended with Code1's soil evaporation / root transpiration / tile drainage tracking
 		QinSS = 0.0;
 		QoutSS = 0.0;
+		ncellsIT = 0;
 		// [Code1] Initialize extended source/sink tracking variables
 		QoutSS_SoilEvap = 0.0;
 		QoutSS_RootTransp = 0.0;

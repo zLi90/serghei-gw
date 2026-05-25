@@ -171,7 +171,7 @@ public:
   {
 
     std::string fNameIn = io.inFolder;
-    int const Nfiles = 7;
+    int const Nfiles = 8;
     int ierr[Nfiles];
     std::string tempStr;
 
@@ -269,6 +269,11 @@ public:
 
     tempStr = fNameIn + "wind.input";
     ierr[6] = readWindFile(tempStr, dom, ss.wind, par);
+
+#if SERGHEI_WAVE_MODEL
+    tempStr = fNameIn + "wave.input";
+    ierr[7] = readWaveFile(tempStr, dom, par, io);
+#endif
 
     for (int i = 0; i < Nfiles; i++)
     {
@@ -1275,6 +1280,159 @@ public:
     return 1;
   }
 
+  inline int readWaveFile(std::string fNameIn, Domain &dom, Parallel &par, FileIO &io)
+  {
+    dom.isWave = 0;
+    io.wave.enabled = 0;
+    io.wave.waveMethod = "smb";
+    io.wave.windSource = "windfile";
+    io.wave.fetchSource = "precomputed";
+    io.wave.fetchFile = "fetch.input";
+    io.wave.phaseMode = "fetchprojection";
+    io.wave.meanLakeLevel = SERGHEI_NAN;
+    io.wave.windSpeedConst = SERGHEI_NAN;
+    io.wave.windDirectionConst = SERGHEI_NAN;
+
+    std::ifstream fInStream(fNameIn);
+    std::string line;
+    ParserLine pline;
+
+    if (!fInStream.is_open())
+    {
+      if (par.masterproc)
+        std::cout << YEXC << "wave.input not found. Wave boundary module disabled." << std::endl;
+      return 1;
+    }
+
+    while (std::getline(fInStream, line))
+    {
+      pline.line = line;
+      pline.lowercase();
+      pline.parse();
+
+      if (!pline.key.empty())
+      {
+        if (!strcmp("waveenable", pline.key.c_str()))
+        {
+          pline.value >> io.wave.enabled;
+        }
+        else if (!strcmp("wavemethod", pline.key.c_str()))
+        {
+          pline.value >> io.wave.waveMethod;
+        }
+        else if (!strcmp("windsource", pline.key.c_str()))
+        {
+          pline.value >> io.wave.windSource;
+        }
+        else if (!strcmp("fetchsource", pline.key.c_str()))
+        {
+          pline.value >> io.wave.fetchSource;
+        }
+        else if (!strcmp("fetchfile", pline.key.c_str()))
+        {
+          pline.value >> io.wave.fetchFile;
+        }
+        else if (!strcmp("phasemode", pline.key.c_str()))
+        {
+          pline.value >> io.wave.phaseMode;
+        }
+        else if (!strcmp("meanlakelevel", pline.key.c_str()))
+        {
+          pline.value >> io.wave.meanLakeLevel;
+        }
+        else if (!strcmp("windspeed", pline.key.c_str()))
+        {
+          pline.value >> io.wave.windSpeedConst;
+        }
+        else if (!strcmp("winddirection", pline.key.c_str()))
+        {
+          pline.value >> io.wave.windDirectionConst;
+        }
+        else
+        {
+          if (par.masterproc)
+          {
+            std::cerr << RERROR << "In wave.input: Key " << pline.key << " not understood." << std::endl;
+          }
+          return 0;
+        }
+      }
+    }
+
+    if (!io.wave.enabled)
+    {
+      if (par.masterproc)
+        std::cout << GOK << "Wave boundary module disabled by wave.input" << std::endl;
+      return 1;
+    }
+
+    if (!checkValidOption(io.wave.waveMethod, io.wave.waveMethods))
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "Invalid wave method in wave.input: " << io.wave.waveMethod << std::endl;
+      return 0;
+    }
+
+    if (!checkValidOption(io.wave.windSource, io.wave.windSources))
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "Invalid wind source in wave.input: " << io.wave.windSource << std::endl;
+      return 0;
+    }
+
+    if (!checkValidOption(io.wave.fetchSource, io.wave.fetchSources))
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "Invalid fetch source in wave.input: " << io.wave.fetchSource << std::endl;
+      return 0;
+    }
+
+    if (!checkValidOption(io.wave.phaseMode, io.wave.phaseModes))
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "Invalid phase mode in wave.input: " << io.wave.phaseMode << std::endl;
+      return 0;
+    }
+
+    if (isnan(io.wave.meanLakeLevel))
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "Missing required key meanLakeLevel in wave.input" << std::endl;
+      return 0;
+    }
+
+    if (!io.wave.windSource.compare("constant"))
+    {
+      if (isnan(io.wave.windSpeedConst) || isnan(io.wave.windDirectionConst))
+      {
+        if (par.masterproc)
+          std::cerr << RERROR << "windSpeed and windDirection are required for windSource: constant" << std::endl;
+        return 0;
+      }
+      dom.waveWindSpeed = io.wave.windSpeedConst;
+      dom.waveWindDirection = io.wave.windDirectionConst;
+    }
+    else if (!dom.isWind)
+    {
+      if (par.masterproc)
+        std::cerr << RERROR << "windSource: windfile requires a valid wind.input file." << std::endl;
+      return 0;
+    }
+
+    dom.isWave = 1;
+    dom.waveMeanLakeLevel = io.wave.meanLakeLevel;
+
+    if (par.masterproc)
+    {
+      std::cout << GOK << "Wave boundary module enabled" << std::endl;
+      std::cout << BDASH << "waveMethod: " << io.wave.waveMethod << std::endl;
+      std::cout << BDASH << "windSource: " << io.wave.windSource << std::endl;
+      std::cout << BDASH << "meanLakeLevel: " << dom.waveMeanLakeLevel << std::endl;
+    }
+
+    return 1;
+  }
+
 #if SERGHEI_RAINFALL_POLYGONS
   inline int readRainByPolygons(std::string fNameIn, Domain &dom, SourceSinkData &ss, Parallel &par)
   {
@@ -2098,7 +2256,16 @@ public:
 
     if (!strcmp(strloc.c_str(), "NETCDF"))
     {
+#if !SERGHEI_USE_PNETCDF
+      if (par.masterproc)
+      {
+        std::cerr << RERROR << "outFormat=NETCDF requested in " << fNameIn
+                  << " but this build has SERGHEI_USE_PNETCDF=0. Use VTK or BIN." << std::endl;
+      }
+      exit(-1);
+#else
       io.outFormat = OUT_NETCDF;
+#endif
     }
     else if (!strcmp(strloc.c_str(), "VTK"))
     {

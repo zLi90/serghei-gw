@@ -1,0 +1,14 @@
+// RE solver / grid control
+height : 5.0
+dz_multiplier : 1.0
+dz_base : 0.1
+ndepth : 50
+nSoilID : 1
+initialMode : 4
+dt_init : 0.01
+dt_max : 30.0
+gw_scheme : 1
+cg_iter : 1000
+cg_tol : 1e-08
+async : 0
+aev : 0.0

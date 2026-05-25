@@ -24,8 +24,10 @@ find_package(MPI REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE MPI::MPI_CXX)
 
 #	Link PNetCDF library
-target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${PNETCDF_ROOT}/include)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE     ${PNETCDF_ROOT}/lib/libpnetcdf.a)
+if(SERGHEI_USE_PNETCDF)
+	target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${PNETCDF_ROOT}/include)
+	target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE     ${PNETCDF_ROOT}/lib/libpnetcdf.a)
+endif()
 
 #	Link KokkosKernels
 find_package(KokkosKernels REQUIRED)

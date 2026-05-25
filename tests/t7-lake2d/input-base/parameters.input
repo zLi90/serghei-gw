@@ -1,0 +1,10 @@
+// Global run control
+simLength : 86400.0
+cfl : 0.8
+outFreq : 3600.0
+obsFreq : 60.0
+nScreen : 1000
+parNx : 1
+parNy : 1
+outFormat : VTK
+BCtype : REFLECTIVE

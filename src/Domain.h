@@ -55,6 +55,7 @@ public:
   int BCtype;
   int isRain = 0;
   int isWind = 0;
+  int isWave = 0;
   // int isEvap = 0;
 
 #if SW_GW_EVAPORATION_TRANSPIRATION_MODEL
@@ -68,6 +69,9 @@ public:
   int cg_iter;
 
   real area, hwmin, CwT;
+  real waveMeanLakeLevel = SERGHEI_NAN;
+  real waveWindSpeed = SERGHEI_NAN;
+  real waveWindDirection = SERGHEI_NAN;
   int id;      // subdomain ID
   int nsubdom; // number of subdomains
 
