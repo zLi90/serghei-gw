@@ -1,6 +1,6 @@
-# SERGHEI User Manual — Solute Transport & WOFOST Crop Growth Coupling
+# SERGHEI User Manual — Build, Run, Hydrology, Transport, WOFOST, and Wave Boundary
 
-> **Scope**: This manual covers the **solute (reactive) transport** module (surface water and groundwater) and the **WOFOST 7.2 crop growth** module within SERGHEI. Hydrodynamics input files are not documented here.
+> **Scope**: This manual covers build/compile/run workflow, required user configuration for core modules (**surface flow, subsurface flow, coupled flow, solute transport, WOFOST, wave-driven RE boundary**), and detailed variable descriptions for transport and crop coupling.
 >
 > **Reference test case**: `tests/t9-gaoyou-Ncycle-WOFOST/` (paddy rice with nitrogen cycle)
 
@@ -8,31 +8,826 @@
 
 ## Table of Contents
 
-- [1. Surface Water Solute Transport](#1-surface-water-solute-transport)
-  - [1.1 Transport Parameters — rttransportsw.input](#11-transport-parameters--rttransportswinput)
-  - [1.2 Boundary Conditions — rtswbc.input](#12-boundary-conditions--rtswbcinput)
-  - [1.3 Source/Sink Terms — rtswss.input](#13-sourcesink-terms--rtswssinput)
-  - [1.4 Reaction Parameters — reactionsw.input](#14-reaction-parameters--reactionswinput)
-- [2. Groundwater Solute Transport](#2-groundwater-solute-transport)
-  - [2.1 Transport Parameters — rttransportgw.input](#21-transport-parameters--rttransportgwinput)
-  - [2.2 Boundary Conditions — rtgwbc.input](#22-boundary-conditions--rtgwbcinput)
-  - [2.3 Reaction Parameters — reactiongw.input](#23-reaction-parameters--reactiongwinput)
-  - [2.4 Groundwater Source/Sink — rtgwss.input](#24-groundwater-sourcesink--rtgwssinput)
-  - [2.5 Initial Condition Files](#25-initial-condition-files)
-- [3. WOFOST Crop Growth Model](#3-wofost-crop-growth-model)
-  - [3.1 Crop Parameters — cropparameter.input](#31-crop-parameters--cropparameterinput)
-  - [3.2 Meteorological Data — cropmeteo.input](#32-meteorological-data--cropmeteoinput)
-  - [3.3 Agricultural Management — agro.input](#33-agricultural-management--agroinput)
-  - [3.4 WOFOST–SERGHEI Coupling Interface](#34-wofostserghei-coupling-interface)
-- [4. Timeseries File Format](#4-timeseries-file-format)
+- [0. Build, Compile, Run, and Module Configuration](#0-build-compile-run-and-module-configuration)
+  - [0.1 System Prerequisites](#01-system-prerequisites)
+  - [0.2 CMake Options and Compile-Time Switches](#02-cmake-options-and-compile-time-switches)
+  - [0.3 Build and Compile Commands](#03-build-and-compile-commands)
+  - [0.4 Executable Usage](#04-executable-usage)
+  - [0.5 Module Configuration Matrix (What to Enable and Which Input Files Are Required)](#05-module-configuration-matrix-what-to-enable-and-which-input-files-are-required)
+- [1. Surface Flow Module (SWE Hydrodynamics)](#1-surface-flow-module-swe-hydrodynamics)
+  - [1.0 Theoretical Background and Applicability](#10-theoretical-background-and-applicability)
+  - [1.1 parameters.input (Global Runtime Control)](#11-parametersinput-global-runtime-control)
+  - [1.2 dem.input (Topography Raster)](#12-deminput-topography-raster)
+  - [1.3 sw.input (Surface Hydrodynamics Control)](#13-swinput-surface-hydrodynamics-control)
+  - [1.4 extbc.input (SWE External Boundaries)](#14-extbcinput-swe-external-boundaries)
+- [2. Subsurface Flow Module (RE Hydrodynamics)](#2-subsurface-flow-module-re-hydrodynamics)
+  - [2.0 Theoretical Background and Applicability](#20-theoretical-background-and-applicability)
+  - [2.1 subsurface.input (RE Solver and Grid Control)](#21-subsurfaceinput-re-solver-and-grid-control)
+  - [2.2 soilID.input (3D Soil-Class Map)](#22-soilidinput-3d-soil-class-map)
+  - [2.3 vg.input (van Genuchten Hydraulic Parameters)](#23-vginput-van-genuchten-hydraulic-parameters)
+  - [2.4 gwbc.input (RE Boundary Conditions)](#24-gwbcinput-re-boundary-conditions)
+  - [2.5 gwss.input (RE Source/Sink and Tile Drainage)](#25-gwssinput-re-sourcesink-and-tile-drainage)
+  - [2.6 Wave-Driven Boundary Condition Quick Setup](#26-wave-driven-boundary-condition-quick-setup)
+  - [2.7 Wave-Driven Boundary Example Input Files](#27-wave-driven-boundary-example-input-files)
+- [3. Surface Water Solute Transport](#3-surface-water-solute-transport)
+  - [3.0 Theoretical Background and Applicability](#30-theoretical-background-and-applicability)
+  - [3.1 Transport Parameters — rttransportsw.input](#31-transport-parameters--rttransportswinput)
+  - [3.2 Boundary Conditions — rtswbc.input](#32-boundary-conditions--rtswbcinput)
+  - [3.3 Source/Sink Terms — rtswss.input](#33-sourcesink-terms--rtswssinput)
+  - [3.4 Reaction Parameters — reactionsw.input](#34-reaction-parameters--reactionswinput)
+- [4. Groundwater Solute Transport](#4-groundwater-solute-transport)
+  - [4.0 Theoretical Background and Applicability](#40-theoretical-background-and-applicability)
+  - [4.1 Transport Parameters — rttransportgw.input](#41-transport-parameters--rttransportgwinput)
+  - [4.2 Boundary Conditions — rtgwbc.input](#42-boundary-conditions--rtgwbcinput)
+  - [4.3 Reaction Parameters — reactiongw.input](#43-reaction-parameters--reactiongwinput)
+  - [4.4 Groundwater Source/Sink — rtgwss.input](#44-groundwater-sourcesink--rtgwssinput)
+  - [4.5 Initial Condition Files](#45-initial-condition-files)
+- [5. WOFOST Crop Growth Model](#5-wofost-crop-growth-model)
+  - [5.0 Theoretical Background and Applicability](#50-theoretical-background-and-applicability)
+  - [5.1 Crop Parameters — cropparameter.input](#51-crop-parameters--cropparameterinput)
+  - [5.2 Meteorological Data — cropmeteo.input](#52-meteorological-data--cropmeteoinput)
+  - [5.3 Agricultural Management — agro.input](#53-agricultural-management--agroinput)
+  - [5.4 WOFOST–SERGHEI Coupling Interface](#54-wofostserghei-coupling-interface)
+- [6. Timeseries File Format](#6-timeseries-file-format)
 - [Appendix A: Species Ordering Convention](#appendix-a-species-ordering-convention)
 - [Appendix B: Input File Quick-Reference Checklist](#appendix-b-input-file-quick-reference-checklist)
 
 ---
 
-## 1. Surface Water Solute Transport
+## 0. Build, Compile, Run, and Module Configuration
 
-### 1.1 Transport Parameters — `rttransportsw.input`
+### 0.1 System Prerequisites
+
+Required toolchain and libraries:
+
+- CMake (>= 3.14)
+- MPI compiler/runtime (`mpicc`, `mpicxx`, `mpirun` or equivalent)
+- C++17 compiler (the current project CMake uses `gcc-14`/`g++-14` by default)
+- Kokkos + KokkosKernels installation
+- Optional: PNETCDF (only required when building with `SERGHEI_USE_PNETCDF=ON`)
+
+Project-level paths currently configured in `CMakeLists.txt`:
+
+- `PNETCDF_ROOT` (optional in no-PNETCDF builds)
+- `KokkosKernels_ROOT` (required)
+
+---
+
+### 0.2 CMake Options and Compile-Time Switches
+
+Main CMake options in this repository:
+
+- `SERGHEI_SUBSURFACE_MODEL` (`ON/OFF`) → enables Richards equation (RE) subsurface model
+- `SERGHEI_SWE_MODEL` (`ON/OFF`) → enables shallow water equations (SWE) surface model
+- `SERGHEI_SUBSURFACE_TRANSPORT` (`ON/OFF`) → enables groundwater solute transport (requires RE enabled)
+- `SERGHEI_SURFACE_TRANSPORT` (`ON/OFF`) → enables surface solute transport (requires SWE enabled)
+- `CROP_GROWTH_MODEL` (`ON/OFF`) → enables WOFOST crop growth module
+- `SERGHEI_WAVE_MODEL` (`ON/OFF`) → enables wave-driven RE boundary module
+- `SERGHEI_USE_PNETCDF` (`ON/OFF`) → enables/disables PNETCDF I/O path
+- `SERGHEI_VEGETATION_MODEL`, `SERGHEI_PARTICLE_TRACKING`, etc.
+
+Important behavior:
+
+- If `SERGHEI_USE_PNETCDF=OFF`, NetCDF input/forcing paths are force-disabled at compile time.
+- In no-PNETCDF builds, runtime `outFormat` must be `VTK` or `BIN` (not `NETCDF`).
+- The wave module requires the subsurface model (`SERGHEI_SUBSURFACE_MODEL=ON`).
+- `SERGHEI_SURFACE_TRANSPORT=ON` requires `SERGHEI_SWE_MODEL=ON` (otherwise surface transport is forced `OFF` at compile time).
+- `SERGHEI_SUBSURFACE_TRANSPORT=ON` requires `SERGHEI_SUBSURFACE_MODEL=ON` (otherwise subsurface transport is forced `OFF` at compile time).
+
+---
+
+### 0.3 Build and Compile Commands
+
+From repository root:
+
+```bash
+cmake -S . -B build \
+  -DSERGHEI_SUBSURFACE_MODEL=ON \
+  -DSERGHEI_SWE_MODEL=OFF \
+  -DSERGHEI_SUBSURFACE_TRANSPORT=ON \
+  -DSERGHEI_SURFACE_TRANSPORT=OFF \
+  -DCROP_GROWTH_MODEL=ON \
+  -DSERGHEI_WAVE_MODEL=ON \
+  -DSERGHEI_USE_PNETCDF=OFF
+
+cmake --build build -j 8
+```
+
+To disable transport and crop modules at compile time (if you want a minimal hydrology-only binary):
+
+```bash
+cmake -S . -B build-min \
+  -DSERGHEI_SUBSURFACE_MODEL=ON \
+  -DSERGHEI_SWE_MODEL=OFF \
+  -DSERGHEI_SUBSURFACE_TRANSPORT=OFF \
+  -DSERGHEI_SURFACE_TRANSPORT=OFF \
+  -DCROP_GROWTH_MODEL=OFF \
+  -DSERGHEI_WAVE_MODEL=ON \
+  -DSERGHEI_USE_PNETCDF=OFF
+
+cmake --build build-min -j 8
+```
+
+Executable is copied to:
+
+- `build/bin/serghei` (or `build-<name>/bin/serghei`)
+
+---
+
+### 0.4 Executable Usage
+
+Run format:
+
+```bash
+./serghei <input_folder/> <output_folder/> <n_threads>
+```
+
+Example:
+
+```bash
+./serghei tests/t6-2D-Solute-transport/ tests/t6-2D-Solute-transport/out/ 4
+```
+
+Notes:
+
+- `input_folder` and `output_folder` should end with `/`.
+- The output directory must **not** already exist at startup.
+- In no-PNETCDF builds (`SERGHEI_USE_PNETCDF=OFF`), set `outFormat` to `BIN` or `VTK`.
+
+---
+
+### 0.5 Module Configuration Matrix (What to Enable and Which Input Files Are Required)
+
+| Module/Mode | Compile-Time Requirements | Core Runtime Inputs |
+|---|---|---|
+| Surface flow only (SWE) | `SERGHEI_SWE_MODEL=ON` | `parameters.input`, `dem.input`, `sw.input`, `extbc.input`, rainfall/forcing inputs |
+| Subsurface flow only (RE) | `SERGHEI_SUBSURFACE_MODEL=ON` | `parameters.input`, `dem.input`, `subsurface.input`, `gwbc.input`, `soilID.input`, `vg.input` (+ initial condition files depending on `initialMode`) |
+| Coupled SWE-RE | `SERGHEI_SWE_MODEL=ON` and `SERGHEI_SUBSURFACE_MODEL=ON` | All SWE + RE files above |
+| Surface solute transport | `SERGHEI_SURFACE_TRANSPORT=ON` + `SERGHEI_SWE_MODEL=ON` | `rttransportsw.input`, `rtswbc.input`, optional `rtswss.input`, optional `reactionsw.input` |
+| Groundwater solute transport | `SERGHEI_SUBSURFACE_TRANSPORT=ON` + `SERGHEI_SUBSURFACE_MODEL=ON` | `rttransportgw.input`, `rtgwbc.input`, optional `rtgwss.input`, optional `reactiongw.input` |
+| WOFOST crop growth | `CROP_GROWTH_MODEL=ON` | `cropparameter.input`, `cropmeteo.input` (plus hydrology coupling inputs already required by RE/SWE) |
+| Wave-driven RE boundary | `SERGHEI_WAVE_MODEL=ON` + RE enabled | `wave.input`, `fetch.input`, `wind.input` (if `windSource: windfile`) |
+
+Additional notes:
+
+- Groundwater source/sink file `gwss.input` is optional (if missing, no custom GW source/sinks are applied).
+- For RE `initialMode`, additional input files may be required (e.g., `head.input`, `theta.input`, or `wt.input`).
+- Current WOFOST implementation in this branch uses `cropparameter.input` and `cropmeteo.input`; if you maintain external agro-management files, ensure they are wired into your local branch parser/initializer.
+
+---
+
+## 1. Surface Flow Module (SWE Hydrodynamics)
+
+This chapter documents the **surface-flow hydrodynamics input files** and their fields (not transport variables).
+
+Compile-time requirement:
+
+- `SERGHEI_SWE_MODEL=ON`
+
+Primary files in this chapter:
+
+- `parameters.input`
+- `dem.input`
+- `sw.input`
+- `extbc.input`
+
+### 1.0 Theoretical Background and Applicability
+
+SERGHEI SWE uses depth-averaged shallow-water equations (SWE), which assume:
+
+- horizontal length scales are much larger than water depth,
+- hydrostatic pressure in the vertical direction,
+- one depth-averaged velocity per horizontal cell.
+
+Representative conservative form:
+
+```text
+Continuity:      d(h)/dt + d(hu)/dx + d(hv)/dy = sources/sinks
+Momentum-x:      d(hu)/dt + d(hu^2 + 0.5 g h^2)/dx + d(huv)/dy = bed slope + friction + forcing
+Momentum-y:      d(hv)/dt + d(huv)/dx + d(hv^2 + 0.5 g h^2)/dy = bed slope + friction + forcing
+```
+
+Where `h` is depth and `hu`, `hv` are unit discharges.
+
+Numerical design and behavior (new-user perspective):
+
+- finite-volume style flux update on raster cells,
+- explicit/adaptive timestep constrained by CFL (`cfl` in `parameters.input`),
+- wetting/drying treatment for intermittently inundated cells,
+- source terms for rainfall/infiltration/friction/boundary forcing.
+
+Assumptions and simplifications:
+
+- no explicit vertical velocity profile (2D depth-averaged),
+- non-hydrostatic effects are neglected,
+- subgrid turbulence and micro-topography are parameterized, not resolved.
+
+Areas of applicability:
+
+- floodplain routing and overland flow,
+- rainfall-runoff and hydraulic response studies,
+- SW-GW coupling scenarios where SWE provides surface boundary conditions.
+
+Use caution when:
+
+- strongly non-hydrostatic wave effects dominate,
+- highly 3D structures are central to the objective,
+- very steep/rapidly varied flows exceed shallow-water assumptions.
+
+### 1.1 `parameters.input` (Global Runtime Control)
+
+**File path**: `<input_folder>/parameters.input`  
+**Source code**: `src/Parser.h` → `readParamsFile()`
+
+This file defines global runtime control for the simulation and is shared by SWE and RE runs.
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `simLength` | real | Yes\* | Total simulation duration [s]. |
+| `endTime` | real | Optional | Alternative to `simLength`; if set, total duration is computed as `endTime - startTime`. |
+| `cfl` | real | Yes | CFL number for adaptive time stepping. |
+| `parNx` | int | Yes | MPI decomposition in x-direction. |
+| `parNy` | int | Yes | MPI decomposition in y-direction. |
+| `outFreq` | real | Yes | Spatial output interval [s]. |
+| `obsFreq` | real | Yes | Time-series output interval [s]. |
+| `nScreen` | int | Optional | Console print interval in iterations. |
+| `outFormat` | enum | Yes | `NETCDF`, `VTK`, or `BIN` (use `VTK/BIN` for no-PNETCDF builds). |
+| `BCtype` | enum | Yes | Outer domain BC type: `PERIODIC`, `REFLECTIVE`, or `TRANSMISSIVE`. |
+| `writeRain` | int/bool | Optional | NetCDF output switch for rainfall field. |
+| `writeRainAccum` | int/bool | Optional | NetCDF output switch for accumulated rainfall. |
+| `writeLandUse` | int/bool | Optional | NetCDF output switch for land use map. |
+| `writeSoilMap` | int/bool | Optional | NetCDF output switch for soil map. |
+| `writeRoughness` | int/bool | Optional | NetCDF output switch for roughness map. |
+| `writeInfParameters` | int/bool | Optional | NetCDF output switch for infiltration parameters. |
+
+\* At least one of `simLength` or `endTime` must define a valid run interval.
+
+Minimal example:
+
+```text
+simLength : 3600
+cfl : 0.1
+outFreq : 60
+obsFreq : 60
+parNx : 1
+parNy : 1
+outFormat : BIN
+BCtype : REFLECTIVE
+```
+
+### 1.2 `dem.input` (Topography Raster)
+
+**File path**: `<input_folder>/dem.input`  
+**Source code**: `src/Parser.h` → `readHeaderDEMFile()`, `readDEMFile()`
+
+SERGHEI expects ESRI-ASCII-like raster header + grid values.
+
+| Header Field | Type | Required | Description |
+|---|---|---|---|
+| `ncols` | int | Yes | Number of columns (`nx_glob`). |
+| `nrows` | int | Yes | Number of rows (`ny_glob`). |
+| `xllcorner`/`xll` | real | Yes | Lower-left x coordinate. |
+| `yllcorner`/`yll` | real | Yes | Lower-left y coordinate. |
+| `cellsize` | real | Yes | Uniform cell size (`dx`). |
+| `nodata_value` | real | Yes | No-data marker in DEM values. |
+
+After the header, provide `nrows * ncols` elevations.
+
+Example:
+
+```text
+ncols 40
+nrows 1
+xllcorner 0.0
+yllcorner 0.0
+cellsize 0.25
+nodata_value -9999
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+```
+
+### 1.3 `sw.input` (Surface Hydrodynamics Control)
+
+**File path**: `<input_folder>/sw.input`  
+**Source code**: `src/Parser.h` → `readSWFile()`
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `initialMode` | enum | Yes | SWE initialization mode: `dry`, `h`, `h+z`, `file`, `netcdf`. |
+| `initialValue` | real | Conditional | Used when `initialMode` is not `file/netcdf`. Interpreted as depth (`h`) or stage (`h+z`) depending on mode. |
+| `friction` | enum | Yes | Friction model: `none`, `manning`, `darcyweisbach`, or `chezy`. |
+| `roughness` | real/string | Conditional | Constant roughness value, or `file`/`netcdf` input map. |
+| `dryDepth` | real | Yes | Dry threshold depth for SWE numerics. |
+
+If `initialMode : file`, additional files are required:
+
+- `hini.input` (initial water depth)
+- `uini.input` (initial x-velocity)
+- `vini.input` (initial y-velocity)
+
+Minimal example:
+
+```text
+initialMode : dry
+initialValue : 0.0
+friction : manning
+roughness : 0.03
+dryDepth : 0.001
+```
+
+### 1.4 `extbc.input` (SWE External Boundaries)
+
+**File path**: `<input_folder>/extbc.input`  
+**Source code**: `src/Parser.h` → `readExtBCFile()`, `src/BC.h`
+
+`extbc.input` defines boundary blocks; each block starts with `id`.
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `bccount` | int | Yes | Number of boundary-condition blocks. |
+| `id` | string | Yes | Boundary identifier. |
+| `bctype` | int | Yes | SWE boundary type ID. |
+| `polygon` | string | Yes | Polygon file defining boundary cells. |
+| `direction` | real real | Yes | Outward normal vector components `(nx ny)`. |
+| `bcvals` | real real real | Conditional | Constant BC values (meaning depends on `bctype`). |
+| `hydrograph` | string | Conditional | Time-varying forcing file for dynamic boundary types. |
+
+Common SWE `bctype` IDs:
+
+- `1`: periodic
+- `2`: reflective
+- `3`: transmissive
+- `6`: constant depth
+- `7`: constant discharge
+- `8`: constant water-surface elevation
+- `9`: free outflow
+- `10`, `11`, `12`: time-varying inlet/outlet variants
+
+Minimal example:
+
+```text
+bccount : 1
+id : inlet
+bctype : 6
+polygon : polygon_inlet.input
+direction : 1.0 0.0
+bcvals : 0.05 0.0 0.0
+```
+
+---
+
+## 2. Subsurface Flow Module (RE Hydrodynamics)
+
+This chapter documents **subsurface-flow hydrodynamics input files** and their fields (Richards equation, not reactive transport).
+
+Compile-time requirement:
+
+- `SERGHEI_SUBSURFACE_MODEL=ON`
+
+Primary files in this chapter:
+
+- `subsurface.input`
+- `soilID.input`
+- `vg.input`
+- `gwbc.input`
+- optional `gwss.input`
+
+### 2.0 Theoretical Background and Applicability
+
+SERGHEI RE solves variably saturated subsurface flow with Richards equation:
+
+```text
+C(h) dh/dt = div( K(h) grad(h + z) ) + sources/sinks
+```
+
+Where:
+
+- `h` = pressure head,
+- `z` = elevation head,
+- `K(h)` = unsaturated hydraulic conductivity,
+- `C(h)` = moisture capacity.
+
+Hydraulic constitutive relations are supplied through van Genuchten-type parameters (`vg.input`) and mapped by soil classes (`soilID.input`).
+
+Numerical design and behavior:
+
+- implicit nonlinear update (Picard/PCA options depending on setup),
+- iterative linear solves with user tolerances from `subsurface.input`,
+- 3D vertical layering (`ndepth`, `dz_base`, `dz_multiplier`) to represent vadose-to-saturated transitions.
+
+Assumptions and simplifications:
+
+- Darcy-scale continuum porous-media flow,
+- constitutive closure from calibrated retention/conductivity curves,
+- heterogeneity represented through input fields/classes (not pore-scale structure).
+
+Areas of applicability:
+
+- infiltration, recharge, and groundwater-table dynamics,
+- subsurface response to boundary/source forcing,
+- coupled SW-GW studies and contaminant transport drivers.
+
+Wave-enabled RE context (`SERGHEI_WAVE_MODEL=ON`):
+
+- wind + fetch are used to derive wave boundary forcing on eligible top Dirichlet RE cells,
+- this modifies top boundary behavior; it does not replace Richards equation physics.
+
+### 2.1 `subsurface.input` (RE Solver and Grid Control)
+
+**File path**: `<input_folder>/subsurface.input`  
+**Source code**: `src/GwInit.h` → `readSubsurfaceFile()` + `setGwState()`
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `ndepth` | int | Yes | Number of subsurface cells in vertical direction (`nz`). |
+| `height` | real | Yes | Total subsurface thickness [m]. |
+| `dz_multiplier` | real | Yes | Vertical-grid stretching factor. |
+| `dz_base` | real | Optional | Base vertical cell size control (if non-uniform profile is used). |
+| `dt_init` | real | Yes | Initial/minimum RE time step [s]. |
+| `dt_max` | real | Yes | Maximum RE time step [s]. |
+| `nSoilID` | int | Yes | Number of soil classes. Must match `soilID.input`/`vg.input`. |
+| `gw_scheme` | int | Yes | RE solver type: `1` PCA, `2` Picard. |
+| `cg_iter` | int | Optional | Max linear iterations for CG-based solve. |
+| `cg_tol` | real | Optional | Linear solver tolerance. |
+| `aev` | real | Yes | Air-entry related parameter (module-specific RE control). |
+| `async` | int/bool | Yes | SWE–RE asynchronous coupling switch. |
+| `initialMode` | int | Yes | Initial condition mode: `1` saturated, `2` head file, `3` theta file, `4` water-table file. |
+
+Initial condition files by `initialMode`:
+
+- `2` → `head.input`
+- `3` → `theta.input`
+- `4` → `wt.input`
+
+Minimal example:
+
+```text
+height : 5.0
+dz_multiplier : 1.0
+dz_base : 0.25
+ndepth : 20
+nSoilID : 1
+initialMode : 3
+dt_init : 0.01
+dt_max : 100.0
+gw_scheme : 1
+cg_iter : 1000
+cg_tol : 1e-8
+async : 0
+aev : 0.0
+```
+
+### 2.2 `soilID.input` (3D Soil-Class Map)
+
+**File path**: `<input_folder>/soilID.input`  
+**Source code**: `src/GwInit.h` → `readSoilID()`
+
+File layout:
+
+1. first token/value pair contains number of soil classes in file
+2. followed by `nx * ny * nz` integer IDs (for `nSoilID > 1`)
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `n_soil` (header value) | int | Yes | Must equal `nSoilID` from `subsurface.input`. |
+| soil IDs | int array | Conditional | Required when `nSoilID > 1`; each value is class index for one 3D cell. |
+
+Behavior:
+
+- If `nSoilID == 1`, the model can run with implicit soil class `0`.
+- If `nSoilID > 1`, this file is required and size must match `nx * ny * nz`.
+
+### 2.3 `vg.input` (van Genuchten Hydraulic Parameters)
+
+**File path**: `<input_folder>/vg.input`  
+**Source code**: `src/GwInit.h` → `readVGParameters()`
+
+Each key provides semicolon-separated values for all soil classes.
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `Ks` | list(real) | Yes | Saturated hydraulic conductivity per soil class. |
+| `Phi` | list(real) | Yes | Porosity per soil class. |
+| `ThetaS` | list(real) | Yes | Saturated water content per soil class. |
+| `ThetaR` | list(real) | Yes | Residual water content per soil class. |
+| `n` | list(real) | Yes | van Genuchten exponent per soil class. |
+| `alpha` | list(real) | Yes | van Genuchten alpha per soil class. |
+
+Example (`nSoilID = 2`):
+
+```text
+Ks : 1.0e-5;5.0e-6
+Phi : 0.45;0.40
+ThetaS : 0.45;0.40
+ThetaR : 0.05;0.08
+n : 1.6;1.3
+alpha : 3.6;1.2
+```
+
+### 2.4 `gwbc.input` (RE Boundary Conditions)
+
+**File path**: `<input_folder>/gwbc.input`  
+**Source code**: `src/GwInit.h` → `readGwBCFile()`, `src/GwBC.h`
+
+Boundary blocks are defined similarly to SWE BCs.
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `bccount` | int | Yes | Number of RE boundary blocks. |
+| `id` | string | Yes | Boundary identifier. |
+| `direction` | int | Yes | Face code: `1..6` (`6` top, `5` bottom). |
+| `bctype` | int | Yes | RE boundary type ID. |
+| `polygon` | string | Yes | Polygon selecting boundary footprint. |
+| `bcvals` | real | Conditional | Constant boundary value (replicated over boundary cells). |
+| `bcfile` | string | Conditional | Spatial boundary-value file (`nx ny nz` header + values). |
+| `timeseries` | string | Conditional | Time-varying boundary forcing file. |
+
+Common RE `bctype` IDs:
+
+- `1` no-flow
+- `2` constant head
+- `3` constant flux
+- `4` constant water table
+- `5` time-varying head
+- `6` time-varying flux
+- `7` time-varying water table
+- `8` SWE-coupled boundary
+- `9` free drainage
+
+Minimal example:
+
+```text
+bccount : 2
+
+id : top
+direction : 6
+bctype : 2
+bcvals : 0.10
+polygon : polygontop.input
+
+id : bottom
+direction : 5
+bctype : 9
+polygon : polygontop.input
+```
+
+### 2.5 `gwss.input` (RE Source/Sink and Tile Drainage)
+
+**File path**: `<input_folder>/gwss.input`  
+**Source code**: `src/GwInit.h` → `readGwSSFile()`
+
+This file is optional. If absent, the model runs with no custom groundwater source/sinks.
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `sscount` | int | Yes (if file present) | Number of source/sink blocks. |
+| `id` | string | Yes | Source/sink identifier. |
+| `sstype` | int | Yes | Source/sink type (implementation-specific mode selection). |
+| `polygon` | string | Yes | Polygon defining affected cells. |
+| `direction` | int | Optional | Direction code for directional source/sink interpretation. |
+| `ssvals` | real | Conditional | Constant source/sink value. |
+| `shapecorrection` | real | Optional | Pipe/source shape correction factor (`Cpipe`). |
+| `timeseries` | string | Optional | Time-varying source/sink forcing file. |
+| `TileDrainageFile` | string | Optional | Tile drainage parameter file (used with drainage-type setups). |
+
+If `TileDrainageFile` is used, recognized keys include:
+
+- `diameter`
+- `scale_factor`
+
+### 2.6 Wave-Driven Boundary Condition Quick Setup
+
+The wave-driven RE boundary module estimates wave state from wind + fetch, then applies that signal to the **top Dirichlet RE boundary cells** (lake-facing cells).
+
+Conceptually, the setup has four parts:
+
+1. **Model activation**
+   - Build with:
+     - `SERGHEI_SUBSURFACE_MODEL=ON`
+     - `SERGHEI_WAVE_MODEL=ON`
+
+2. **Hydraulic boundary eligibility**
+   - Wave forcing is applied only to top RE boundaries that are already Dirichlet-head/water-table boundaries.
+   - In `gwbc.input`, this means:
+     - boundary `direction : 6` (top face)
+     - head-type boundary condition (`bctype : 2/4/5/7` in current RE conventions)
+
+3. **Wave physics controls in `wave.input`**
+   - Required keys:
+     - `waveEnable`, `waveMethod`, `windSource`, `fetchSource`, `fetchFile`, `phaseMode`, `meanLakeLevel`
+   - If `windSource : constant`, also set:
+     - `windSpeed`, `windDirection`
+   - If `windSource : windfile`, provide `wind.input`.
+
+4. **Fetch data**
+   - Provide strictly positive fetch values in `fetch.input` (or boundary-list format, depending on `fetchSource`).
+   - Fetch values should represent effective open-water distance in the wind direction.
+
+#### What is the SMB method?
+
+The **SMB method** (Sverdrup-Munk-Bretschneider family of formulas) is an empirical wave-growth approach.  
+It predicts bulk wave properties (e.g., significant wave height and period) from:
+
+- wind speed,
+- fetch length,
+- and optionally depth limitation.
+
+It is widely used for lakes/reservoirs because it is simple, robust, and requires limited input data.
+
+#### What is the fetch-law method?
+
+“**Fetch-law**” generally refers to empirical growth laws where wave energy scales with effective fetch under given wind forcing.  
+In practice, this is the same modeling family as SMB-style approaches (different coefficient sets/closures may be used).
+
+In this branch, available `waveMethod` labels are implementation-dependent (for example `smb`, `jonswap_simple` in the current parser).  
+If your branch exposes `fetchlaw`, interpret it as a fetch-based empirical growth option.
+
+#### What is fetch projection (`phaseMode : fetchprojection`)?
+
+**Fetch projection** means the model projects each boundary point along wind direction and uses an effective fetch aligned with that direction.  
+This is important in irregular shorelines, where geometric fetch differs strongly by location and wind angle.
+
+Practical impact:
+
+- With `fetchprojection`, local wave forcing varies more realistically with wind direction.
+- With simpler phase/coordinate modes, forcing may be smoother but less directional.
+
+#### What is fetch length?
+
+**Fetch length** is the unobstructed upwind distance over water available for wave growth (units: meters).  
+Larger fetch generally means larger waves (for the same wind and depth constraints).
+
+Guidance for choosing values:
+
+- Start with geometric open-water distances from your lake map/bathymetry.
+- Use smaller fetch near embayments/shore-protected cells.
+- Use larger fetch in open central lake sectors.
+- Keep values positive and physically plausible for your domain scale.
+
+Expected runtime diagnostics (normal):
+
+- `Wave boundary module enabled`
+- `Wave boundary preprocessing completed`
+- `active RE top boundary cells: ...`
+
+Expected runtime diagnostics (normal):
+
+- `Wave boundary module enabled`
+- `Wave boundary preprocessing completed`
+- `active RE top boundary cells: ...`
+
+### 2.7 Wave-Driven Boundary Example Input Files
+
+Below are copy-ready examples for a **wave-enabled RE-only setup**.
+
+#### Example `parameters.input`
+
+```text
+simLength : 100
+cfl : 0.1
+outFreq : 10
+obsFreq : 10
+parNx : 1
+parNy : 1
+outFormat : BIN
+BCtype : REFLECTIVE
+```
+
+#### Example `wave.input`
+
+```text
+waveEnable : 1
+waveMethod : smb
+windSource : constant
+fetchSource : precomputed
+fetchFile : fetch.input
+phaseMode : xcoordinate
+meanLakeLevel : 0.1
+windSpeed : 5.0
+windDirection : 0.0
+```
+
+Valid options in this branch:
+
+- `waveMethod`: `smb`, `jonswap_simple`
+- `windSource`: `constant`, `windfile`
+- `fetchSource`: `precomputed`, `boundarylist`
+- `phaseMode`: `fetchprojection`, `xcoordinate`
+
+Parameter meaning quick reference:
+
+- `waveEnable`  
+  Master switch (`1` on, `0` off).
+
+- `waveMethod`  
+  Bulk wave-growth closure. Use `smb` as a stable default for lake-scale first runs.
+
+- `windSource`  
+  - `constant`: single wind state via `windSpeed`, `windDirection`  
+  - `windfile`: time-varying wind from `wind.input`
+
+- `fetchSource`  
+  - `precomputed`: fetch raster (`fetch.input`)  
+  - `boundarylist`: boundary-cell list values (branch-dependent formatting)
+
+- `fetchFile`  
+  Filename containing fetch values.
+
+- `phaseMode`  
+  Direction/phase handling mode. `fetchprojection` is recommended when wind-direction dependence matters.
+
+- `meanLakeLevel`  
+  Reference lake level used by the wave boundary module. A practical first choice is to keep it close to your top boundary target water level.
+
+#### Example `fetch.input` (precomputed raster mode)
+
+```text
+ncols 40
+nrows 1
+xllcorner 0.0
+yllcorner 0.0
+cellsize 0.25
+nodata_value -9999
+100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100 100
+```
+
+`fetch.input` uses DEM-like raster metadata plus one fetch value per surface cell.  
+Values should be in meters and strictly positive.
+
+#### Example `gwbc.input` (top Dirichlet required for wave forcing)
+
+```text
+bccount : 2
+
+id : top
+direction : 6
+bctype : 2
+bcvals : 0.1
+polygon : polygontop.input
+
+id : bottom
+direction : 5
+bctype : 9
+polygon : polygontop.input
+```
+
+#### Optional `wind.input` (only if `windSource : windfile`)
+
+The parser expects:
+1) number of points, 2) drag coefficient, 3) minimum depth, then rows of `time u v`.
+
+```text
+np : 3
+CwT : 1.0e-3
+hwmin : 1.0e-4
+0    5.0  0.0
+50   5.0  0.0
+100  5.0  0.0
+```
+
+Where:
+
+- `time`: simulation time in seconds
+- `u`: wind speed magnitude used by the wave module
+- `v`: wind direction/second wind component according to current parser convention in your branch
+- `CwT`, `hwmin`: wave-wind coupling controls parsed by the model (keep defaults for baseline testing unless calibration data is available)
+
+---
+
+## 3. Surface Water Solute Transport
+
+### 3.0 Theoretical Background and Applicability
+
+Surface transport is modeled as advection-dispersion-reaction in the SWE water layer:
+
+```text
+d(hC)/dt + div(q C) = div(h D grad(C)) + boundary/source terms + reactions
+```
+
+Where:
+
+- `C` = dissolved concentration,
+- `q = (hu, hv)` = SWE discharge vector,
+- `D` = effective diffusion/dispersion tensor.
+
+Numerical design and behavior:
+
+- transport is flow-driven (SWE hydrodynamics control advection),
+- selectable advection schemes (first-order and TVD options),
+- optional reaction module for species transformations.
+
+Assumptions and simplifications:
+
+- depth-averaged concentration (no explicit vertical stratification),
+- bulk dispersivity parameters (`alpha_L`, `alpha_T`) represent unresolved mixing,
+- chemistry complexity depends on enabled reaction submodel.
+
+Areas of applicability:
+
+- pollutant/nutrient routing in overland flow,
+- event-to-seasonal surface water quality response,
+- coupled surface transport studies where hydrodynamic forcing is dominant.
+
+### 3.1 Transport Parameters — `rttransportsw.input`
 
 **File path**: `<input_folder>/rttransportsw.input`
 **Source code**: `src/RTInitSW.h` → `readRTFileSW()`
@@ -65,7 +860,7 @@ Each species block begins with `id : <species_index>` (0-based). All subsequent 
 |-----|------|----------|-------------|
 | `aq_mode` | int | **Yes** | Initial condition mode for aqueous phase: `0` = constant value (`aq_val`), `1` = spatial file (`aq_file`). |
 | `aq_val` | real | If `aq_mode=0` | Uniform initial concentration [mg/L or kg/m³]. |
-| `aq_file` | string | If `aq_mode=1` | Filename for spatially distributed initial concentration (ESRI ASCII Grid or simplified format; see [Section 2.5](#25-initial-condition-files)). |
+| `aq_file` | string | If `aq_mode=1` | Filename for spatially distributed initial concentration (ESRI ASCII Grid or simplified format; see [Section 4.5](#45-initial-condition-files)). |
 | `diffusion_molecular` | real | **Yes** | Molecular diffusion coefficient [m²/s]. Typical range: 1.0×10⁻¹⁰ to 1.0×10⁻⁸. |
 | `alpha_L` | real | **Yes** | Longitudinal dispersivity [m]. Typical range: 0.01 to 100. |
 | `alpha_T` | real | **Yes** | Transverse dispersivity [m]. Typical range: 0.001 to 10. Often 1/10 of `alpha_L`. |
@@ -112,7 +907,7 @@ Advection_Scheme : 2                    // TVD Van Leer
 
 ---
 
-### 1.2 Boundary Conditions — `rtswbc.input`
+### 3.2 Boundary Conditions — `rtswbc.input`
 
 **File path**: `<input_folder>/rtswbc.input`
 **Source code**: `src/RTInitSW.h` → `readRTBCFileSW()`, `src/BC.h` (lines 48–52)
@@ -179,7 +974,7 @@ spec_4_bctype : 3                        // DON: free outflow
 
 ---
 
-### 1.3 Source/Sink Terms — `rtswss.input`
+### 3.3 Source/Sink Terms — `rtswss.input`
 
 **File path**: `<input_folder>/rtswss.input`
 **Source code**: `src/RTInitSW.h` → `readRTSSFileSW()`, `src/SourceSink.h`
@@ -244,7 +1039,7 @@ spec_4_ssfile : rtfertDON-DON-NH4.input
 
 ---
 
-### 1.4 Reaction Parameters — `reactionsw.input`
+### 3.4 Reaction Parameters — `reactionsw.input`
 
 **File path**: `<input_folder>/reactionsw.input`
 **Source code**: `src/RTInitSW.h` → `readRTReactionFile()`, `src/RTStateSW.h`
@@ -379,9 +1174,47 @@ Opt_pH           : 7.0
 
 ---
 
-## 2. Groundwater Solute Transport
+## 4. Groundwater Solute Transport
 
-### 2.1 Transport Parameters — `rttransportgw.input`
+### 4.0 Theoretical Background and Applicability
+
+Groundwater transport is solved in variably saturated media using RE flow fields:
+
+```text
+d(theta C)/dt = div(theta D grad(C)) - div(q C) + sources/sinks + reactions
+```
+
+Where:
+
+- `theta` = volumetric water content from RE,
+- `q` = Darcy flux from RE,
+- `C` = aqueous concentration,
+- optional `C_solid` = adsorbed/solid-phase concentration (if enabled).
+
+Numerical design and behavior:
+
+- transport is tightly coupled to subsurface hydrodynamics each step,
+- boundary/source mass terms are tracked for diagnostics (`RTSubsurfaceTimeSeries.out`),
+- optional reaction terms evolve aqueous and solid masses.
+
+Assumptions and simplifications:
+
+- continuum advection-dispersion closure at grid scale,
+- Fickian-like dispersion with user dispersivities and molecular diffusion,
+- reaction network structure limited to implemented module equations.
+
+Areas of applicability:
+
+- groundwater plume migration,
+- nutrient/solute leaching assessments,
+- coupled hydro-biogeochemical studies driven by RE state.
+
+Interpretation tip for new users:
+
+- top-layer concentration fields can respond rapidly to strong Dirichlet boundary concentration forcing,
+- always interpret maps together with integrated mass/boundary flux time series.
+
+### 4.1 Transport Parameters — `rttransportgw.input`
 
 **File path**: `<input_folder>/rttransportgw.input`
 **Source code**: `src/RTInitGW.h` → `readRTFile()`
@@ -442,7 +1275,7 @@ Up_Weighting_vminus : 0.0               // Full upstream (negative)
 
 ---
 
-### 2.2 Boundary Conditions — `rtgwbc.input`
+### 4.2 Boundary Conditions — `rtgwbc.input`
 
 **File path**: `<input_folder>/rtgwbc.input`
 **Source code**: `src/RTBCGW.h` (lines 47–55), `src/RTInitGW.h`
@@ -502,7 +1335,7 @@ spec_4_bctype : 9
 
 ---
 
-### 2.3 Reaction Parameters — `reactiongw.input`
+### 4.3 Reaction Parameters — `reactiongw.input`
 
 **File path**: `<input_folder>/reactiongw.input`
 **Source code**: `src/RTInitGW.h` → `readRTReactionFile()`, `src/RTStateGW.h`
@@ -608,7 +1441,7 @@ Opt_pH           : 7.0
 
 ---
 
-### 2.4 Groundwater Source/Sink — `rtgwss.input`
+### 4.4 Groundwater Source/Sink — `rtgwss.input`
 
 **File path**: `<input_folder>/rtgwss.input`
 **Source code**: `src/RTInitGW.h`
@@ -649,7 +1482,7 @@ timeseries : et.input            // Evapotranspiration time series
 
 ---
 
-### 2.5 Initial Condition Files
+### 4.5 Initial Condition Files
 
 **Source code**: `src/RTInitSW.h` → `readRtICFileSW()`, `src/RTInitGW.h` → `readRtICFileGW()`
 
@@ -693,9 +1526,37 @@ NODATA_value <value>
 
 ---
 
-## 3. WOFOST Crop Growth Model
+## 5. WOFOST Crop Growth Model
 
-### 3.1 Crop Parameters — `cropparameter.input`
+### 5.0 Theoretical Background and Applicability
+
+WOFOST is a process-based crop growth model representing phenology, biomass production, and partitioning under weather and management forcing.
+
+Core modeling concepts:
+
+- development stage (`DVS`) drives crop phase transitions,
+- radiation interception and assimilation produce biomass,
+- biomass is partitioned among organs (leaf/stem/root/storage),
+- stress factors (water, nutrients, temperature) reduce potential growth.
+
+Why coupled with SERGHEI:
+
+- RE provides root-zone moisture conditions that control crop water stress,
+- crop state variables (e.g., LAI, rooting depth) feed back to hydrologic sink partitioning and extraction depth.
+
+Assumptions and simplifications:
+
+- field-scale bulk crop representation (not plant-by-plant),
+- schedule-based management abstraction (sowing/harvest event dates),
+- parameter calibration strongly influences realism and transferability.
+
+Areas of applicability:
+
+- agro-hydrology and crop-water interaction studies,
+- seasonal scenario analysis for management/climate sensitivity,
+- coupled water-quality + crop productivity investigations.
+
+### 5.1 Crop Parameters — `cropparameter.input`
 
 **File path**: `<input_folder>/cropparameter.input`
 **Source code**: `src/cropsrc/CropInit.h` → `readCropParameter()`, `src/cropsrc/CropState.h`
@@ -999,7 +1860,7 @@ CRAIRC : 0.19
 
 ---
 
-### 3.2 Meteorological Data — `cropmeteo.input`
+### 5.2 Meteorological Data — `cropmeteo.input`
 
 **File path**: `<input_folder>/cropmeteo.input`
 **Source code**: `src/cropsrc/MeteoState.h`, `src/cropsrc/MeteoInit.h`
@@ -1023,7 +1884,7 @@ Time series with one row per time step. Each row contains:
 
 ---
 
-### 3.3 Agricultural Management — `agro.input`
+### 5.3 Agricultural Management — `agro.input`
 
 **File path**: `<input_folder>/agro.input`
 **Format**: YAML
@@ -1056,7 +1917,7 @@ max_duration: 300
 
 ---
 
-### 3.4 WOFOST–SERGHEI Coupling Interface
+### 5.4 WOFOST–SERGHEI Coupling Interface
 
 **Source code**: `src/SourceSinkCrop.h`
 
@@ -1133,7 +1994,7 @@ Stress factor depends on:
 
 ---
 
-## 4. Timeseries File Format
+## 6. Timeseries File Format
 
 Several input files use a common timeseries format for time-varying data. This includes boundary condition timeseries (`spec_X_bcfile`), source/sink timeseries (`spec_X_ssfile`), and forcing data.
 
@@ -1220,7 +2081,39 @@ The nitrogen cycle model uses a fixed species ordering. The species index (0-bas
 
 ## Appendix B: Input File Quick-Reference Checklist
 
-The following table lists all input files related to solute transport and crop growth. Check that all required files are present in the input directory before running a simulation.
+The following checklist summarizes input files across **all major SERGHEI modules** (surface flow, subsurface flow, transport, WOFOST, wave boundary). Check that all required files are present in the input directory before running a simulation.
+
+### Surface Flow (SWE Hydrodynamics)
+
+| File | Required | Purpose |
+|------|----------|---------|
+| `parameters.input` | **Yes** | Global runtime control (`simLength`, output cadence, format, domain BC type) |
+| `dem.input` | **Yes** | DEM/topography raster and grid geometry |
+| `sw.input` | **Yes** | SWE initialization, friction, roughness, dry threshold |
+| `extbc.input` | No* | SWE external boundary conditions (*required if using non-default explicit BCs) |
+| `rainfall.input` | Optional | Rain forcing (when rainfall is enabled and NetCDF forcing is not used) |
+| `wind.input` | Optional | Wind forcing (`time u v`) for SWE/wave windfile mode |
+
+### Subsurface Flow (RE Hydrodynamics)
+
+| File | Required | Purpose |
+|------|----------|---------|
+| `subsurface.input` | **Yes** | RE grid/solver controls, initial mode, timestep settings |
+| `soilID.input` | If `nSoilID>1` | 3D soil class map |
+| `vg.input` | **Yes** | van Genuchten hydraulic parameters per soil class |
+| `gwbc.input` | No* | RE boundary conditions (*required for explicit BC setup) |
+| `gwss.input` | No | RE source/sink and tile drainage configuration |
+| `head.input` | If `initialMode=2` | Initial pressure head field |
+| `theta.input` | If `initialMode=3` | Initial volumetric water content field |
+| `wt.input` | If `initialMode=4` | Initial water-table elevation field |
+
+### Wave-Driven RE Boundary (Chapter 2 extension)
+
+| File | Required | Purpose |
+|------|----------|---------|
+| `wave.input` | **Yes** (if wave enabled) | Wave model switch and options (`waveMethod`, `windSource`, etc.) |
+| `fetch.input` | **Yes** (if wave enabled) | Fetch length field/list for active top RE boundary cells |
+| `wind.input` | If `windSource=windfile` | Wind time series used by wave module |
 
 ### Surface Water Solute Transport
 
@@ -1261,4 +2154,4 @@ The following table lists all input files related to solute transport and crop g
 
 ---
 
-*End of User Manual — Solute Transport & WOFOST Crop Growth*
+*End of User Manual — SERGHEI Build, Hydrodynamics, Transport, WOFOST, and Wave Boundary*
