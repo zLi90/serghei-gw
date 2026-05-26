@@ -16,9 +16,11 @@ public:
         updated, crownElev, inflow, outflow, losses, oldVolume, newVolume,
         fullVolume, overflow, oldDepth, newDepth, oldLatFlow, newLatFlow,
         oldFlowInflow, oldNetInflow, apiExtInflow, SDinflow, SDoutflow,
+        SDinflowObs, SDoutflowObs,
         converged, newSurfArea, oldSurfArea, sumdqdh, dYdT, draingeVolume,
-        backflow, backflowRatio;
-    intArr typee, subIndex, toNode, connectedInlet, numInlet, inletIndex, sealed;
+        backflow, backflowRatio, outfallFixedStage;
+    intArr typee, subIndex, toNode, connectedInlet, numInlet, inletIndex, sealed,
+        outfallType, outfallStageSeries, outfallHasFlapGate;
 };
 
 
@@ -48,6 +50,39 @@ class Conduit   {
     realArr length, modLength, roughness, slope, beta, qMax, 
     a1, a2, q1, q2, q1Old, q2Old, evapLossRate, seepLossRate, 
     capacityLimited, superCritical, hasLosses, fullState, roughFactor;
+};
+
+/** TYPE3 pump curve table stored in flat arrays for Kokkos CPU/GPU use. */
+class PumpCurves {
+public:
+    int nCurves;
+    int nPts;
+    intArr startIdx;
+    intArr nPtsPerCurve;
+    realArr x;
+    realArr y;
+};
+
+class Pump {
+public:
+    intArr pumpCurve;
+    intArr type;
+    realArr yOn;
+    realArr yOff;
+    realArr initSetting;
+    realArr xMin;
+    realArr xMax;
+};
+
+/** River stage time series for TIMESERIES outfalls (flat storage). */
+class RiverStages {
+public:
+    int nSeries;
+    int nPts;
+    intArr startIdx;
+    intArr nPtsPerSeries;
+    realArr time;
+    realArr stage;
 };
 
 #endif

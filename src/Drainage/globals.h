@@ -65,7 +65,7 @@ static double
                   GwaterError,              // Groundwater continuity error
                   FlowError,                // Flow routing error
                   QualError,                // Quality routing error
-                  HeadTol,                  // DW routing head tolerance (ft)
+                  HeadTol = HEAD_TOL,                 // DW routing head tolerance (m); host alias
                   SysFlowTol,               // Tolerance for steady system flow
                   LatFlowTol,              // Tolerance for steady nodal inflow
                   VariableStep = 0.0;

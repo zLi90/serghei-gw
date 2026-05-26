@@ -10,6 +10,7 @@
 #include "globals.h"
 #include "funcs.h"
 #include "xsect.h"
+#include "pump.h"
 
 
 class DrainageDywave   {
@@ -20,10 +21,13 @@ public:
     double Vrouted = 0.0;
     double extotal = 0.0;
     double outfallInflow = 0.0;
+    double outfallBackflow = 0.0;
     double outfallDischarge = 0.0;
+    double outfallBackflowDischarge = 0.0;
     double routingStep = 0.0;
     double drainage_two2one = 0.0;
     double drainage_one2two = 0.0;
+    double drainageSimTime = 0.0;
 
     /*--------------------------------------
     drainage module exchange flow computation
@@ -319,19 +323,33 @@ public:
                 Kokkos::fence();
     }
 
+    /** Copy SDinflow/SDoutflow for time-series output (before addSystemInflows clears them). */
+    inline void snapshotExchangeFluxes(Node& Tnode)
+    {
+        const int nNode = Nobjects[NODE];
+        Kokkos::parallel_for(
+            nNode,
+            KOKKOS_LAMBDA(int i) {
+                Tnode.SDinflowObs(i) = Tnode.SDinflow(i);
+                Tnode.SDoutflowObs(i) = Tnode.SDoutflow(i);
+            });
+        Kokkos::fence();
+    }
+
 
 public:
 /*--------------------------------------
 drainage module pipe flow comuputation
 ---------------------------------------*/
     inline void routing_execute(double tStep, Node& Tnode, Link& Tlink, Conduit& Tconduit, Outfall& Toutfall,
+        Pump& Tpump, PumpCurves& TpumpCurves, RiverStages& TRiver,
                                 SergheiTimers& timers)
     {   
 
         initSystemInflows(Tnode);
         inletBackflow(Tnode);
         addSystemInflows(Tnode);
-        routeFlow(tStep, Tnode, Tlink, Tconduit, Toutfall, timers);
+        routeFlow(tStep, Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves, TRiver, timers);
         routingStep = getVariableStep(tStep, Tnode, Tlink, Tconduit);
     }
 
@@ -508,15 +526,21 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
 
 
     inline void routeFlow(double routingStep, Node& Tnode, Link& Tlink, Conduit& Tconduit, Outfall& Toutfall,
+        Pump& Tpump, PumpCurves& TpumpCurves, RiverStages& TRiver,
                           SergheiTimers& timers)
     {
         int j;
         for (j = 0; j < Nobjects[LINK]; j++) link_setOldHydState(j, Tlink, Tconduit, Tnode);
         for (j = 0; j < Nobjects[NODE]; j++) node_setOldHydState(j, Tnode);
         for (j = 0; j < Nobjects[NODE]; j++) node_initFlows(j, routingStep, Tnode);
+        for (j = 0; j < Nobjects[LINK]; j++) {
+            if (Tlink.typee(j) == PUMP)
+                DrainagePump::pumpSetTargetSetting(j, Tnode, Tlink, Tpump);
+        }
         if ( Nobjects[LINK] > 0 )
         {
-            dynwave_execute(routingStep, Tnode, Tlink, Tconduit, Toutfall, timers);
+            dynwave_execute(routingStep, Tnode, Tlink, Tconduit, Toutfall,
+                Tpump, TpumpCurves, TRiver, timers);
         }
     }
 
@@ -566,6 +590,7 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
 
 
     inline void dynwave_execute(double tStep, Node& Tnode, Link& Tlink, Conduit& Tconduit, Outfall& Toutfall,
+        Pump& Tpump, PumpCurves& TpumpCurves, RiverStages& TRiver,
                                 SergheiTimers& timers)
     {
         int converged;
@@ -576,10 +601,10 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         {
             initNodeStates(Tnode);
             Kokkos::Timer timerLinkFlows;
-            findLinkFlows(Steps,tStep, Tnode, Tlink, Tconduit, Toutfall);
+            findLinkFlows(Steps, tStep, Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves);
             timers.drainageLinkFlows += timerLinkFlows.seconds();
             timerLinkFlows.reset();
-            converged = findNodeDepths(tStep, Tnode, Tlink, Tconduit);
+            converged = findNodeDepths(tStep, Tnode, Tlink, Tconduit, TRiver);
             timers.drainageNodeDepths += timerLinkFlows.seconds();
             Steps++;
             if ( Steps > 1 )
@@ -600,7 +625,9 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
                     v1 = Tnode.inflow(ii) * tStep;
                     v2 = Tnode.outflow(ii) * tStep;
                     outfallInflow += v1;
+                    outfallBackflow += v2;
                     outfallDischarge = Tnode.inflow(ii);
+                    outfallBackflowDischarge = Tnode.outflow(ii);
                 } 
                 }
         findLimitedLinks(Tnode,Tlink,Tconduit);
@@ -627,6 +654,7 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
 
         for (j = 0; j < Nobjects[LINK]; j++)
         {
+            if (Tlink.typee(j) != CONDUIT) continue;
             k = Tlink.subIndex(j);
             Tconduit.capacityLimited(k) = FALSE;
             if ( Tconduit.a1(k) >= Tlink.aFull(j) )
@@ -658,6 +686,21 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         };      
     }
 
+    inline void setOutfallBoundaryDepths(Node& Tnode, const RiverStages& TRiver, double simTime)
+    {
+        for (int i = 0; i < Nobjects[NODE]; i++) {
+            if (Tnode.typee(i) != OUTFALL) continue;
+            if (Tnode.outfallType(i) == FIXED_OUTFALL) {
+                const double stage = Tnode.outfallFixedStage(i);
+                Tnode.newDepth(i) = max(0.0, stage - Tnode.invertElev(i));
+            } else if (Tnode.outfallType(i) == TIMESERIES_OUTFALL) {
+                const double stage = DrainagePump::riverStageLookup(
+                    TRiver, Tnode.outfallStageSeries(i), simTime);
+                Tnode.newDepth(i) = max(0.0, stage - Tnode.invertElev(i));
+            }
+        }
+    }
+
     inline void link_setOutfallDepth(int j, Node& Tnode, Link& Tlink, Conduit& Tconduit)
     {
         int     n;                    
@@ -677,6 +720,10 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
             z = Tlink.offset1(j);
         }
         else return;
+
+        if (Tnode.outfallType(n) == FIXED_OUTFALL ||
+            Tnode.outfallType(n) == TIMESERIES_OUTFALL)
+            return;
 
         if ( Tlink.typee(j) == CONDUIT )
         {
@@ -799,7 +846,7 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
             const double yOld = node.newDepth(ii);
             DrainageDywave::setNodeDepth(ii, dt, node, stepsSnap);
             node.converged(ii) = TRUE;
-            if (fabs(yOld - node.newDepth(ii)) > 0) {
+            if (fabs(yOld - node.newDepth(ii)) > HEAD_TOL) {
                 node.converged(ii) = FALSE;
             }
         }
@@ -818,8 +865,10 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         }
     };
 
-    inline int findNodeDepths(double dt, Node& Tnode, Link& Tlink, Conduit& Tconduit)
+    inline int findNodeDepths(double dt, Node& Tnode, Link& Tlink, Conduit& Tconduit,
+        const RiverStages& TRiver)
     {
+        setOutfallBoundaryDepths(Tnode, TRiver, drainageSimTime);
         for ( int i = 0; i < Nobjects[LINK]; i++ ) link_setOutfallDepth(i, Tnode, Tlink, Tconduit);
         {
             const int nNode = Nobjects[NODE];
@@ -939,18 +988,42 @@ KOKKOS_INLINE_FUNCTION double getAcircularC(double psi)
     return (theta - sin(theta)) / (2.0 * PI);
 }
 
-inline void findLinkFlows(int Steps,double dt, Node& Tnode, Link& Tlink, Conduit& Tconduit, Outfall& Toutfall)
+inline void findLinkFlows(int Steps, double dt, Node& Tnode, Link& Tlink, Conduit& Tconduit,
+    Outfall& Toutfall, Pump& Tpump, const PumpCurves& TpumpCurves)
     {
+        (void)Toutfall;
+        const PumpCurves curvesSnap = TpumpCurves;
+        const Pump pumpSnap = Tpump;
 
         Kokkos::parallel_for(
             Nobjects[LINK], KOKKOS_LAMBDA(int ii) {
                 int k = Tlink.subIndex(ii);
                 int n1 = Tlink.node1(ii);
                 int n2 = Tlink.node2(ii);
+                int TLtypee = Tlink.typee(ii);
+
+                if (TLtypee == PUMP) {
+                    Tlink.setting(ii) = Tlink.targetSetting(ii);
+                    const int pk = Tlink.subIndex(ii);
+                    double q = DrainagePump::pumpLinkFlow(
+                        ii, Tnode, Tlink, pumpSnap, curvesSnap);
+                    q = DrainagePump::pumpModFlow(
+                        pumpSnap.type(pk), n1, q, dt, Tnode);
+                    if (q < 0.0) q = 0.0;
+                    Tlink.newFlow(ii) = q;
+                    Tlink.newDepth(ii) = 0.0;
+                    Tlink.newVolume(ii) = 0.0;
+                    Tlink.dqdh(ii) = 0.0;
+                    Tlink.froude(ii) = 0.0;
+                    Tlink.flowClass(ii) = DRY;
+                    Tlink.surfArea1(ii) = MINSURFAREA * 0.5;
+                    Tlink.surfArea2(ii) = MINSURFAREA * 0.5;
+                    return;
+                }
+
                 int TNtypee1 = Tnode.typee(n1);
                 int TNtypee2 = Tnode.typee(n2);
                 double TLyFull = Tlink.yFull(ii);
-                int TLtypee = Tlink.typee(ii);
                 int TLflowClass = Tlink.flowClass(ii);
                 double TNnewDepth1 = Tnode.newDepth(n1);
                 double TNnewDepth2 = Tnode.newDepth(n2);
@@ -1186,6 +1259,12 @@ inline void findLinkFlows(int Steps,double dt, Node& Tnode, Link& Tlink, Conduit
 
             if( q >  FUDGE && Tnode.newDepth(n1) <= FUDGE ) q =  FUDGE;
             if( q < -FUDGE && Tnode.newDepth(n2) <= FUDGE ) q = -FUDGE;
+
+            if (link_setFlapGateC(q, TLhasFlapGate, Tlink.direction(ii),
+                    TNtypee1, TNtypee2,
+                    Tnode.outfallHasFlapGate(n1), Tnode.outfallHasFlapGate(n2)))
+                q = 0.0;
+
             // //znEI理想算例设置，其他算例需删除
             // if (ii==0){
             //       q = 1;
@@ -1262,10 +1341,16 @@ KOKKOS_INLINE_FUNCTION char link_getFullStateC(double a1, double a2, double aFul
     return 0;
 
 }
-KOKKOS_INLINE_FUNCTION int link_setFlapGateC(double q, double TLhasFlapGate, double TLdirection )
+/** SWMM link_setFlapGate: link flap and/or outfall flap on the inflow end of the link. */
+KOKKOS_INLINE_FUNCTION int link_setFlapGateC(double q, double TLhasFlapGate, double TLdirection,
+    int TNtypee1, int TNtypee2, int outfallFlap1, int outfallFlap2)
 {
-    if ( TLhasFlapGate) {
-        if ( q * TLdirection < 0.0 ) return TRUE;
+    if (TLhasFlapGate && q * TLdirection < 0.0) return TRUE;
+
+    if (q < 0.0) {
+        if (TNtypee2 == OUTFALL && outfallFlap2) return TRUE;
+    } else if (q > 0.0) {
+        if (TNtypee1 == OUTFALL && outfallFlap1) return TRUE;
     }
     return FALSE;
 }
@@ -2086,14 +2171,11 @@ inline double  link_getYnorm(int j, double q, Link& Tlink, Conduit &Tconduit)
     }
 
     int link_setFlapGate(int j, int n1, int n2, double q, Node& Tnode, Link& Tlink, Outfall& Toutfall)
-
     {
-        if ( Tlink.hasFlapGate(j) )
-        {
-            if ( q * (double)Tlink.direction(j) < 0.0 ) return TRUE;
-        }
-
-        return FALSE;
+        (void)Toutfall;
+        return link_setFlapGateC(q, Tlink.hasFlapGate(j), Tlink.direction(j),
+            Tnode.typee(n1), Tnode.typee(n2),
+            Tnode.outfallHasFlapGate(n1), Tnode.outfallHasFlapGate(n2));
     }
 
     char  link_getFullState(double a1, double a2, double aFull)

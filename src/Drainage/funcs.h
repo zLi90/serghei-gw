@@ -5,38 +5,74 @@
 #include <string>
 #include <sstream>
 #include <cstdlib>
+#include <vector>
+#include <map>
+#include <algorithm>
 #include "enums.h"
 #include "globals.h"
-#include "DrainageDywave.h"
 #include "../define.h"
 #include "xsect.h"
 #include "DrainageState.h"
+#include "pump.h"
 
 XXsect xxsect;
 
 class ReadFileFuncs{
 public:
     real dt;
-    #define UCHAR(x) (((x) >= 'a' && (x) <= 'z') ? ((x)&~32) : (x))
- 
+    double simTime = 0.0;
 
-    inline void project_readInput(std::string in, Node &Tnode, Link &Tlink, Conduit &Tconduit, Outfall &Toutfall)
+    struct HostCurvePoint { real x; real y; };
+    struct HostCurve {
+        int id;
+        std::vector<HostCurvePoint> pts;
+    };
+    std::vector<HostCurve> hostCurves_;
+    std::vector<std::vector<std::pair<real, real>>> hostRiverStages_;
+
+    #define UCHAR(x) (((x) >= 'a' && (x) <= 'z') ? ((x)&~32) : (x))
+
+    inline void resetDrainageCounters()
     {
-        input_countObjects(in);
-        createObjects(Tnode, Tlink, Tconduit, Toutfall);
-        input_readData(in, Tnode, Tlink, Tconduit, Toutfall);
+        for (int i = 0; i < MAX_OBJ_TYPES; ++i) {
+            Nobjects[i] = 0;
+            Mobjects[i] = 0;
+        }
+        for (int i = 0; i < MAX_LINK_TYPES; ++i) {
+            Nlinks[i] = 0;
+            Mlinks[i] = 0;
+        }
+        hostCurves_.clear();
+        hostRiverStages_.clear();
     }
 
-    inline void project_validate(Node& Tnode, Link& Tlink, Conduit& Tconduit, Outfall& Toutfall)
+    inline void project_readInput(std::string in, Node &Tnode, Link &Tlink, Conduit &Tconduit,
+        Outfall &Toutfall, Pump &Tpump, PumpCurves &TpumpCurves, RiverStages &TRiver)
+    {
+        resetDrainageCounters();
+        input_countObjects(in);
+        createObjects(Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves, TRiver);
+        input_readData(in, Tnode, Tlink, Tconduit, Toutfall, Tpump);
+        finalizePumpCurves(Tpump, TpumpCurves);
+        finalizeRiverStages(TRiver);
+    }
+
+    inline void project_validate(Node& Tnode, Link& Tlink, Conduit& Tconduit, Outfall& Toutfall,
+        Pump& Tpump, PumpCurves& TpumpCurves)
     {
         int i;
-        for ( i=0; i<Nobjects[NODE]; i++) Tnode.oldDepth(i) = Tnode.fullDepth(i);
         for (i = 0; i < Nobjects[NODE]; i++) {
-        if (Tnode.fullDepth(i) > 0.0 && Tnode.pondedArea(i) > 0.0) {
-            Tnode.fullVolume(i) = Tnode.fullDepth(i) * Tnode.pondedArea(i);
+            const real y0 = Tnode.initDepth(i);
+            Tnode.newDepth(i) = y0;
+            Tnode.oldDepth(i) = y0;
+            if (Tnode.fullDepth(i) > 0.0 && Tnode.pondedArea(i) > 0.0) {
+                Tnode.fullVolume(i) = Tnode.fullDepth(i) * Tnode.pondedArea(i);
+                if (y0 > 0.0 && Tnode.fullDepth(i) > 0.0)
+                    Tnode.newVolume(i) = Tnode.fullVolume(i) * (y0 / Tnode.fullDepth(i));
             }
         }
-        for ( i=0; i<Nobjects[LINK]; i++) link_validate(i, Tnode, Tlink, Toutfall, Tconduit );
+        for ( i=0; i<Nobjects[LINK]; i++)
+            link_validate(i, Tnode, Tlink, Toutfall, Tconduit, Tpump, TpumpCurves);
     }
 
     inline void input_countObjects(std::string in)
@@ -59,6 +95,14 @@ public:
             currentSection = "NODES";
         } else if (line.find("[CONDUITS]") != std::string::npos) {
             currentSection = "LINKS";
+        } else if (line.find("[PUMPS]") != std::string::npos) {
+            currentSection = "PUMPS";
+        } else if (line.find("[CURVES]") != std::string::npos) {
+            currentSection = "CURVES";
+        } else if (line.find("[OUTFALLS]") != std::string::npos) {
+            currentSection = "OUTFALLS";
+        } else if (line.find("[RIVERSTAGE]") != std::string::npos) {
+            currentSection = "RIVERSTAGE";
         } else if (line.find(";;") != std::string::npos || line.empty()) {
             continue;
         } else {
@@ -69,6 +113,15 @@ public:
             {
                 Nobjects[LINK]++;
                 Nlinks[CONDUIT]++;
+            }
+            else if (currentSection == "PUMPS")
+            {
+                Nobjects[LINK]++;
+                Nlinks[PUMP]++;
+            }
+            else if (currentSection == "CURVES" || currentSection == "RIVERSTAGE")
+            {
+                /* counted while reading */
             }
         }
             
@@ -120,8 +173,8 @@ public:
     }
 
 
-    inline void createObjects(Node &Tnode, Link &Tlink, Conduit &Tconduit, Outfall &Toutfall)
-
+    inline void createObjects(Node &Tnode, Link &Tlink, Conduit &Tconduit, Outfall &Toutfall,
+        Pump &Tpump, PumpCurves &TpumpCurves, RiverStages &TRiver)
     {
         //===================Node===========================
         Tnode.xcoor = realArr("N_xcoor", Nobjects[NODE]);
@@ -155,6 +208,8 @@ public:
         Tnode.apiExtInflow = realArr("N_apiExtInflow", Nobjects[NODE]);
         Tnode.SDinflow = realArr("N_SDinflow", Nobjects[NODE]);
         Tnode.SDoutflow = realArr("N_SDoutflow", Nobjects[NODE]);
+        Tnode.SDinflowObs = realArr("N_SDinflowObs", Nobjects[NODE]);
+        Tnode.SDoutflowObs = realArr("N_SDoutflowObs", Nobjects[NODE]);
         Tnode.converged = realArr("N_converged", Nobjects[NODE]);
         Tnode.newSurfArea = realArr("N_newSurfArea", Nobjects[NODE]);
         Tnode.oldSurfArea = realArr("N_oldSurfArea", Nobjects[NODE]);
@@ -167,6 +222,16 @@ public:
         Tnode.inletIndex = intArr("N_inletIndex", Nobjects[NODE]);
         Tnode.backflow = realArr("N_backflow", Nobjects[NODE]);
         Tnode.backflowRatio = realArr("N_backflowRatio", Nobjects[NODE]);
+        Tnode.outfallType = intArr("N_outfallType", Nobjects[NODE]);
+        Tnode.outfallStageSeries = intArr("N_outfallStageSeries", Nobjects[NODE]);
+        Tnode.outfallFixedStage = realArr("N_outfallFixedStage", Nobjects[NODE]);
+        Tnode.outfallHasFlapGate = intArr("N_outfallHasFlapGate", Nobjects[NODE]);
+        for (int j = 0; j < Nobjects[NODE]; ++j) {
+            Tnode.outfallType(j) = FREE_OUTFALL;
+            Tnode.outfallStageSeries(j) = -1;
+            Tnode.outfallFixedStage(j) = 0.0;
+            Tnode.outfallHasFlapGate(j) = 0;
+        }
         // ==========================================
 
 
@@ -237,6 +302,30 @@ public:
         Tconduit.roughFactor = realArr("C_roughFactor", Nlinks[CONDUIT]);
         // ==========================================
 
+        if (Nlinks[PUMP] > 0) {
+            Tpump.pumpCurve = intArr("P_pumpCurve", Nlinks[PUMP]);
+            Tpump.type = intArr("P_type", Nlinks[PUMP]);
+            Tpump.yOn = realArr("P_yOn", Nlinks[PUMP]);
+            Tpump.yOff = realArr("P_yOff", Nlinks[PUMP]);
+            Tpump.initSetting = realArr("P_initSetting", Nlinks[PUMP]);
+            Tpump.xMin = realArr("P_xMin", Nlinks[PUMP]);
+            Tpump.xMax = realArr("P_xMax", Nlinks[PUMP]);
+        }
+
+        TpumpCurves.nCurves = 0;
+        TpumpCurves.nPts = 0;
+        TpumpCurves.startIdx = intArr("PC_start", MAX_PUMP_CURVES);
+        TpumpCurves.nPtsPerCurve = intArr("PC_npts", MAX_PUMP_CURVES);
+        TpumpCurves.x = realArr("PC_x", MAX_PUMP_CURVE_PTS);
+        TpumpCurves.y = realArr("PC_y", MAX_PUMP_CURVE_PTS);
+
+        TRiver.nSeries = 0;
+        TRiver.nPts = 0;
+        TRiver.startIdx = intArr("RS_start", MAX_RIVER_STAGE_SERIES);
+        TRiver.nPtsPerSeries = intArr("RS_npts", MAX_RIVER_STAGE_SERIES);
+        TRiver.time = realArr("RS_time", MAX_RIVER_STAGE_PTS);
+        TRiver.stage = realArr("RS_stage", MAX_RIVER_STAGE_PTS);
+
 
 
         for (int j = 0; j < Nobjects[LINK]; j++)
@@ -250,7 +339,8 @@ public:
 
     }
 
-    inline void input_readData(std::string in, Node &Tnode, Link &Tlink, Conduit &Tconduit, Outfall &Toutfall)
+    inline void input_readData(std::string in, Node &Tnode, Link &Tlink, Conduit &Tconduit,
+        Outfall &Toutfall, Pump &Tpump)
     {
         std::string fNameIn = in + "Drainage.inp";
         std::ifstream fInStream(fNameIn); 
@@ -268,6 +358,14 @@ public:
             currentSection = "LINKS";
         } else if (line.find("[INLETS]") != std::string::npos) {
             currentSection = "INLETS";
+        } else if (line.find("[PUMPS]") != std::string::npos) {
+            currentSection = "PUMPS";
+        } else if (line.find("[CURVES]") != std::string::npos) {
+            currentSection = "CURVES";
+        } else if (line.find("[OUTFALLS]") != std::string::npos) {
+            currentSection = "OUTFALLS";
+        } else if (line.find("[RIVERSTAGE]") != std::string::npos) {
+            currentSection = "RIVERSTAGE";
         } else if (line.find(";;") != std::string::npos || line.empty()) {
             continue; 
         } else {
@@ -279,6 +377,22 @@ public:
             else if (currentSection == "LINKS")
             {
                 readLinkData(CONDUIT, line, Tlink, Tconduit, Tnode);
+            }
+            else if (currentSection == "PUMPS")
+            {
+                readPumpData(line, Tlink, Tpump, Tnode);
+            }
+            else if (currentSection == "CURVES")
+            {
+                readCurveData(line);
+            }
+            else if (currentSection == "OUTFALLS")
+            {
+                readOutfallData(line, Tnode);
+            }
+            else if (currentSection == "RIVERSTAGE")
+            {
+                readRiverStageData(line);
             }
         }
     }
@@ -297,6 +411,7 @@ public:
         iss >> id >> elevation >> maxDepth >> initDepth >> surDepth >> pondedArea >> xcoor >> ycoor >> type >> sealed;
         if (type == "outlet"){Tnode.typee(j) = OUTFALL;}
         else if (type == "junction"){Tnode.typee(j) = JUNCTION;}
+        Tnode.outfallType(j) = FREE_OUTFALL;
         Tnode.sealed(j) = sealed;
         Tnode.invertElev(j) = elevation;
         Tnode.crownElev(j)  = elevation;
@@ -315,6 +430,8 @@ public:
         Tnode.ycoor(j) = ycoor;
         Tnode.SDinflow(j) = 0.0;
         Tnode.SDoutflow(j) = 0.0;
+        Tnode.SDinflowObs(j) = 0.0;
+        Tnode.SDoutflowObs(j) = 0.0;
     
         Mobjects[NODE]++;
     }
@@ -349,6 +466,8 @@ public:
         Tnode.ycoor(j) = ycoor;
         Tnode.SDinflow(j) = 0.0;
         Tnode.SDoutflow(j) = 0.0;
+        Tnode.SDinflowObs(j) = 0.0;
+        Tnode.SDoutflowObs(j) = 0.0;
 
         Mobjects[NODE]++;
     }
@@ -394,12 +513,212 @@ public:
         Mlinks[type]++;
     }
 
-    void  link_validate(int j, Node& Tnode, Link& Tlink, Outfall& Toutfall, Conduit& Tconduit)
-
+    inline HostCurve* findOrCreateHostCurve(int curveId)
     {
-        int   n;
+        for (auto& c : hostCurves_) {
+            if (c.id == curveId) return &c;
+        }
+        HostCurve c;
+        c.id = curveId;
+        hostCurves_.push_back(c);
+        return &hostCurves_.back();
+    }
+
+    inline void readCurveData(const std::string& line)
+    {
+        std::istringstream iss(line);
+        int curveId;
+        std::string typeWord;
+        real x, y;
+        iss >> curveId >> typeWord >> x >> y;
+        if (typeWord != "pump3" && typeWord != "PUMP3") {
+            std::cerr << "Warning: only pump3 curves supported; skipping line.\n";
+            return;
+        }
+        HostCurve* c = findOrCreateHostCurve(curveId);
+        HostCurvePoint pt;
+        pt.x = x;
+        pt.y = y;
+        c->pts.push_back(pt);
+    }
+
+    inline bool isIdealPumpCurveToken(const std::string& tok)
+    {
+        return tok == "*" || tok == "IDEAL" || tok == "ideal" || tok == "Ideal" ||
+               tok == "-1";
+    }
+
+    inline void readPumpData(const std::string& line, Link &Tlink, Pump &Tpump, Node &Tnode)
+    {
+        (void)Tnode;
+        int j = Mobjects[LINK];
+        int k = Mlinks[PUMP];
+        std::istringstream iss(line);
+        int id, from, to, initOn = 1;
+        std::string curveTok;
+        real startup = 0.0, shutoff = 0.0;
+        iss >> id >> from >> to >> curveTok;
+        if (!(iss >> initOn)) initOn = 1;
+        iss >> startup >> shutoff;
+
+        Tlink.node1(j) = from;
+        Tlink.node2(j) = to;
+        Tlink.subIndex(j) = k;
+        Tlink.typee(j) = PUMP;
+        Tlink.offset1(j) = 0.0;
+        Tlink.offset2(j) = 0.0;
+        Tlink.q0(j) = 0.0;
+        Tlink.qFull(j) = 0.0;
+        Tlink.yFull(j) = 0.0;
+        Tlink.setting(j) = initOn ? 1.0 : 0.0;
+        Tlink.targetSetting(j) = Tlink.setting(j);
+        Tlink.hasFlapGate(j) = 0;
+        Tlink.direction(j) = 1;
+        Tlink.qLimit(j) = 0.0;
+        Tlink.dqdh(j) = 0.0;
+
+        if (isIdealPumpCurveToken(curveTok)) {
+            Tpump.type(k) = IDEAL_PUMP;
+            Tpump.pumpCurve(k) = -1;
+        } else {
+            Tpump.type(k) = TYPE3_PUMP;
+            try {
+                Tpump.pumpCurve(k) = std::stoi(curveTok);
+            } catch (...) {
+                std::cerr << "Warning: invalid pump curve id '" << curveTok
+                          << "'; treating as IDEAL pump.\n";
+                Tpump.type(k) = IDEAL_PUMP;
+                Tpump.pumpCurve(k) = -1;
+            }
+        }
+        Tpump.initSetting(k) = Tlink.setting(j);
+        Tpump.yOn(k) = startup;
+        Tpump.yOff(k) = shutoff;
+        Tpump.xMin(k) = 0.0;
+        Tpump.xMax(k) = 0.0;
+
+        Mobjects[LINK]++;
+        Mlinks[PUMP]++;
+    }
+
+    inline bool parseFlapGateToken(const std::string& tok)
+    {
+        if (tok == "1" || tok == "YES" || tok == "yes" || tok == "Yes" ||
+            tok == "TRUE" || tok == "true" || tok == "True")
+            return true;
+        return false;
+    }
+
+    inline void readOutfallData(const std::string& line, Node &Tnode)
+    {
+        std::istringstream iss(line);
+        int nodeId;
+        std::string mode;
+        real param = 0.0;
+        std::string gated;
+        iss >> nodeId >> mode >> param;
+        if (nodeId < 0 || nodeId >= Nobjects[NODE]) {
+            std::cerr << "Warning: invalid outfall node id " << nodeId << "\n";
+            return;
+        }
+        if (mode == "free" || mode == "FREE") {
+            Tnode.outfallType(nodeId) = FREE_OUTFALL;
+        } else if (mode == "fixed" || mode == "FIXED") {
+            Tnode.outfallType(nodeId) = FIXED_OUTFALL;
+            Tnode.outfallFixedStage(nodeId) = param;
+        } else if (mode == "timeseries" || mode == "TIMESERIES") {
+            Tnode.outfallType(nodeId) = TIMESERIES_OUTFALL;
+            Tnode.outfallStageSeries(nodeId) = static_cast<int>(param);
+        } else {
+            std::cerr << "Warning: unknown outfall mode '" << mode << "'\n";
+        }
+        if (iss >> gated) {
+            Tnode.outfallHasFlapGate(nodeId) = parseFlapGateToken(gated) ? 1 : 0;
+        }
+    }
+
+    inline void readRiverStageData(const std::string& line)
+    {
+        std::istringstream iss(line);
+        int seriesId;
+        real t, stage;
+        iss >> seriesId >> t >> stage;
+        if (seriesId < 0) return;
+        if (static_cast<int>(hostRiverStages_.size()) <= seriesId)
+            hostRiverStages_.resize(seriesId + 1);
+        hostRiverStages_[seriesId].push_back(std::make_pair(t, stage));
+    }
+
+    inline void finalizePumpCurves(Pump &Tpump, PumpCurves &TpumpCurves)
+    {
+        std::sort(hostCurves_.begin(), hostCurves_.end(),
+            [](const HostCurve& a, const HostCurve& b){ return a.id < b.id; });
+
+        std::map<int,int> idToIndex;
+        int ptCount = 0;
+        int cCount = 0;
+        for (const auto& hostCurve : hostCurves_) {
+            if (cCount >= MAX_PUMP_CURVES) break;
+            idToIndex[hostCurve.id] = cCount;
+            TpumpCurves.startIdx(cCount) = ptCount;
+            TpumpCurves.nPtsPerCurve(cCount) = static_cast<int>(hostCurve.pts.size());
+            for (const auto& pt : hostCurve.pts) {
+                if (ptCount >= MAX_PUMP_CURVE_PTS) break;
+                TpumpCurves.x(ptCount) = pt.x;
+                TpumpCurves.y(ptCount) = pt.y;
+                ++ptCount;
+            }
+            ++cCount;
+        }
+        TpumpCurves.nCurves = cCount;
+        TpumpCurves.nPts = ptCount;
+
+        for (int k = 0; k < Nlinks[PUMP]; ++k) {
+            if (Tpump.type(k) == IDEAL_PUMP) {
+                Tpump.pumpCurve(k) = -1;
+                continue;
+            }
+            const int fileId = Tpump.pumpCurve(k);
+            auto it = idToIndex.find(fileId);
+            if (it != idToIndex.end()) {
+                Tpump.pumpCurve(k) = it->second;
+            } else {
+                std::cerr << "Warning: pump curve id " << fileId << " not found.\n";
+                Tpump.pumpCurve(k) = -1;
+            }
+        }
+    }
+
+    inline void finalizeRiverStages(RiverStages &TRiver)
+    {
+        int seriesCount = static_cast<int>(hostRiverStages_.size());
+        if (seriesCount > MAX_RIVER_STAGE_SERIES)
+            seriesCount = MAX_RIVER_STAGE_SERIES;
+        int ptCount = 0;
+        for (int s = 0; s < seriesCount; ++s) {
+            TRiver.startIdx(s) = ptCount;
+            TRiver.nPtsPerSeries(s) = static_cast<int>(hostRiverStages_[s].size());
+            for (const auto& pr : hostRiverStages_[s]) {
+                if (ptCount >= MAX_RIVER_STAGE_PTS) break;
+                TRiver.time(ptCount) = pr.first;
+                TRiver.stage(ptCount) = pr.second;
+                ++ptCount;
+            }
+        }
+        TRiver.nSeries = seriesCount;
+        TRiver.nPts = ptCount;
+    }
+
+    void  link_validate(int j, Node& Tnode, Link& Tlink, Outfall& Toutfall, Conduit& Tconduit,
+        Pump& Tpump, PumpCurves& TpumpCurves)
+    {
+        if (Tlink.typee(j) == PUMP) {
+            pump_validate(j, Tlink.subIndex(j), Tnode, Tlink, Tpump, TpumpCurves);
+            return;
+        }
         conduit_validate(j, Tlink.subIndex(j), Tnode, Toutfall, Tlink, Tconduit);
    
+        int   n;
         n = Tlink.node1(j);
         if ( Tnode.surDepth(n) > 0.0 )
         {
@@ -409,11 +728,42 @@ public:
 
         n = Tlink.node2(j);
         if ( (Tnode.surDepth(n) > 0.0) &&
-                Tlink.typee(n) == CONDUIT )
+                Tlink.typee(j) == CONDUIT )
         {
             Tnode.fullDepth(n) = max(Tnode.fullDepth(n),
                                 Tlink.offset2(j) + Tlink.yFull(j));
         }
+    }
+
+    inline void pump_validate(int j, int k, Node& Tnode, Link& Tlink, Pump& Tpump,
+        PumpCurves& TpumpCurves)
+    {
+        (void)Tnode;
+        if (Tpump.type(k) == IDEAL_PUMP) {
+            Tlink.qFull(j) = 0.0;
+            if (Tpump.yOn(k) > 0.0 && Tpump.yOn(k) <= Tpump.yOff(k))
+                std::cerr << "Warning: pump startup depth should exceed shutoff depth.\n";
+            return;
+        }
+        const int cid = Tpump.pumpCurve(k);
+        if (cid < 0 || cid >= TpumpCurves.nCurves) {
+            std::cerr << "Warning: pump link " << j << " has invalid curve index.\n";
+            return;
+        }
+        const int start = TpumpCurves.startIdx(cid);
+        const int npt = TpumpCurves.nPtsPerCurve(cid);
+        if (npt <= 0) return;
+        real qMax = TpumpCurves.y(start);
+        Tpump.xMin(k) = TpumpCurves.x(start);
+        Tpump.xMax(k) = TpumpCurves.x(start);
+        for (int p = 1; p < npt; ++p) {
+            Tpump.xMin(k) = std::min(Tpump.xMin(k), TpumpCurves.x(start + p));
+            Tpump.xMax(k) = std::max(Tpump.xMax(k), TpumpCurves.x(start + p));
+            qMax = std::max(qMax, TpumpCurves.y(start + p));
+        }
+        Tlink.qFull(j) = qMax;
+        if (Tpump.yOn(k) > 0.0 && Tpump.yOn(k) <= Tpump.yOff(k))
+            std::cerr << "Warning: pump startup depth should exceed shutoff depth.\n";
     }
 
 

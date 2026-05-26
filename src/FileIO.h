@@ -1415,7 +1415,7 @@ public:
 
   }
   #if SERGHEI_DRAINAGE_MODEL
-   int writeDrainageTimeSeriesIni (Parallel const &par,surfaceIntegrator &sint, DrainageDywave &Drain, std::string dir, ReadFileFuncs &RFF, Link &Tlink, Node &Tnode){
+   int writeDrainageTimeSeriesIni (Parallel const &par, Domain const &dom, surfaceIntegrator &sint, DrainageDywave &Drain, std::string dir, ReadFileFuncs &RFF, Link &Tlink, Node &Tnode){
     numObs = 0;
     std::string filename = dir + "DrainageTimeSeries.out";
     DrainageOutputFile.open (filename);
@@ -1426,24 +1426,29 @@ public:
     DrainageOutputFile << "one2twoAccum[L^3] ";
     // DrainageOutputFile << "Vrouted[L^3] ";
     DrainageOutputFile << "OutfallInflow[L^3] ";
+    DrainageOutputFile << "OutfallBackflow[L^3] ";
     DrainageOutputFile << "OutfallDischarge[L^3/s] ";
+    DrainageOutputFile << "OutfallBackflowDischarge[L^3/s] ";
     for (int ii = 0; ii<Nobjects[NODE];ii++)
             {
                
 				if(Tnode.typee(ii) == JUNCTION)
 				{
-				  DrainageOutputFile << "JUNCTION_" << ii << "2D-1D"<<"[L^3/s]" << "" ;
-				  DrainageOutputFile << "JUNCTION_" << ii << "1D-2D"<<"[L^3/s]" << ""  ;
+				  DrainageOutputFile << "JUNCTION_" << ii << "_2D-1D[L^3/s] ";
+				  DrainageOutputFile << "JUNCTION_" << ii << "_1D-2D[L^3/s] ";
 				}
 				else if (Tnode.typee(ii) == INLET)
 				{
-				  DrainageOutputFile << "INLET_" << ii <<"2D-1D"<< "[L^3/s]" << "" ;
-				  DrainageOutputFile << "INLET_" << ii <<"1D-2D"<< "[L^3/s]" << ""  ;
-				} 
+				  DrainageOutputFile << "INLET_" << ii << "_2D-1D[L^3/s] ";
+				  DrainageOutputFile << "INLET_" << ii << "_1D-2D[L^3/s] ";
+				}
 				else if (Tnode.typee(ii) == OUTFALL)
                 {
-                  DrainageOutputFile << "OUTFALL_" << ii << "[L^3/s]" << "" ;
+                  DrainageOutputFile << "OUTFALL_" << ii << "[L^3/s] ";
                 } 
+    }
+    for (int ii = 0; ii < Nobjects[NODE]; ii++) {
+        DrainageOutputFile << "NODE_" << ii << "_depth[m] ";
     }
 	DrainageOutputFile << std::endl;}
 
@@ -1454,7 +1459,7 @@ public:
       }
 
     // write the data
-     if(par.masterproc)  {writeDrainageOutputTimeSeries (par, sint, Drain, RFF, Tlink, Tnode);}
+     if(par.masterproc)  {writeDrainageOutputTimeSeries (par, dom, sint, Drain, Tlink, Tnode);}
 
     numObs++;
 
@@ -1464,33 +1469,38 @@ public:
 
 
 
-  void writeDrainageOutputTimeSeries (Parallel const &par, surfaceIntegrator &sint, DrainageDywave &Drain, ReadFileFuncs &RFF, Link &Tlink, Node &Tnode){
+  void writeDrainageOutputTimeSeries (Parallel const &par, Domain const &dom, surfaceIntegrator &sint, DrainageDywave &Drain, Link &Tlink, Node &Tnode){
 
     // Write the data
     std::cout.precision(OUTPUT_PRECISION);
-    DrainageOutputFile << std::scientific << RFF.dt << " ";
+    DrainageOutputFile << std::scientific << dom.etime << " ";
     // DrainageOutputFile << std::scientific << sint.drainageVolumeG << " ";
     DrainageOutputFile << std::scientific << Drain.drainage_two2one << " ";
     DrainageOutputFile << std::scientific << Drain.drainage_one2two << " ";
     // DrainageOutputFile << std::scientific << Drain.Vrouted << " ";
     DrainageOutputFile << std::scientific << Drain.outfallInflow << " ";
+    DrainageOutputFile << std::scientific << Drain.outfallBackflow << " ";
     DrainageOutputFile << std::scientific << Drain.outfallDischarge << " ";
+    DrainageOutputFile << std::scientific << Drain.outfallBackflowDischarge << " ";
     for (int ii = 0; ii<Nobjects[NODE];ii++)
             {
 				if(Tnode.typee(ii) == JUNCTION)
 				{
-				  DrainageOutputFile << std::scientific << Tnode.SDinflow(ii) << " ";
-				  DrainageOutputFile << std::scientific << Tnode.SDoutflow(ii) << " ";
+				  DrainageOutputFile << std::scientific << Tnode.SDinflowObs(ii) << " ";
+				  DrainageOutputFile << std::scientific << Tnode.SDoutflowObs(ii) << " ";
 				}
 				else if (Tnode.typee(ii) == INLET)
 				{
-				  DrainageOutputFile << std::scientific << Tnode.SDinflow(ii) << " ";
-				  DrainageOutputFile << std::scientific << Tnode.SDoutflow(ii) << " ";
+				  DrainageOutputFile << std::scientific << Tnode.SDinflowObs(ii) << " ";
+				  DrainageOutputFile << std::scientific << Tnode.SDoutflowObs(ii) << " ";
 				}
                 else if (Tnode.typee(ii) == OUTFALL)
                 {
                   DrainageOutputFile << std::scientific << Tnode.inflow(ii) << " ";
                 } 
+    }
+    for (int ii = 0; ii < Nobjects[NODE]; ii++) {
+        DrainageOutputFile << std::scientific << Tnode.newDepth(ii) << " ";
     }
     DrainageOutputFile << std::endl;
 

@@ -32,7 +32,18 @@ enum NodeType
 //-------------------------------------
 // const int MAX_LINK_TYPES 1
  enum LinkType {
-      CONDUIT
+      CONDUIT,
+      PUMP
+      };
+
+ enum PumpCurveKind {
+      PUMP3_CURVE = 0
+      };
+
+/** Pump link types (aligned with EPA SWMM PumpType). */
+enum PumpType {
+      TYPE3_PUMP = 2,                  // flow vs. head delivered (PUMP3 curve)
+      IDEAL_PUMP = 5                   // outflow = inlet inflow + overflow
       };
 
 //-------------------------------------

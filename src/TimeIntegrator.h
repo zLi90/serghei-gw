@@ -240,7 +240,7 @@ public :
     }
 		dtMatchOutput(dom, io);
   dom.timers.dt=timer.seconds();
-//   dom.dt = 0.1;
+  dom.dt = 2;
   }
 
 	inline void wetDryCorrection(State &state, Domain &dom) {

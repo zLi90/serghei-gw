@@ -67,6 +67,9 @@ public:
 	Link Tlink;
 	Outfall Toutfall;
 	Conduit Tconduit;
+	Pump Tpump;
+	PumpCurves TpumpCurves;
+	RiverStages TRiver;
 	#endif
 
 	SourceSink      ss;
@@ -230,10 +233,10 @@ public:
 		// Read drainage parameter file
 		std::string drainageParamFile = inFolder + "Drainage-parameter.input";
 		if(!parser.readDrainageParameterFile(drainageParamFile, Ddyw, par)) return 0;
-		RFF.project_readInput(inFolder, Tnode, Tlink, Tconduit, Toutfall); 
+		RFF.project_readInput(inFolder, Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves, TRiver); 
 		
-		RFF.project_validate(Tnode, Tlink, Tconduit, Toutfall); 
-		io.writeDrainageTimeSeriesIni(par, sint, Ddyw, outFolder, RFF, Tlink, Tnode);
+		RFF.project_validate(Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves); 
+		io.writeDrainageTimeSeriesIni(par, dom, sint, Ddyw, outFolder, RFF, Tlink, Tnode);
 		std::cerr << GOK "The DRAINAGE input information has been read.\n";
 		#endif
 
@@ -247,15 +250,17 @@ public:
 			tint.stepForward(state, ss.swss, ebc.extbc, dom, exch, par, io);
 			//std::cerr << GSTAR "TIME: " << dom.etime << " SW dt: " << dom.dt <<"\n";
 			#if SERGHEI_DRAINAGE_MODEL
-			RFF.dt = dom.etime;
-			
+			RFF.simTime = dom.etime;
+			Ddyw.drainageSimTime = dom.etime;
+
 			Kokkos::Timer drainageExchangeTimer;
 			Ddyw.DrainageExchange_solve(state, dom, Tnode); 
 			dom.timers.drainageExchange += drainageExchangeTimer.seconds();
+			Ddyw.snapshotExchangeFluxes(Tnode);
 
 			Kokkos::Timer routingTimer;
-			// Ddyw.routing_execute(Ddyw.routingStep, Tnode, Tlink, Tconduit, Toutfall);
-			Ddyw.routing_execute(Ddyw.routingStep, Tnode, Tlink, Tconduit, Toutfall, dom.timers);
+			Ddyw.routing_execute(Ddyw.routingStep, Tnode, Tlink, Tconduit, Toutfall,
+			    Tpump, TpumpCurves, TRiver, dom.timers);
     		dom.timers.drainage += routingTimer.seconds();
 			#endif
 			#else
@@ -406,7 +411,7 @@ public:
 				io.writeSubsurfaceTimeSeries(gdom, gint);
 				#endif
 				#if SERGHEI_DRAINAGE_MODEL
-				io.writeDrainageOutputTimeSeries (par, sint, Ddyw, RFF, Tlink, Tnode);
+				io.writeDrainageOutputTimeSeries (par, dom, sint, Ddyw, Tlink, Tnode);
 				#endif
 				if (par.masterproc){
 					#if SERGHEI_TOOLS

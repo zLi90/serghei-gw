@@ -130,48 +130,6 @@ serghei/fast:
 	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/serghei.dir/build.make src/CMakeFiles/serghei.dir/build
 .PHONY : serghei/fast
 
-# Convenience name for target.
-src/CMakeFiles/closedColumnSubsurface.dir/rule:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/CMakeFiles/closedColumnSubsurface.dir/rule
-.PHONY : src/CMakeFiles/closedColumnSubsurface.dir/rule
-
-# Convenience name for target.
-closedColumnSubsurface: src/CMakeFiles/closedColumnSubsurface.dir/rule
-.PHONY : closedColumnSubsurface
-
-# fast build rule for target.
-closedColumnSubsurface/fast:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/closedColumnSubsurface.dir/build.make src/CMakeFiles/closedColumnSubsurface.dir/build
-.PHONY : closedColumnSubsurface/fast
-
-# Convenience name for target.
-src/CMakeFiles/dambreak.dir/rule:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/CMakeFiles/dambreak.dir/rule
-.PHONY : src/CMakeFiles/dambreak.dir/rule
-
-# Convenience name for target.
-dambreak: src/CMakeFiles/dambreak.dir/rule
-.PHONY : dambreak
-
-# fast build rule for target.
-dambreak/fast:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/dambreak.dir/build.make src/CMakeFiles/dambreak.dir/build
-.PHONY : dambreak/fast
-
-# Convenience name for target.
-src/CMakeFiles/parabolicBowl.dir/rule:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/CMakeFiles/parabolicBowl.dir/rule
-.PHONY : src/CMakeFiles/parabolicBowl.dir/rule
-
-# Convenience name for target.
-parabolicBowl: src/CMakeFiles/parabolicBowl.dir/rule
-.PHONY : parabolicBowl
-
-# fast build rule for target.
-parabolicBowl/fast:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/parabolicBowl.dir/build.make src/CMakeFiles/parabolicBowl.dir/build
-.PHONY : parabolicBowl/fast
-
 driver.o: driver.cpp.o
 .PHONY : driver.o
 
@@ -196,78 +154,6 @@ driver.cpp.s:
 	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/serghei.dir/build.make src/CMakeFiles/serghei.dir/driver.cpp.s
 .PHONY : driver.cpp.s
 
-tests/closedColumnSubsurface.o: tests/closedColumnSubsurface.cpp.o
-.PHONY : tests/closedColumnSubsurface.o
-
-# target to build an object file
-tests/closedColumnSubsurface.cpp.o:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/closedColumnSubsurface.dir/build.make src/CMakeFiles/closedColumnSubsurface.dir/tests/closedColumnSubsurface.cpp.o
-.PHONY : tests/closedColumnSubsurface.cpp.o
-
-tests/closedColumnSubsurface.i: tests/closedColumnSubsurface.cpp.i
-.PHONY : tests/closedColumnSubsurface.i
-
-# target to preprocess a source file
-tests/closedColumnSubsurface.cpp.i:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/closedColumnSubsurface.dir/build.make src/CMakeFiles/closedColumnSubsurface.dir/tests/closedColumnSubsurface.cpp.i
-.PHONY : tests/closedColumnSubsurface.cpp.i
-
-tests/closedColumnSubsurface.s: tests/closedColumnSubsurface.cpp.s
-.PHONY : tests/closedColumnSubsurface.s
-
-# target to generate assembly for a file
-tests/closedColumnSubsurface.cpp.s:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/closedColumnSubsurface.dir/build.make src/CMakeFiles/closedColumnSubsurface.dir/tests/closedColumnSubsurface.cpp.s
-.PHONY : tests/closedColumnSubsurface.cpp.s
-
-tests/dambreak.o: tests/dambreak.cpp.o
-.PHONY : tests/dambreak.o
-
-# target to build an object file
-tests/dambreak.cpp.o:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/dambreak.dir/build.make src/CMakeFiles/dambreak.dir/tests/dambreak.cpp.o
-.PHONY : tests/dambreak.cpp.o
-
-tests/dambreak.i: tests/dambreak.cpp.i
-.PHONY : tests/dambreak.i
-
-# target to preprocess a source file
-tests/dambreak.cpp.i:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/dambreak.dir/build.make src/CMakeFiles/dambreak.dir/tests/dambreak.cpp.i
-.PHONY : tests/dambreak.cpp.i
-
-tests/dambreak.s: tests/dambreak.cpp.s
-.PHONY : tests/dambreak.s
-
-# target to generate assembly for a file
-tests/dambreak.cpp.s:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/dambreak.dir/build.make src/CMakeFiles/dambreak.dir/tests/dambreak.cpp.s
-.PHONY : tests/dambreak.cpp.s
-
-tests/parabolicBowl.o: tests/parabolicBowl.cpp.o
-.PHONY : tests/parabolicBowl.o
-
-# target to build an object file
-tests/parabolicBowl.cpp.o:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/parabolicBowl.dir/build.make src/CMakeFiles/parabolicBowl.dir/tests/parabolicBowl.cpp.o
-.PHONY : tests/parabolicBowl.cpp.o
-
-tests/parabolicBowl.i: tests/parabolicBowl.cpp.i
-.PHONY : tests/parabolicBowl.i
-
-# target to preprocess a source file
-tests/parabolicBowl.cpp.i:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/parabolicBowl.dir/build.make src/CMakeFiles/parabolicBowl.dir/tests/parabolicBowl.cpp.i
-.PHONY : tests/parabolicBowl.cpp.i
-
-tests/parabolicBowl.s: tests/parabolicBowl.cpp.s
-.PHONY : tests/parabolicBowl.s
-
-# target to generate assembly for a file
-tests/parabolicBowl.cpp.s:
-	cd /home/zhengna/serghei-code/serghei-swe-re-swmm && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/parabolicBowl.dir/build.make src/CMakeFiles/parabolicBowl.dir/tests/parabolicBowl.cpp.s
-.PHONY : tests/parabolicBowl.cpp.s
-
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -276,22 +162,10 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
-	@echo "... closedColumnSubsurface"
-	@echo "... dambreak"
-	@echo "... parabolicBowl"
 	@echo "... serghei"
 	@echo "... driver.o"
 	@echo "... driver.i"
 	@echo "... driver.s"
-	@echo "... tests/closedColumnSubsurface.o"
-	@echo "... tests/closedColumnSubsurface.i"
-	@echo "... tests/closedColumnSubsurface.s"
-	@echo "... tests/dambreak.o"
-	@echo "... tests/dambreak.i"
-	@echo "... tests/dambreak.s"
-	@echo "... tests/parabolicBowl.o"
-	@echo "... tests/parabolicBowl.i"
-	@echo "... tests/parabolicBowl.s"
 .PHONY : help
 
 

@@ -30,9 +30,14 @@
 //
 #define MAX_OBJ_TYPES 2
 #define MAX_NODE_TYPES 2
-#define MAX_LINK_TYPES 1
+#define MAX_LINK_TYPES 2
+#define MAX_PUMP_CURVES 32
+#define MAX_PUMP_CURVE_PTS 256
+#define MAX_RIVER_STAGE_SERIES 8
+#define MAX_RIVER_STAGE_PTS 4096
 #define FUDGE 0.0001    // ft or ft2
 #define MINSURFAREA 0.04
+#define HEAD_TOL 0.0015 // DW routing head tolerance (m); use in Kokkos device code
 #define CrownCutoff 0.96
 #define MAXIT 60    
 #define   TRUE               1              // Value for TRUE state
@@ -77,7 +82,7 @@
 #endif
 //drainage
 #ifndef SERGHEI_DRAINAGE_MODEL 
-#define SERGHEI_DRAINAGE_MODEL 0
+#define SERGHEI_DRAINAGE_MODEL 1
 #endif
 
 #ifndef SERGHEI_KOKKOSKERNELS_SOLVER
