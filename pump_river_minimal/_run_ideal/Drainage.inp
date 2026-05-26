@@ -1,0 +1,19 @@
+[JUNCTIONS]
+;; IDEAL 理想泵算例 — 与 SWMM IDEAL_PUMP 一致 (curve = *)
+0	7.0	2.0	0.0	0.0	100.0	20.0	0.0	junction	0
+1	7.0	2.0	0.0	0.0	10.0	100.0	0.0	junction	1
+2	6.0	3.0	0.0	0.0	100.0	200.0	0.0	outlet	0
+
+[CONDUITS]
+0	1	2	100.0	0.013	0.0	0.0	0.0	0.0	0.60
+
+[PUMPS]
+;; id  from  to  curve(*=IDEAL)  init(1/0)  yOn  yOff
+0	0	1	*	0	0.8	0.2
+
+[OUTFALLS]
+2	timeseries	0	yes
+
+[RIVERSTAGE]
+0	0	6.5
+0	3600	6.5

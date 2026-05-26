@@ -1,0 +1,6 @@
+inletLength : 0.5
+inletWidth : 0.3
+junctionSize : 0.6
+Cw : 0.8
+Co : 0.6
+w : 1.0

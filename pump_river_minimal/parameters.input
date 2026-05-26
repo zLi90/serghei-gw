@@ -1,0 +1,10 @@
+
+// 最小泵+河位验证算例 — 全局时间与并行
+simLength  : 3600
+cfl        : 0.4
+outFreq    : 300
+obsFreq    : 10
+parNx      : 1
+parNy      : 1
+outFormat  : NETCDF
+BCtype     : REFLECTIVE
