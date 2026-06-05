@@ -48,18 +48,18 @@ static int
                   RuleStep,                 // Rule evaluation time step (sec)
                   SweepStart,               // Day of year when sweeping starts
                   SweepEnd,                 // Day of year when sweeping ends
-                  MaxTrials = 8,                // Max. trials for DW routing
+                  MaxTrials = 16,                // Max. trials for DW routing
                   NumThreads,               // Number of parallel threads used
                   NumEvents;                // Number of detailed events
 
 static double
                   RouteStep,                // Routing time step (sec)
-                  MinRouteStep = 1,             // Minimum variable time step (sec)
+                  MinRouteStep = 0.1,             // Minimum variable time step (sec)
                   InitRouteStep = 10,
                   LengtheningStep,          // Time step for lengthening (sec)
                   StartDryDays,             // Antecedent dry days
-                  CourantFactor = 0.75,            // Courant time step factor
-                  MinSurfArea = 0.04,              // Minimum nodal surface area
+                  CourantFactor = COURANT_FACTOR,    // Courant time step factor
+                  MinSurfArea = 1,              // Minimum nodal surface area
                   MinSlope,                 // Minimum conduit slope
                   RunoffError,              // Runoff continuity error
                   GwaterError,              // Groundwater continuity error

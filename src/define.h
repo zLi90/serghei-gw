@@ -59,7 +59,7 @@ typedef unsigned long ulong;
 typedef unsigned int  uint;
 #if SERGHEI_DRAINAGE_MODEL
 int Steps = 0;
-const double OMEGA  = 0.5;
+const double OMEGA  = 0.3;
 const  double MAXVELOCITY =  50.; 
 
 //drainage parameters

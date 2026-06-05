@@ -119,8 +119,9 @@ inline void pumpSetTargetSetting(int j, Node& Tnode, Link& Tlink, Pump& Tpump)
         Tlink.targetSetting(j) = 1.0;
 }
 
-/** Interpolate river stage from a time series (host). */
-inline real riverStageLookup(const RiverStages& rs, int seriesId, real simTime)
+/** Interpolate river stage from a time series (device-callable). */
+KOKKOS_INLINE_FUNCTION
+real riverStageLookup(const RiverStages& rs, int seriesId, real simTime)
 {
     if (seriesId < 0 || seriesId >= rs.nSeries || rs.nPts <= 0)
         return 0.0;

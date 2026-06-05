@@ -38,11 +38,13 @@
 #define FUDGE 0.0001    // ft or ft2
 #define MINSURFAREA 0.04
 #define HEAD_TOL 0.0015 // DW routing head tolerance (m); use in Kokkos device code
+#define COURANT_FACTOR 0.07 // Courant time step factor; use in Kokkos device code
 #define CrownCutoff 0.96
 #define MAXIT 60    
 #define   TRUE               1              // Value for TRUE state
 #define   FALSE              0              // Value for FALSE state
 #define   PHI 1.486
+#define headDiffThreshold 0.01
 //#define GRAV 9.807
 //#define SQRTGRAV 3.13161300291
 
