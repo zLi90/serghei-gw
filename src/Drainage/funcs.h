@@ -57,19 +57,42 @@ public:
         finalizeRiverStages(TRiver);
     }
 
+    inline void node_initState(int j, Node& Tnode)
+    {
+        // SWMM node_initState(): seed depth/volume from InitDepth before routing init.
+        Tnode.oldDepth(j) = Tnode.initDepth(j);
+        Tnode.newDepth(j) = Tnode.oldDepth(j);
+        Tnode.crownElev(j) = Tnode.invertElev(j);
+
+        if (Tnode.fullDepth(j) > 0.0 && Tnode.pondedArea(j) > 0.0) {
+            Tnode.fullVolume(j) = Tnode.fullDepth(j) * Tnode.pondedArea(j);
+            Tnode.oldVolume(j) = Tnode.newVolume(j) =
+                Tnode.fullVolume(j) * (Tnode.oldDepth(j) / Tnode.fullDepth(j));
+        } else {
+            Tnode.fullVolume(j) = 0.0;
+            Tnode.oldVolume(j) = 0.0;
+            Tnode.newVolume(j) = 0.0;
+        }
+
+        Tnode.oldLatFlow(j) = 0.0;
+        Tnode.newLatFlow(j) = 0.0;
+        Tnode.apiExtInflow(j) = 0.0;
+        Tnode.losses(j) = 0.0;
+        Tnode.inflow(j) = 0.0;
+        Tnode.outflow(j) = 0.0;
+        Tnode.overflow(j) = 0.0;
+    }
+
     inline void project_validate(Node& Tnode, Link& Tlink, Conduit& Tconduit, Outfall& Toutfall,
         Pump& Tpump, PumpCurves& TpumpCurves)
     {
         int i;
         for (i = 0; i < Nobjects[NODE]; i++) {
-            const real y0 = Tnode.initDepth(i);
-            Tnode.newDepth(i) = y0;
-            Tnode.oldDepth(i) = y0;
-            if (Tnode.fullDepth(i) > 0.0 && Tnode.pondedArea(i) > 0.0) {
-                Tnode.fullVolume(i) = Tnode.fullDepth(i) * Tnode.pondedArea(i);
-                if (y0 > 0.0 && Tnode.fullDepth(i) > 0.0)
-                    Tnode.newVolume(i) = Tnode.fullVolume(i) * (y0 / Tnode.fullDepth(i));
+            if (Tnode.initDepth(i) > Tnode.fullDepth(i) + Tnode.surDepth(i)) {
+                std::cerr << "Warning: node " << i
+                          << " has initial depth greater than maximum depth.\n";
             }
+            node_initState(i, Tnode);
         }
         for ( i=0; i<Nobjects[LINK]; i++)
             link_validate(i, Tnode, Tlink, Toutfall, Tconduit, Tpump, TpumpCurves);
@@ -484,9 +507,9 @@ public:
         Tlink.node1(j) = from;
         Tlink.node2(j) = to;
         Tlink.subIndex(j) = k;
-        Tlink.offset1(j) = 0.0;
-        Tlink.offset2(j) = 0.0;
-        Tlink.q0(j)       = 0.0;
+        Tlink.offset1(j) = InOffset;
+        Tlink.offset2(j) = OutOffset;
+        Tlink.q0(j)       = Initflow;
         Tlink.qFull(j)    = 0.0;
         Tlink.setting(j)  = 1.0;
         Tlink.targetSetting(j) = 1.0;

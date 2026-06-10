@@ -235,7 +235,8 @@ public:
 		if(!parser.readDrainageParameterFile(drainageParamFile, Ddyw, par)) return 0;
 		RFF.project_readInput(inFolder, Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves, TRiver); 
 		
-		RFF.project_validate(Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves); 
+		RFF.project_validate(Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves);
+		Ddyw.flowrout_init(Tnode, Tlink, Tconduit, TRiver, dom.etime);
 		io.writeDrainageTimeSeriesIni(par, dom, sint, Ddyw, outFolder, RFF, Tlink, Tnode);
 		std::cerr << GOK "The DRAINAGE input information has been read.\n";
 		#endif

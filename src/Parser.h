@@ -318,6 +318,13 @@ public:
           else if (!strcmp("w", pline.key.c_str())) { 
             pline.value >> Ddyw.w; 
           }
+          else if (!strcmp("outputLinkDepth", pline.key.c_str())) {
+            std::string flag;
+            pline.value >> flag;
+            Ddyw.outputLinkDepth =
+                (flag == "1" || flag == "true" || flag == "TRUE" ||
+                 flag == "yes" || flag == "YES");
+          }
         }
       }
     } else {
@@ -331,6 +338,8 @@ public:
         std::cerr << BDASH "  Cw: "           << Ddyw.Cw << "\n";
         std::cerr << BDASH "  Co: "           << Ddyw.Co << "\n";
         std::cerr << BDASH "  w: "           << Ddyw.w << "\n";
+        std::cerr << BDASH "  outputLinkDepth: "
+                  << (Ddyw.outputLinkDepth ? "true" : "false") << "\n";
       }
       return 1; // File not found is not an error, use defaults
     }
@@ -343,6 +352,8 @@ public:
       std::cerr << BDASH "  junctionSize: " << Ddyw.junctionSize << "\n";
       std::cerr << BDASH "  Cw: "           << Ddyw.Cw << "\n";
       std::cerr << BDASH "  Co: "           << Ddyw.Co << "\n";
+      std::cerr << BDASH "  outputLinkDepth: "
+                << (Ddyw.outputLinkDepth ? "true" : "false") << "\n";
     }
 
     if (par.masterproc){

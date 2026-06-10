@@ -1450,6 +1450,11 @@ public:
     for (int ii = 0; ii < Nobjects[NODE]; ii++) {
         DrainageOutputFile << "NODE_" << ii << "_depth[m] ";
     }
+    if (Drain.outputLinkDepth) {
+        for (int ii = 0; ii < Nobjects[LINK]; ii++) {
+            DrainageOutputFile << "LINK_" << ii << "_depth[m] ";
+        }
+    }
 	DrainageOutputFile << std::endl;}
 
     else
@@ -1501,6 +1506,11 @@ public:
     }
     for (int ii = 0; ii < Nobjects[NODE]; ii++) {
         DrainageOutputFile << std::scientific << Tnode.newDepth(ii) << " ";
+    }
+    if (Drain.outputLinkDepth) {
+        for (int ii = 0; ii < Nobjects[LINK]; ii++) {
+            DrainageOutputFile << std::scientific << Tlink.newDepth(ii) << " ";
+        }
     }
     DrainageOutputFile << std::endl;
 

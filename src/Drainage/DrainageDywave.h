@@ -56,6 +56,9 @@ public:
     // false: use single-grid method (250523 version)
     bool useMultiGrid = false;
 
+    // Append LINK_*_depth[m] columns to DrainageTimeSeries.out (Drainage-parameter.input).
+    bool outputLinkDepth = false;
+
     /*--------------------------------------
     Node-Link adjacency table for eliminating atomic operations
     ---------------------------------------*/
@@ -376,7 +379,7 @@ public:
                         shouldDrain = true;
                     }
 
-                    if (shouldDrain && Tnode.head(ii) < state.h(iGlobNode) + state.z(iGlobNode) && state.h(iGlobNode) > TOL1)
+                    if (shouldDrain && Tnode.head(ii) < state.h(iGlobNode) + state.z(iGlobNode) && state.h(iGlobNode) > TOL12)
                             {
                                 if (Tnode.head(ii) < state.z(iGlobNode))
                                 {
@@ -447,6 +450,180 @@ public:
 
 
 public:
+/*--------------------------------------
+SWMM flowrout_init() initialization chain (flowrout.c / link.c / node.c)
+---------------------------------------*/
+    static inline double node_getVolumeHost(int j, double d, Node& Tnode)
+    {
+        if (Tnode.fullDepth(j) > 0.0 && Tnode.pondedArea(j) > 0.0)
+            return Tnode.fullVolume(j) * (d / Tnode.fullDepth(j));
+        return 0.0;
+    }
+
+    inline void conduit_initState(int j, int k, Link& Tlink, Conduit& Tconduit)
+    {
+        // SWMM conduit_initState(): normal depth of InitFlow (q0).
+        Tlink.newDepth(j) = link_getYnorm(j, Tlink.q0(j), Tlink, Tconduit);
+        Tlink.oldDepth(j) = Tlink.newDepth(j);
+        Tconduit.evapLossRate(k) = 0.0;
+        Tconduit.seepLossRate(k) = 0.0;
+    }
+
+    inline void link_initState(int j, Link& Tlink, Conduit& Tconduit)
+    {
+        // SWMM link_initState(): seed link flow/depth from q0.
+        Tlink.oldFlow(j) = Tlink.q0(j);
+        Tlink.newFlow(j) = Tlink.q0(j);
+        Tlink.oldDepth(j) = 0.0;
+        Tlink.newDepth(j) = 0.0;
+        Tlink.oldVolume(j) = 0.0;
+        Tlink.newVolume(j) = 0.0;
+        Tlink.inletControl(j) = 0.0;
+        Tlink.normalFlow(j) = 0.0;
+        if (Tlink.typee(j) == CONDUIT)
+            conduit_initState(j, Tlink.subIndex(j), Tlink, Tconduit);
+    }
+
+    inline void initNodeDepths(Node& Tnode, Link& Tlink, Conduit& Tconduit)
+    {
+        // SWMM initNodeDepths(): average connecting conduit depths at nodes
+        // without user-supplied InitDepth; then set FREE outfall depths.
+        int i, n;
+        double y;
+
+        for (i = 0; i < Nobjects[NODE]; i++) {
+            Tnode.inflow(i) = 0.0;
+            Tnode.outflow(i) = 0.0;
+        }
+
+        for (i = 0; i < Nobjects[LINK]; i++) {
+            if (Tlink.newDepth(i) > FUDGE) y = Tlink.newDepth(i) + Tlink.offset1(i);
+            else y = 0.0;
+            n = Tlink.node1(i);
+            Tnode.inflow(n) += y;
+            Tnode.outflow(n) += 1.0;
+            n = Tlink.node2(i);
+            Tnode.inflow(n) += y;
+            Tnode.outflow(n) += 1.0;
+        }
+
+        for (i = 0; i < Nobjects[NODE]; i++) {
+            if (Tnode.typee(i) == OUTFALL) continue;
+            if (Tnode.initDepth(i) > 0.0) continue;
+            if (Tnode.outflow(i) > 0.0)
+                Tnode.newDepth(i) = Tnode.inflow(i) / Tnode.outflow(i);
+        }
+
+        for (i = 0; i < Nobjects[LINK]; i++)
+            link_setOutfallDepth(i, Tnode, Tlink, Tconduit);
+    }
+
+    inline void initLinkDepths(Node& Tnode, Link& Tlink)
+    {
+        // SWMM initLinkDepths(): average end-node depths for conduits without q0.
+        int i;
+        double y, y1, y2;
+
+        for (i = 0; i < Nobjects[LINK]; i++) {
+            if (Tlink.typee(i) != CONDUIT) continue;
+            if (Tlink.q0(i) != 0.0) continue;
+
+            y1 = Tnode.newDepth(Tlink.node1(i)) - Tlink.offset1(i);
+            y1 = max(y1, 0.0);
+            y1 = min(y1, Tlink.yFull(i));
+            y2 = Tnode.newDepth(Tlink.node2(i)) - Tlink.offset2(i);
+            y2 = max(y2, 0.0);
+            y2 = min(y2, Tlink.yFull(i));
+            y = 0.5 * (y1 + y2);
+            y = max(y, FUDGE);
+            Tlink.newDepth(i) = y;
+        }
+    }
+
+    inline void initNodes(Node& Tnode, Link& Tlink)
+    {
+        // SWMM initNodes(): nodal volume and link-end flow bookkeeping.
+        int i;
+
+        for (i = 0; i < Nobjects[NODE]; i++) {
+            Tnode.inflow(i) = Tnode.newLatFlow(i);
+            Tnode.outflow(i) = 0.0;
+
+            Tnode.newVolume(i) = 0.0;
+            if (AllowPonding &&
+                Tnode.pondedArea(i) > 0.0 &&
+                Tnode.newDepth(i) > Tnode.fullDepth(i))
+            {
+                Tnode.newVolume(i) = Tnode.fullVolume(i) +
+                    (Tnode.newDepth(i) - Tnode.fullDepth(i)) * Tnode.pondedArea(i);
+            }
+            else {
+                Tnode.newVolume(i) = node_getVolumeHost(i, Tnode.newDepth(i), Tnode);
+            }
+            Tnode.oldVolume(i) = Tnode.newVolume(i);
+        }
+
+        for (i = 0; i < Nobjects[LINK]; i++) {
+            if (Tlink.newFlow(i) >= 0.0) {
+                Tnode.outflow(Tlink.node1(i)) += Tlink.newFlow(i);
+                Tnode.inflow(Tlink.node2(i)) += Tlink.newFlow(i);
+            } else {
+                Tnode.inflow(Tlink.node1(i)) -= Tlink.newFlow(i);
+                Tnode.outflow(Tlink.node2(i)) -= Tlink.newFlow(i);
+            }
+        }
+    }
+
+    inline void initLinks(Link& Tlink, Conduit& Tconduit)
+    {
+        // SWMM initLinks(): conduit end flows, areas, and volumes.
+        int i, k;
+        double a;
+
+        for (i = 0; i < Nobjects[LINK]; i++) {
+            if (Tlink.typee(i) != CONDUIT) continue;
+
+            k = Tlink.subIndex(i);
+            Tconduit.q1(k) = Tlink.newFlow(i);
+            Tconduit.q2(k) = Tconduit.q1(k);
+
+            a = xxsect.xsect_getAofY(i, Tlink.newDepth(i), Tlink);
+            Tconduit.a1(k) = a;
+            Tconduit.a2(k) = a;
+
+            Tlink.newVolume(i) = a * Tconduit.length(k);
+            Tlink.oldVolume(i) = Tlink.newVolume(i);
+            Tlink.oldDepth(i) = Tlink.newDepth(i);
+        }
+    }
+
+    inline void flowrout_init(Node& Tnode, Link& Tlink, Conduit& Tconduit,
+        RiverStages& TRiver, double simTime)
+    {
+        // SWMM flowrout_init() for dynamic-wave routing (no hotstart file).
+        int j;
+
+        for (j = 0; j < Nobjects[LINK]; j++)
+            link_initState(j, Tlink, Tconduit);
+
+        initNodeDepths(Tnode, Tlink, Tconduit);
+        initLinkDepths(Tnode, Tlink);
+        initNodes(Tnode, Tlink);
+        initLinks(Tlink, Tconduit);
+
+        // Apply fixed / time-series outfall stages after nodal depths are set.
+        setOutfallBoundaryDepths(Tnode, TRiver, simTime);
+        for (j = 0; j < Nobjects[NODE]; j++) {
+            if (Tnode.typee(j) != OUTFALL) continue;
+            if (Tnode.outfallType(j) != FIXED_OUTFALL &&
+                Tnode.outfallType(j) != TIMESERIES_OUTFALL)
+                continue;
+            Tnode.oldDepth(j) = Tnode.newDepth(j);
+            Tnode.oldVolume(j) = node_getVolumeHost(j, Tnode.newDepth(j), Tnode);
+            Tnode.newVolume(j) = Tnode.oldVolume(j);
+        }
+    }
+
 /*--------------------------------------
 drainage module pipe flow comuputation
 ---------------------------------------*/
@@ -594,7 +771,9 @@ inline double getLinkStep(double tMin, int *minLink, Link& Tlink, Conduit& Tcond
     );
     
     *minLink = -1;
-    return tLink;
+    // Kokkos::Min 的归约单位元是 DBL_MAX：没有任何 link 命中条件时 tLink 会被写成 DBL_MAX，
+    // 这里回退成传入的 tMin，保持原 SWMM "无命中则返回 maxStep" 的语义。
+    return min(tLink, tMin);
 }
 
 inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
@@ -623,7 +802,8 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
     );
     
     *minNode = -1;
-    return tNode;
+    // 同 getLinkStep：无命中节点时回退成传入的 tMin，避免返回归约单位元 DBL_MAX。
+    return min(tNode, tMin);
 }
 
 
@@ -984,15 +1164,14 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         yMax = Tnode.fullDepth(i);
         if ( yNew > yMax )
         {
-            yNew = DrainageDywave::getFloodedDepth(i, canPond, dV, yNew, yMax, dt, Tnode);
+            yNew = DrainageDywave::getFloodedDepth(i, dV, yNew, dt, Tnode);
         }
         else Tnode.newVolume(i) = DrainageDywave::node_getVolume(i, yNew, Tnode);
         Tnode.dYdT(i) = fabs(yNew - yOld) / dt;
         Tnode.newDepth(i) = yNew;
     }
 
-    static KOKKOS_INLINE_FUNCTION double getFloodedDepth(int i, int canPond, double dV, double yNew,
-                        double yMax, double dt, Node& Tnode)
+    static KOKKOS_INLINE_FUNCTION double getFloodedDepth(int i, double dV, double yNew, double dt, Node& Tnode)
     {
             Tnode.newVolume(i) = max((Tnode.oldVolume(i)+dV), Tnode.fullVolume(i));
             Tnode.overflow(i) = (Tnode.newVolume(i) -
