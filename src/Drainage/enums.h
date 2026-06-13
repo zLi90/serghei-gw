@@ -1,12 +1,6 @@
 #ifndef ENUMS_H
 #define ENUMS_H
 
-//-----------------------------------------------------------------------------
-// Reference: EPA SWMM5 (Storm Water Management Model) Version 5.2
-// Source: https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/enums.h
-// Note: This file has been simplified for our use case.
-// We have omitted considerations for subcatchments, unit conversions, file outputs, etc.
-//-----------------------------------------------------------------------------
 
 //-------------------------------------
 // Names of major object types
@@ -24,7 +18,14 @@ enum NodeType
 {
      JUNCTION,
      OUTFALL,
-     INLET //zn251020
+     INLET, //zn251020
+     STORAGE
+};
+
+/** Storage unit surface-area relation. */
+enum StorageShape {
+     FUNCTIONAL_SHAPE = 0,
+     CYLINDRICAL_SHAPE = 1
 };
 
 //-------------------------------------
@@ -40,7 +41,7 @@ enum NodeType
       PUMP3_CURVE = 0
       };
 
-/** Pump link types (aligned with EPA SWMM PumpType). */
+/** Pump link types. */
 enum PumpType {
       TYPE3_PUMP = 2,                  // flow vs. head delivered (PUMP3 curve)
       IDEAL_PUMP = 5                   // outflow = inlet inflow + overflow

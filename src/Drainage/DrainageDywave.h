@@ -12,6 +12,7 @@
 #include "funcs.h"
 #include "xsect.h"
 #include "pump.h"
+#include "storage.h"
 
 
 class DrainageDywave   {
@@ -130,12 +131,7 @@ public:
         Kokkos::deep_copy(nodeAdj.adjLinks, h_adjLinks);
         Kokkos::deep_copy(nodeAdj.adjPosition, h_adjPosition);
 
-        // --- SWMM-consistent node degree (flowrout.c / toposort.c):
-        //     degree = number of OUTFLOW links (this node is the link's node1).
-        //     If the node has NO inflow link (no link's node2 == this node),
-        //     SWMM negates the degree to mark it as an upstream "source" node.
-        //     setNodeDepth uses (degree < 0) to damp surcharge updates (corr=0.6).
-        //     serghei previously left degree unset (==0), so this path was dead.
+       
         {
             std::vector<int> outDeg(nNode, 0);   // # links leaving the node (node1)
             std::vector<int> inDeg(nNode, 0);    // # links entering the node (node2)
@@ -450,9 +446,6 @@ public:
 
 
 public:
-/*--------------------------------------
-SWMM flowrout_init() initialization chain (flowrout.c / link.c / node.c)
----------------------------------------*/
     static inline double node_getVolumeHost(int j, double d, Node& Tnode)
     {
         if (Tnode.fullDepth(j) > 0.0 && Tnode.pondedArea(j) > 0.0)
@@ -462,7 +455,7 @@ SWMM flowrout_init() initialization chain (flowrout.c / link.c / node.c)
 
     inline void conduit_initState(int j, int k, Link& Tlink, Conduit& Tconduit)
     {
-        // SWMM conduit_initState(): normal depth of InitFlow (q0).
+        
         Tlink.newDepth(j) = link_getYnorm(j, Tlink.q0(j), Tlink, Tconduit);
         Tlink.oldDepth(j) = Tlink.newDepth(j);
         Tconduit.evapLossRate(k) = 0.0;
@@ -471,7 +464,7 @@ SWMM flowrout_init() initialization chain (flowrout.c / link.c / node.c)
 
     inline void link_initState(int j, Link& Tlink, Conduit& Tconduit)
     {
-        // SWMM link_initState(): seed link flow/depth from q0.
+        
         Tlink.oldFlow(j) = Tlink.q0(j);
         Tlink.newFlow(j) = Tlink.q0(j);
         Tlink.oldDepth(j) = 0.0;
@@ -486,8 +479,8 @@ SWMM flowrout_init() initialization chain (flowrout.c / link.c / node.c)
 
     inline void initNodeDepths(Node& Tnode, Link& Tlink, Conduit& Tconduit)
     {
-        // SWMM initNodeDepths(): average connecting conduit depths at nodes
-        // without user-supplied InitDepth; then set FREE outfall depths.
+        // average connecting conduit depths at nodes
+      
         int i, n;
         double y;
 
@@ -520,7 +513,7 @@ SWMM flowrout_init() initialization chain (flowrout.c / link.c / node.c)
 
     inline void initLinkDepths(Node& Tnode, Link& Tlink)
     {
-        // SWMM initLinkDepths(): average end-node depths for conduits without q0.
+        // average end-node depths for conduits without q0.
         int i;
         double y, y1, y2;
 
@@ -542,7 +535,7 @@ SWMM flowrout_init() initialization chain (flowrout.c / link.c / node.c)
 
     inline void initNodes(Node& Tnode, Link& Tlink)
     {
-        // SWMM initNodes(): nodal volume and link-end flow bookkeeping.
+        // nodal volume and link-end flow bookkeeping.
         int i;
 
         for (i = 0; i < Nobjects[NODE]; i++) {
@@ -576,7 +569,7 @@ SWMM flowrout_init() initialization chain (flowrout.c / link.c / node.c)
 
     inline void initLinks(Link& Tlink, Conduit& Tconduit)
     {
-        // SWMM initLinks(): conduit end flows, areas, and volumes.
+        // conduit end flows, areas, and volumes.
         int i, k;
         double a;
 
@@ -600,7 +593,7 @@ SWMM flowrout_init() initialization chain (flowrout.c / link.c / node.c)
     inline void flowrout_init(Node& Tnode, Link& Tlink, Conduit& Tconduit,
         RiverStages& TRiver, double simTime)
     {
-        // SWMM flowrout_init() for dynamic-wave routing (no hotstart file).
+        
         int j;
 
         for (j = 0; j < Nobjects[LINK]; j++)
@@ -628,7 +621,7 @@ SWMM flowrout_init() initialization chain (flowrout.c / link.c / node.c)
 drainage module pipe flow comuputation
 ---------------------------------------*/
     inline void routing_execute(double tStep, Node& Tnode, Link& Tlink, Conduit& Tconduit, Outfall& Toutfall,
-        Pump& Tpump, PumpCurves& TpumpCurves, RiverStages& TRiver,
+        Storage& Tstorage, Pump& Tpump, PumpCurves& TpumpCurves, RiverStages& TRiver,
                                 SergheiTimers& timers)
     {   
         // Build node-link adjacency table on first call (for node-centric parallel)
@@ -639,7 +632,7 @@ drainage module pipe flow comuputation
         initSystemInflows(Tnode);
         inletBackflow(Tnode);
         addSystemInflows(Tnode);
-        routeFlow(tStep, Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves, TRiver, timers);
+        routeFlow(tStep, Tnode, Tlink, Tconduit, Toutfall, Tstorage, Tpump, TpumpCurves, TRiver, timers);
         routingStep = getVariableStep(tStep, Tnode, Tlink, Tconduit);
     }
 
@@ -661,7 +654,7 @@ drainage module pipe flow comuputation
                 Tnode.oldLatFlow(j) = Tnode.newLatFlow(j);
                 Tnode.newLatFlow(j) = 0.0;
             });
-        Kokkos::fence();  // 若后续立刻依赖更新后的 newLatFlow，建议保留；与项目其它 drainage 处一致
+        Kokkos::fence();  
     }
     
     inline void addSystemInflows(Node& Tnode)
@@ -669,23 +662,23 @@ drainage module pipe flow comuputation
         const int nNode = Nobjects[NODE];
         Kokkos::parallel_for(nNode, KOKKOS_LAMBDA(int j) {
             if (Tnode.typee(j) == INLET) {
-                Tnode.newLatFlow(j) += Tnode.backflow(j); //检查井回流量
-                Tnode.newLatFlow(j) -= Tnode.SDoutflow(j);//节点溢流量
+                Tnode.newLatFlow(j) += Tnode.backflow(j); //backflow for manholes
+                Tnode.newLatFlow(j) -= Tnode.SDoutflow(j);//node overflow flow
             }
             else if (Tnode.typee(j) == JUNCTION)
             {
-                //对于连接了inlet且有盖子的manhole，要考虑inlet的入流和回流。
+                //for manhole connected to inlet with cover, consider inlet inflow and backflow.
                 
                 if (Tnode.connectedInlet(j) == TRUE && Tnode.sealed(j) == TRUE)
-                {//当该manhole的overflow<=0时，考虑inlet的入流量；
-                    //当该manhole的overflow>0时，不考虑inlet的入流，而是减去manhole向inlet传输的回流量；
+                {//when the manhole's overflow<=0, consider inlet inflow;
+                    //when the manhole's overflow>0, do not consider inlet inflow, but subtract the backflow from the manhole to the inlet;
                     if (Tnode.overflow(j) <= 0) {
                         Tnode.newLatFlow(j) += Tnode.SDinflow(Tnode.inletIndex(j));
                     } else if (Tnode.overflow(j) > 0) {
                         Tnode.newLatFlow(j) -= Tnode.backflow(Tnode.inletIndex(j));
                     }
                 }
-                //对于连接了inlet且没有盖子的manhole，要考虑inlet的入流和回流，以及地表来水。
+                //for manhole connected to inlet and without cover, consider inlet inflow and backflow, and surface inflow.
                 else if (Tnode.connectedInlet(j) == TRUE && Tnode.sealed(j) == FALSE)
                 {
                     if (Tnode.overflow(j) <= 0) {
@@ -695,13 +688,13 @@ drainage module pipe flow comuputation
                     }
                     Tnode.newLatFlow(j) += Tnode.SDinflow(j);
                 }
-                //对于没有连接inlet且没有盖子的manhole，要考虑地表来水和溢流。
+                //for manhole not connected to inlet and without cover, consider surface inflow and overflow.
                 else if (Tnode.connectedInlet(j) == FALSE && Tnode.sealed(j) == FALSE)
                 {
                     Tnode.newLatFlow(j) += Tnode.SDinflow(j);
                     Tnode.newLatFlow(j) -= Tnode.SDoutflow(j);
                 }
-                //对于没有连接inlet且有盖子的manhole，只考虑溢流。
+                //for manhole not connected to inlet and with cover, consider overflow only.
                 else{
                     Tnode.newLatFlow(j) -= Tnode.SDoutflow(j);
                 }
@@ -771,8 +764,6 @@ inline double getLinkStep(double tMin, int *minLink, Link& Tlink, Conduit& Tcond
     );
     
     *minLink = -1;
-    // Kokkos::Min 的归约单位元是 DBL_MAX：没有任何 link 命中条件时 tLink 会被写成 DBL_MAX，
-    // 这里回退成传入的 tMin，保持原 SWMM "无命中则返回 maxStep" 的语义。
     return min(tLink, tMin);
 }
 
@@ -802,13 +793,13 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
     );
     
     *minNode = -1;
-    // 同 getLinkStep：无命中节点时回退成传入的 tMin，避免返回归约单位元 DBL_MAX。
+    
     return min(tNode, tMin);
 }
 
 
     inline void routeFlow(double routingStep, Node& Tnode, Link& Tlink, Conduit& Tconduit, Outfall& Toutfall,
-        Pump& Tpump, PumpCurves& TpumpCurves, RiverStages& TRiver,
+        Storage& Tstorage, Pump& Tpump, PumpCurves& TpumpCurves, RiverStages& TRiver,
                           SergheiTimers& timers)
     {
         const int nLink = Nobjects[LINK];
@@ -865,7 +856,7 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         
         if (nLink > 0)
         {
-            dynwave_execute(routingStep, Tnode, Tlink, Tconduit, Toutfall,
+            dynwave_execute(routingStep, Tnode, Tlink, Tconduit, Toutfall, Tstorage,
                 Tpump, TpumpCurves, TRiver, nodeAdj, timers);
         }
     }
@@ -916,7 +907,7 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
 
 
     inline void dynwave_execute(double tStep, Node& Tnode, Link& Tlink, Conduit& Tconduit, Outfall& Toutfall,
-        Pump& Tpump, PumpCurves& TpumpCurves, RiverStages& TRiver,
+        Storage& Tstorage, Pump& Tpump, PumpCurves& TpumpCurves, RiverStages& TRiver,
         const NodeLinkAdjacency& nodeAdj, SergheiTimers& timers)
     {
         int converged;
@@ -925,12 +916,12 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         initRoutingStep(Tnode, Tlink, Tconduit);
         while ( Steps < MaxTrials )
         {
-            initNodeStates(Tnode);
+            initNodeStates(Tnode, Tstorage);
             Kokkos::Timer timerLinkFlows;
-            findLinkFlows(Steps, tStep, Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves, nodeAdj);
+            findLinkFlows(Steps, tStep, Tnode, Tlink, Tconduit, Toutfall, Tstorage, Tpump, TpumpCurves, nodeAdj);
             timers.drainageLinkFlows += timerLinkFlows.seconds();
             timerLinkFlows.reset();
-            converged = findNodeDepths(tStep, Tnode, Tlink, Tconduit, TRiver);
+            converged = findNodeDepths(tStep, Tnode, Tlink, Tconduit, Tstorage, TRiver);
             timers.drainageNodeDepths += timerLinkFlows.seconds();
             Steps++;
             if ( Steps > 1 )
@@ -1016,7 +1007,7 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         Kokkos::fence();
     }
 
-     inline void updateNodeDepths(double dt, Node& Tnode)
+     inline void updateNodeDepths(double dt, Node& Tnode, Storage& Tstorage)
 
     {
         for (int ii = 0; ii < Nobjects[NODE]; ii++){
@@ -1028,7 +1019,7 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
             {    
                 Tnode.outflow(ii) = Tnode.SDoutflow(ii);
             }
-        if (Tnode.typee(ii) !=OUTFALL ) setNodeDepth(ii, dt, Tnode, Steps);
+        if (Tnode.typee(ii) !=OUTFALL ) setNodeDepth(ii, dt, Tnode, Steps, Tstorage);
         };      
     }
 
@@ -1096,7 +1087,8 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
 }
 
 
-    static KOKKOS_INLINE_FUNCTION void setNodeDepth(int i, double dt, Node& Tnode, int steps)
+    static KOKKOS_INLINE_FUNCTION void setNodeDepth(int i, double dt, Node& Tnode, int steps,
+        const Storage& Tstorage)
     {
         int     canPond;
         int     isPonded;
@@ -1125,6 +1117,8 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         dQ = Tnode.inflow(i) - Tnode.outflow(i);
         dV = 0.5 * (Tnode.oldNetInflow(i) + dQ) * dt;
         if (isPonded) isSurcharged = FALSE;
+        else if (Tnode.typee(i) == STORAGE)
+            isSurcharged = (Tnode.surDepth(i) > 0.0 && yLast > Tnode.fullDepth(i));
         else isSurcharged = (yCrown > 0.0 && yLast > yCrown);
         if (!isSurcharged)
         {
@@ -1141,8 +1135,7 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         }
         else
         {
-            // SWMM dynwave.c: damp surcharge depth update at upstream terminal
-            // ("source") nodes that have no inflow link (degree < 0).
+           
             corr = 1.0;
             if ( Tnode.degree(i) < 0 ) corr = 0.6;
             denom = Tnode.sumdqdh(i);
@@ -1166,7 +1159,7 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         {
             yNew = DrainageDywave::getFloodedDepth(i, dV, yNew, dt, Tnode);
         }
-        else Tnode.newVolume(i) = DrainageDywave::node_getVolume(i, yNew, Tnode);
+        else Tnode.newVolume(i) = DrainageStorage::node_getVolume(i, yNew, Tnode, Tstorage);
         Tnode.dYdT(i) = fabs(yNew - yOld) / dt;
         Tnode.newDepth(i) = yNew;
     }
@@ -1181,18 +1174,9 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         return yNew;
     }
 
-    static KOKKOS_INLINE_FUNCTION double node_getVolume(int j, double d, Node const& Tnode)
-    {
-        if ( Tnode.fullDepth(j) > 0.0 )
-            return Tnode.fullVolume(j) * (d / Tnode.fullDepth(j));
-        else return 0.0;
-    }
-
-    /** Fused functor: updates node depth AND counts non-converged nodes in a
-     *  single parallel_reduce. View handles copied by value; functor is
-     *  trivially copyable to device like Kokkos patterns. */
     struct FindNodeDepthsFunctor {
         mutable Node node;
+        Storage storage;
         double dt;
         int stepsSnap;
         KOKKOS_INLINE_FUNCTION void operator()(int ii, int& lNotConv) const
@@ -1201,7 +1185,7 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
                 return;
             }
             const double yOld = node.newDepth(ii);
-            DrainageDywave::setNodeDepth(ii, dt, node, stepsSnap);
+            DrainageDywave::setNodeDepth(ii, dt, node, stepsSnap, storage);
             if (fabs(yOld - node.newDepth(ii)) > HEAD_TOL) {
                 node.converged(ii) = FALSE;
                 lNotConv += 1;
@@ -1212,16 +1196,12 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
     };
 
     inline int findNodeDepths(double dt, Node& Tnode, Link& Tlink, Conduit& Tconduit,
-        const RiverStages& TRiver)
+        Storage& Tstorage, const RiverStages& TRiver)
     {
-        // (1) Outfall boundary depths for FIXED/TIMESERIES outfalls (device parallel).
+        // (1) Outfall boundary depths for FIXED/TIMESERIES outfalls.
         setOutfallBoundaryDepths(Tnode, TRiver, drainageSimTime);
 
-        // (2) Outfall depths for NORMAL/FREE/CRITICAL outfalls: depends on link flow,
-        //     so must be recomputed each Picard iteration. Parallelized over links
-        //     (device) to eliminate the previous host serial loop that thrashed UVM.
-        //     NOTE: SWMM outfalls are single-link terminal nodes, so writes to
-        //     Tnode.newDepth(outfall) have no cross-link race in practice.
+        // (2) Outfall depths for NORMAL/FREE/CRITICAL outfalls.
         {
             const int nLink = Nobjects[LINK];
             Kokkos::parallel_for(
@@ -1262,22 +1242,19 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
                     else
                         Tnode.newDepth(n) = min(yNorm, yCrit);
                 });
-            // No fence: the fused depth-update kernel below runs on the same
-            // stream and observes these outfall depths via kernel ordering.
+
         }
 
         // (3) Fused: update interior node depths AND count non-converged nodes
-        //     in a single parallel_reduce (replaces previous 2 kernels + 2 fences).
         {
             const int nNode = Nobjects[NODE];
             const int stepsSnap = Steps;
             int nNotConverged = 0;
-            // parallel_reduce into a host scalar is intrinsically blocking
-            // (result must be returned to host), so no explicit fence is needed.
+
             Kokkos::parallel_reduce(
                 "findNodeDepths_fused",
                 nNode,
-                FindNodeDepthsFunctor{Tnode, dt, stepsSnap},
+                FindNodeDepthsFunctor{Tnode, Tstorage, dt, stepsSnap},
                 Kokkos::Sum<int>(nNotConverged));
             return (nNotConverged == 0) ? TRUE : FALSE;
         }
@@ -1307,14 +1284,20 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         Kokkos::fence();
     }
 
-    inline void initNodeStates(Node& Tnode)
+    inline void initNodeStates(Node& Tnode, Storage& Tstorage)
     {
         const int nNode = Nobjects[NODE];
+        const Storage storageSnap = Tstorage;
         Kokkos::parallel_for(
             nNode,
             KOKKOS_LAMBDA(int i) {
-                Tnode.newSurfArea(i) =
-                    DrainageDywave::node_getPondedArea(i, Tnode.newDepth(i), Tnode);
+                if (Tnode.typee(i) == STORAGE) {
+                    Tnode.newSurfArea(i) = DrainageStorage::storage_getSurfArea(
+                        Tnode.subIndex(i), Tnode.newDepth(i), storageSnap);
+                } else {
+                    Tnode.newSurfArea(i) =
+                        DrainageDywave::node_getPondedArea(i, Tnode.newDepth(i), Tnode);
+                }
                 Tnode.inflow(i) = 0.0;
                 Tnode.outflow(i) = 0.0;
                 const double nlf = Tnode.newLatFlow(i);
@@ -1325,11 +1308,10 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
                 }
                 Tnode.sumdqdh(i) = 0.0;
             });
-        // No fence: these initialized values are accumulated onto by findLinkFlows'
-        // aggregation kernel, which runs later on the same stream (ordered).
+
     }
 
-    /** Host + device: ponded area for node j (d unused; kept for call-site parity). */
+
     static KOKKOS_INLINE_FUNCTION double node_getPondedArea(int j, double /*d*/, Node const& Tnode)
     {
         double a = Tnode.pondedArea(j);
@@ -1377,7 +1359,8 @@ KOKKOS_INLINE_FUNCTION double getAcircularC(double psi)
 }
 
 inline void findLinkFlows(int Steps, double dt, Node& Tnode, Link& Tlink, Conduit& Tconduit,
-    Outfall& Toutfall, Pump& Tpump, const PumpCurves& TpumpCurves, const NodeLinkAdjacency& nodeAdj)
+    Outfall& Toutfall, Storage& Tstorage, Pump& Tpump, const PumpCurves& TpumpCurves,
+    const NodeLinkAdjacency& nodeAdj)
     {
         (void)Toutfall;
         const PumpCurves curvesSnap = TpumpCurves;
@@ -1406,6 +1389,8 @@ inline void findLinkFlows(int Steps, double dt, Node& Tnode, Link& Tlink, Condui
                     Tlink.flowClass(ii) = DRY;
                     Tlink.surfArea1(ii) = MINSURFAREA * 0.5;
                     Tlink.surfArea2(ii) = MINSURFAREA * 0.5;
+                    if (Tnode.typee(n1) == STORAGE) Tlink.surfArea1(ii) = 0.0;
+                    if (Tnode.typee(n2) == STORAGE) Tlink.surfArea2(ii) = 0.0;
                     return;
                 }
 
@@ -1569,6 +1554,8 @@ inline void findLinkFlows(int Steps, double dt, Node& Tnode, Link& Tlink, Condui
 
                 Tlink.surfArea1(ii) = surfArea1;
                 Tlink.surfArea2(ii) = surfArea2;
+                if (TNtypee1 == STORAGE) Tlink.surfArea1(ii) = 0.0;
+                if (TNtypee2 == STORAGE) Tlink.surfArea2(ii) = 0.0;
                 y1 = flowDepth1;
                 y2 = flowDepth2;
 
@@ -1653,7 +1640,7 @@ inline void findLinkFlows(int Steps, double dt, Node& Tnode, Link& Tlink, Condui
                     Tnode.outfallHasFlapGate(n1), Tnode.outfallHasFlapGate(n2)))
                 q = 0.0;
 
-            // //znEI理想算例设置，其他算例需删除
+            // //znEI
             // if (ii==0){
             //       q = 1;
             //   }
@@ -1665,16 +1652,10 @@ inline void findLinkFlows(int Steps, double dt, Node& Tnode, Link& Tlink, Condui
             Tconduit.fullState(k) = link_getFullStateC(a1, a2, TLaFull);
             Tlink.newVolume(ii) = aMid * TClength;
             Tlink.newFlow(ii) = q;
-            // printf("the new flow is : %f\n",Tlink.newFlow(ii));
         
             });
-            // No fence: the aggregation kernel below reads these Tlink.* outputs
-            // and runs on the same stream, so kernel ordering guarantees safety.
 
-    // ============================================================
-    // Node-centric parallel: Aggregate link contributions per node
-    // WITHOUT atomic operations by iterating over adjacency table
-    // ============================================================
+
     {
         const int nNode = Nobjects[NODE];
         
@@ -1697,7 +1678,7 @@ inline void findLinkFlows(int Steps, double dt, Node& Tnode, Link& Tlink, Condui
                 
                 for (int j = start; j < end; j++) {
                     const int linkId = adjLinks(j);
-                    const int position = adjPosition(j);  // 0=upstream(node1), 1=downstream(node2)
+                    const int position = adjPosition(j);  
                     
                     const double qf = Tlink.newFlow(linkId);
                     const double sa1 = Tlink.surfArea1(linkId);
@@ -1705,34 +1686,32 @@ inline void findLinkFlows(int Steps, double dt, Node& Tnode, Link& Tlink, Condui
                     const double dqdhL = Tlink.dqdh(linkId);
                     
                     if (position == 0) {
-                        // This node is link's upstream node (node1)
+      
                         if (qf >= 0.0) {
-                            nodeOutflow += qf;      // Flow leaving this node
+                            nodeOutflow += qf;      
                         } else {
-                            nodeInflow -= qf;       // Reverse flow entering this node
+                            nodeInflow -= qf;       
                         }
                         nodeSurfArea += sa1;
                     } else {
-                        // This node is link's downstream node (node2)
+
                         if (qf >= 0.0) {
-                            nodeInflow += qf;       // Flow entering this node
+                            nodeInflow += qf;       
                         } else {
-                            nodeOutflow -= qf;      // Reverse flow leaving this node
+                            nodeOutflow -= qf;     
                         }
                         nodeSurfArea += sa2;
                     }
                     nodeSumdqdh += dqdhL;
                 }
                 
-                // Write aggregated values (no atomic needed - each node writes its own)
+
                 Tnode.inflow(nodeId) += nodeInflow;
                 Tnode.outflow(nodeId) += nodeOutflow;
                 Tnode.newSurfArea(nodeId) += nodeSurfArea;
                 Tnode.sumdqdh(nodeId) += nodeSumdqdh;
             });
-        // Kept intentionally: this is the only fence per findLinkFlows, so the
-        // surrounding timer (drainageLinkFlowsTime) stays accurate. Removing it
-        // would not affect results (stream ordering) but would distort sub-timers.
+
         Kokkos::fence();
     }
 }
@@ -1748,7 +1727,7 @@ KOKKOS_INLINE_FUNCTION char link_getFullStateC(double a1, double a2, double aFul
     return 0;
 
 }
-/** SWMM link_setFlapGate: link flap and/or outfall flap on the inflow end of the link. */
+
 KOKKOS_INLINE_FUNCTION int link_setFlapGateC(double q, double TLhasFlapGate, double TLdirection,
     int TNtypee1, int TNtypee2, int outfallFlap1, int outfallFlap2)
 {

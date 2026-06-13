@@ -14,6 +14,7 @@
 #include "xsect.h"
 #include "DrainageState.h"
 #include "pump.h"
+#include "storage.h"
 
 XXsect xxsect;
 
@@ -42,29 +43,39 @@ public:
             Nlinks[i] = 0;
             Mlinks[i] = 0;
         }
+        for (int i = 0; i < MAX_NODE_TYPES; ++i) {
+            Nnodes[i] = 0;
+            Mnodes[i] = 0;
+        }
         hostCurves_.clear();
         hostRiverStages_.clear();
     }
 
     inline void project_readInput(std::string in, Node &Tnode, Link &Tlink, Conduit &Tconduit,
-        Outfall &Toutfall, Pump &Tpump, PumpCurves &TpumpCurves, RiverStages &TRiver)
+        Outfall &Toutfall, Storage &Tstorage, Pump &Tpump, PumpCurves &TpumpCurves,
+        RiverStages &TRiver)
     {
         resetDrainageCounters();
         input_countObjects(in);
-        createObjects(Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves, TRiver);
-        input_readData(in, Tnode, Tlink, Tconduit, Toutfall, Tpump);
+        createObjects(Tnode, Tlink, Tconduit, Toutfall, Tstorage, Tpump, TpumpCurves, TRiver);
+        input_readData(in, Tnode, Tlink, Tconduit, Toutfall, Tstorage, Tpump);
         finalizePumpCurves(Tpump, TpumpCurves);
         finalizeRiverStages(TRiver);
     }
 
-    inline void node_initState(int j, Node& Tnode)
+    inline void node_initState(int j, Node& Tnode, Storage& Tstorage)
     {
-        // SWMM node_initState(): seed depth/volume from InitDepth before routing init.
+        // seed depth/volume from InitDepth before routing init.
         Tnode.oldDepth(j) = Tnode.initDepth(j);
         Tnode.newDepth(j) = Tnode.oldDepth(j);
         Tnode.crownElev(j) = Tnode.invertElev(j);
 
-        if (Tnode.fullDepth(j) > 0.0 && Tnode.pondedArea(j) > 0.0) {
+        if (Tnode.typee(j) == STORAGE) {
+            Tnode.fullVolume(j) = DrainageStorage::storage_getVolume(
+                Tnode.subIndex(j), Tnode.fullDepth(j), Tstorage);
+            Tnode.oldVolume(j) = Tnode.newVolume(j) = DrainageStorage::storage_getVolume(
+                Tnode.subIndex(j), Tnode.oldDepth(j), Tstorage);
+        } else if (Tnode.fullDepth(j) > 0.0 && Tnode.pondedArea(j) > 0.0) {
             Tnode.fullVolume(j) = Tnode.fullDepth(j) * Tnode.pondedArea(j);
             Tnode.oldVolume(j) = Tnode.newVolume(j) =
                 Tnode.fullVolume(j) * (Tnode.oldDepth(j) / Tnode.fullDepth(j));
@@ -84,7 +95,7 @@ public:
     }
 
     inline void project_validate(Node& Tnode, Link& Tlink, Conduit& Tconduit, Outfall& Toutfall,
-        Pump& Tpump, PumpCurves& TpumpCurves)
+        Storage& Tstorage, Pump& Tpump, PumpCurves& TpumpCurves)
     {
         int i;
         for (i = 0; i < Nobjects[NODE]; i++) {
@@ -92,7 +103,12 @@ public:
                 std::cerr << "Warning: node " << i
                           << " has initial depth greater than maximum depth.\n";
             }
-            node_initState(i, Tnode);
+            if (Tnode.typee(i) == STORAGE &&
+                DrainageStorage::storage_getVolume(
+                    Tnode.subIndex(i), Tnode.fullDepth(i), Tstorage) < 0.0) {
+                std::cerr << "Warning: storage node " << i << " has negative full volume.\n";
+            }
+            node_initState(i, Tnode, Tstorage);
         }
         for ( i=0; i<Nobjects[LINK]; i++)
             link_validate(i, Tnode, Tlink, Toutfall, Tconduit, Tpump, TpumpCurves);
@@ -116,6 +132,8 @@ public:
             currentSection = "NODES";
         } else if (line.find("[INLETS]") != std::string::npos) {
             currentSection = "NODES";
+        } else if (line.find("[STORAGE]") != std::string::npos) {
+            currentSection = "STORAGE";
         } else if (line.find("[CONDUITS]") != std::string::npos) {
             currentSection = "LINKS";
         } else if (line.find("[PUMPS]") != std::string::npos) {
@@ -131,6 +149,10 @@ public:
         } else {
             if (currentSection == "NODES") {
                 Nobjects[NODE]++;
+            }
+            else if (currentSection == "STORAGE") {
+                Nobjects[NODE]++;
+                Nnodes[STORAGE]++;
             }
             else if (currentSection == "LINKS")
             {
@@ -197,7 +219,7 @@ public:
 
 
     inline void createObjects(Node &Tnode, Link &Tlink, Conduit &Tconduit, Outfall &Toutfall,
-        Pump &Tpump, PumpCurves &TpumpCurves, RiverStages &TRiver)
+        Storage &Tstorage, Pump &Tpump, PumpCurves &TpumpCurves, RiverStages &TRiver)
     {
         //===================Node===========================
         Tnode.xcoor = realArr("N_xcoor", Nobjects[NODE]);
@@ -325,6 +347,13 @@ public:
         Tconduit.roughFactor = realArr("C_roughFactor", Nlinks[CONDUIT]);
         // ==========================================
 
+        if (Nnodes[STORAGE] > 0) {
+            Tstorage.shape = intArr("S_shape", Nnodes[STORAGE]);
+            Tstorage.a0 = realArr("S_a0", Nnodes[STORAGE]);
+            Tstorage.a1 = realArr("S_a1", Nnodes[STORAGE]);
+            Tstorage.a2 = realArr("S_a2", Nnodes[STORAGE]);
+        }
+
         if (Nlinks[PUMP] > 0) {
             Tpump.pumpCurve = intArr("P_pumpCurve", Nlinks[PUMP]);
             Tpump.type = intArr("P_type", Nlinks[PUMP]);
@@ -363,7 +392,7 @@ public:
     }
 
     inline void input_readData(std::string in, Node &Tnode, Link &Tlink, Conduit &Tconduit,
-        Outfall &Toutfall, Pump &Tpump)
+        Outfall &Toutfall, Storage &Tstorage, Pump &Tpump)
     {
         std::string fNameIn = in + "Drainage.inp";
         std::ifstream fInStream(fNameIn); 
@@ -381,6 +410,8 @@ public:
             currentSection = "LINKS";
         } else if (line.find("[INLETS]") != std::string::npos) {
             currentSection = "INLETS";
+        } else if (line.find("[STORAGE]") != std::string::npos) {
+            currentSection = "STORAGE";
         } else if (line.find("[PUMPS]") != std::string::npos) {
             currentSection = "PUMPS";
         } else if (line.find("[CURVES]") != std::string::npos) {
@@ -396,6 +427,8 @@ public:
                 readNodeData(line, Tnode);
             } else if (currentSection == "INLETS") {
                 readInletData(line, Tnode);
+            } else if (currentSection == "STORAGE") {
+                readStorageData(line, Tnode, Tstorage);
             }
             else if (currentSection == "LINKS")
             {
@@ -493,6 +526,68 @@ public:
         Tnode.SDoutflowObs(j) = 0.0;
 
         Mobjects[NODE]++;
+    }
+
+    inline int parseStorageShape(const std::string& word)
+    {
+        std::string s = word;
+        for (auto& c : s) c = static_cast<char>(UCHAR(c));
+        if (s == "FUNCTIONAL") return FUNCTIONAL_SHAPE;
+        if (s == "CYLINDRICAL") return CYLINDRICAL_SHAPE;
+        return -1;
+    }
+
+    inline void readStorageData(const std::string& line, Node &Tnode, Storage &Tstorage)
+    {
+        int j = Mobjects[NODE];
+        int k = Mnodes[STORAGE];
+        std::istringstream iss(line);
+        real elevation, maxDepth, initDepth, p1, p2, p3, surDepth, pondedArea, xcoor, ycoor;
+        int id;
+        std::string shapeWord;
+        iss >> id >> elevation >> maxDepth >> initDepth >> shapeWord
+            >> p1 >> p2 >> p3 >> surDepth >> pondedArea >> xcoor >> ycoor;
+
+        const int shape = parseStorageShape(shapeWord);
+        if (shape < 0) {
+            std::cerr << "Warning: unknown storage shape '" << shapeWord
+                      << "' on node " << id << "; defaulting to FUNCTIONAL.\n";
+        }
+
+        Tnode.typee(j) = STORAGE;
+        Tnode.subIndex(j) = k;
+        Tnode.invertElev(j) = elevation;
+        Tnode.crownElev(j) = elevation;
+        Tnode.fullDepth(j) = maxDepth;
+        Tnode.initDepth(j) = initDepth;
+        Tnode.surDepth(j) = surDepth;
+        Tnode.pondedArea(j) = pondedArea;
+        Tnode.xcoor(j) = xcoor;
+        Tnode.ycoor(j) = ycoor;
+        Tnode.inflow(j) = 0.0;
+        Tnode.outflow(j) = 0.0;
+        Tnode.newVolume(j) = 0.0;
+        Tnode.fullVolume(j) = 0.0;
+        Tnode.SDinflow(j) = 0.0;
+        Tnode.SDoutflow(j) = 0.0;
+        Tnode.SDinflowObs(j) = 0.0;
+        Tnode.SDoutflowObs(j) = 0.0;
+
+        Tstorage.shape(k) = (shape >= 0) ? shape : FUNCTIONAL_SHAPE;
+        if (Tstorage.shape(k) == FUNCTIONAL_SHAPE) {
+            Tstorage.a1(k) = p1;
+            Tstorage.a2(k) = p2;
+            Tstorage.a0(k) = p3;
+        } else {
+            const real A = p1 / 2.0;
+            const real B = p2 / 2.0;
+            Tstorage.a0(k) = PI * A * B;
+            Tstorage.a1(k) = 0.0;
+            Tstorage.a2(k) = 0.0;
+        }
+
+        Mobjects[NODE]++;
+        Mnodes[STORAGE]++;
     }
 
     inline void readLinkData(int type, const std::string& line, Link &Tlink, Conduit &Tconduit, Node &Tnode)
@@ -743,14 +838,14 @@ public:
    
         int   n;
         n = Tlink.node1(j);
-        if ( Tnode.surDepth(n) > 0.0 )
+        if ( Tnode.typee(n) != STORAGE || Tnode.surDepth(n) > 0.0 )
         {
            Tnode.fullDepth(n) = max(Tnode.fullDepth(n),
                                 Tlink.offset1(j) + Tlink.yFull(j));
         }
 
         n = Tlink.node2(j);
-        if ( (Tnode.surDepth(n) > 0.0) &&
+        if ( (Tnode.typee(n) != STORAGE || Tnode.surDepth(n) > 0.0) &&
                 Tlink.typee(j) == CONDUIT )
         {
             Tnode.fullDepth(n) = max(Tnode.fullDepth(n),

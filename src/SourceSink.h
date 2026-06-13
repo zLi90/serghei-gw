@@ -24,9 +24,9 @@ KOKKOS_INLINE_FUNCTION real ga_log_pos(real x)
 
 /**
  * One-step cumulative infiltration depth ΔF over ts (SWMM grnampt_getF2), then min(ΔF, ia_cap*ts).
- * - c1==0: ΔF = Ks*ts (SWMM early exit).
- * - ts<10 and F1 > 0.01*c1: explicit F2 = F1 + Ks(1+c1/F1)ts, F2 = max(F2, F1+Ks*ts) (SWMM).
- * - else: Newton on integrated GA F2 - c1*ln(F2+c1) = F1 - c1*ln(F1+c1) + Ks*ts (SWMM).
+ * - c1==0: ΔF = Ks*ts.
+ * - ts<10 and F1 > 0.01*c1: explicit F2 = F1 + Ks(1+c1/F1)ts, F2 = max(F2, F1+Ks*ts).
+ * - else: Newton on integrated GA F2 - c1*ln(F2+c1) = F1 - c1*ln(F1+c1) + Ks*ts.
  * F1>0 uses physical wetting depth as denominator; only F1<=0 uses Ffloor (avoids Fs<<infDry blow-up).
  */
 KOKKOS_INLINE_FUNCTION real greenAmptStep_dF(real ks, real c1, real F1, real Ffloor, real ts, real ia_cap)
@@ -46,7 +46,6 @@ KOKKOS_INLINE_FUNCTION real greenAmptStep_dF(real ks, real c1, real F1, real Ffl
         if (f2 < f2min) { f2 = f2min; }
     } else {
         real c2 = c1 * ga_log_pos(F1 + c1) - ks * ts;
-        /* SWMM starts f2=f1; if F1==0 then f2+c1=c1 gives denom=1-c1/c1=0 — use positive initial guess */
         if (F1 > (real)0.0) {
             f2 = F1;
         } else {
@@ -71,10 +70,7 @@ KOKKOS_INLINE_FUNCTION real greenAmptStep_dF(real ks, real c1, real F1, real Ffl
     return dF;
 }
 
-/**
- * Green–Ampt infiltration rate [L/T] for one cell (SWMM-style ia, Fs, optional ts split).
- * r = net rainfall rate to surface [L/T] (SWMM irate); use 0 when no rain. ia = r + pond/dt.
- */
+
 KOKKOS_INLINE_FUNCTION real greenAmptCellRate(real ks, real psi, real dth, real F, real pond, real r, real dt, real Ffloor)
 {
     real ia = r + pond / dt;

@@ -42,7 +42,7 @@ real curveLookupLinear(const PumpCurves& curves, int curveId, real x)
     return y2;
 }
 
-/** IDEAL pump: pass all current inlet inflow + overflow (SWMM pump_getInflow). */
+
 KOKKOS_INLINE_FUNCTION
 real pumpIdealFlow(int linkIdx, const Node& Tnode, const Link& Tlink)
 {
@@ -78,7 +78,6 @@ real pumpType3Flow(int linkIdx, const Node& Tnode, const Link& Tlink, const Pump
     return qIn * setting;
 }
 
-/** Dispatch TYPE3 vs IDEAL pump flow (SWMM link_getInflow for pumps). */
 KOKKOS_INLINE_FUNCTION
 real pumpLinkFlow(int linkIdx, const Node& Tnode, const Link& Tlink, const Pump& Tpump,
                   const PumpCurves& curves)
@@ -94,8 +93,8 @@ KOKKOS_INLINE_FUNCTION
 real pumpModFlow(int pumpType, int n1, real q, real dt, const Node& Tnode)
 {
     if (q <= 0.0) return q;
-    // SWMM getModPumpFlow: IDEAL and other non-storage types return q unchanged
-    if (pumpType == IDEAL_PUMP) return q;
+
+    if (pumpType == IDEAL_PUMP && Tnode.typee(n1) != STORAGE) return q;
     real qMax = Tnode.inflow(n1);
     if (Tnode.fullVolume(n1) > 0.0)
         qMax += Tnode.oldVolume(n1) / dt;

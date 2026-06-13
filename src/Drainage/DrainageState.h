@@ -30,6 +30,15 @@ class Outfall   {
     intArr typee;
 };
 
+/** Storage-unit shape coefficients (FUNCTIONAL / CYLINDRICAL only). */
+class Storage {
+public:
+    intArr shape;
+    realArr a0;
+    realArr a1;
+    realArr a2;
+};
+
 class Link   {
     public:
     realArr rptFlag, qFull,

@@ -1,9 +1,4 @@
-//-----------------------------------------------------------------------------
-// Reference: EPA SWMM5 (Storm Water Management Model) Version 5.2
-// Source: https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/globals.h
-// Note: This file has been simplified for our use case.
-// We have omitted considerations for subcatchments, unit conversions, file outputs, etc.
-//-----------------------------------------------------------------------------
+
 
 #ifndef GLOBALS_H
 #define GLOBALS_H
@@ -32,7 +27,6 @@ static int
                   InertDamping,             // Degree of inertial damping
                   NormalFlowLtd = BOTH,     // Normal flow limited
                   SlopeWeighting,           // Use slope weighting
-                  Compatibility,            // SWMM 5/3/4 compatibility
                   SkipSteadyState,          // Skip over steady state periods
                   IgnoreRainfall,           // Ignore rainfall/runoff
                   IgnoreRDII,               // Ignore RDII

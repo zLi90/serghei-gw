@@ -1,9 +1,4 @@
-//-----------------------------------------------------------------------------
-// Reference: EPA SWMM5 (Storm Water Management Model) Version 5.2
-// Source: https://github.com/USEPA/Stormwater-Management-Model/blob/develop/src/solver/xsect.c
-// Note: This file has been simplified for our use case.
-// We have omitted considerations for subcatchments, unit conversions, file outputs, etc.
-//-----------------------------------------------------------------------------
+
 #ifndef XSECT_H
 #define XSECT_H
 #include <cmath>

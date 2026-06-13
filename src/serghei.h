@@ -66,6 +66,7 @@ public:
 	Node Tnode;
 	Link Tlink;
 	Outfall Toutfall;
+	Storage Tstorage;
 	Conduit Tconduit;
 	Pump Tpump;
 	PumpCurves TpumpCurves;
@@ -233,9 +234,9 @@ public:
 		// Read drainage parameter file
 		std::string drainageParamFile = inFolder + "Drainage-parameter.input";
 		if(!parser.readDrainageParameterFile(drainageParamFile, Ddyw, par)) return 0;
-		RFF.project_readInput(inFolder, Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves, TRiver); 
+		RFF.project_readInput(inFolder, Tnode, Tlink, Tconduit, Toutfall, Tstorage, Tpump, TpumpCurves, TRiver); 
 		
-		RFF.project_validate(Tnode, Tlink, Tconduit, Toutfall, Tpump, TpumpCurves);
+		RFF.project_validate(Tnode, Tlink, Tconduit, Toutfall, Tstorage, Tpump, TpumpCurves);
 		Ddyw.flowrout_init(Tnode, Tlink, Tconduit, TRiver, dom.etime);
 		io.writeDrainageTimeSeriesIni(par, dom, sint, Ddyw, outFolder, RFF, Tlink, Tnode);
 		std::cerr << GOK "The DRAINAGE input information has been read.\n";
@@ -260,7 +261,7 @@ public:
 			Ddyw.snapshotExchangeFluxes(Tnode);
 
 			Kokkos::Timer routingTimer;
-			Ddyw.routing_execute(Ddyw.routingStep, Tnode, Tlink, Tconduit, Toutfall,
+			Ddyw.routing_execute(Ddyw.routingStep, Tnode, Tlink, Tconduit, Toutfall, Tstorage,
 			    Tpump, TpumpCurves, TRiver, dom.timers);
     		dom.timers.drainage += routingTimer.seconds();
 			#endif

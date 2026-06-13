@@ -29,7 +29,7 @@
 //=====some Drainage parameters==============
 //
 #define MAX_OBJ_TYPES 2
-#define MAX_NODE_TYPES 2
+#define MAX_NODE_TYPES 4
 #define MAX_LINK_TYPES 2
 #define MAX_PUMP_CURVES 32
 #define MAX_PUMP_CURVE_PTS 256
