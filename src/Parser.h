@@ -152,6 +152,12 @@ public:
     	ierr[0] = readDEMFile(tempStr,dom,state,par);
 		#endif
 
+#if SERGHEI_SUBSURFACE_MODEL && !SERGHEI_SWE_MODEL
+		tempStr = fNameIn + "Ori_dem.input";
+		if (!readOriDEMFile(tempStr, dom, state, par))
+			return 0;
+#endif
+
         #if SERGHEI_SWE_MODEL
         tempStr = fNameIn + "sw.input";
         ierr[1] = readSWFile(tempStr, dom, par, state, fNameIn, io);

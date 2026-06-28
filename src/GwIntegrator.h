@@ -40,10 +40,13 @@ class GwIntegrator	{
 	 		// get total volume
 	 		Vtot = 0;
 	  		Kokkos::parallel_reduce(gdom.nCell , KOKKOS_LAMBDA (int idx, real &tmp) {
-	  			int ii, jj, kk, iGlob;
+	  			int ii, jj, kk, iGlob, ivg;
             	gdom.unpackIndices(idx, kk, jj, ii);
             	iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-            	tmp += gw.wc(iGlob,1) * gdom.dx * gdom.dx * gdom.dz(iGlob);
+            	ivg = gw.soilID(iGlob) * NVG;
+            	if (gdom.isnodata(iGlob) == 0 && gw.vgTable(ivg) != 0.0) {
+            		tmp += gw.wc(iGlob,1) * gdom.dx * gdom.dx * gdom.dz(iGlob);
+            	}
     		} , Kokkos::Sum<real>(Vtot) );
 			Kokkos::fence();
 			Vtot_glob = 0.0;

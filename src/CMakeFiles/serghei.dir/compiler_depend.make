@@ -535,37 +535,347 @@ src/CMakeFiles/serghei.dir/driver.cpp.o: src/driver.cpp \
   src/SourceSink.h \
   src/GwDomain.h \
   src/GwState.h \
+  src/GwMatrix.h \
+  src/GwMPI.h \
+  src/Exchange.h \
+  src/GwSolver.h \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_config.h \
+  src/KokkosSparse_pcg.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Handle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_ExecSpaceUtils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Error.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_Distance1ColorHandle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Utils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/Kokkos_ArithTraits.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_QuadPrecisionMath.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_UnorderedMap.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Functional.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Functional_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Bitset.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Bitset_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_UnorderedMap_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_ExecSpaceUtils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_SimpleUtils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_PrintUtils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_VectorUtils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_Distance2ColorHandle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Error.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel_handle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_CrsMatrix.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_StaticCrsGraph.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_StaticCrsGraph_factory.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_findRelOffset.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_default_types.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Macros.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_Distance1ColorHandle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spgemm_handle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Controls.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_config.h \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_tpl_handles_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas_tpl_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_Utils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_IOUtils.hpp \
+  /usr/include/c++/11/unordered_set \
+  /usr/include/c++/11/bits/unordered_set.h \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Random.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_CrsMatrix.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_BsrMatrix.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spadd_handle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_handle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spiluk_handle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_HashmapAccumulator.hpp \
+  /usr/include/c++/11/atomic \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_par_ilut_handle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gmres_handle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_Preconditioner.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/Kokkos_ArithTraits.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_helpers.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Controls.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/Kokkos_InnerProductSpaceTraits.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/Kokkos_InnerProductSpaceTraits.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal_mv_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_scal_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_scal_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_serial_scal_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_team_scal_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_serial_scal_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_helpers.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_impl_omp.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_impl_merge.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Iota.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_AlwaysFalse.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_merge_matrix.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_LowerBound.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Predicates.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_SafeCompare.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_mv_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_mv_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_struct_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_struct_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_struct_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_struct_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_mv_struct_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_struct_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_bsrmatrix_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_bsrmatrix_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_abs.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_abs_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_abs_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_abs_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_abs_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_abs_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_abs_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby_mv_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_axpby_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_axpby_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas_serial_axpy.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot_mv_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas_util.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_dot_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_dot_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_fill.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_mult.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_mult_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_mult_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_mult_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_mult_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_mult_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_mult_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm1.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm1_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm1_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm1_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm1_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm1_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm1_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm2_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm2_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas_serial_nrm2.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2_squared.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm2w_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm2w_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w_squared.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrminf.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrminf_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrminf_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrminf_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrminf_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrminf_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrminf_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_reciprocal.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_reciprocal_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_reciprocal_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_reciprocal_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_reciprocal_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_reciprocal_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_reciprocal_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_sum.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_sum_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_sum_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_sum_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_sum_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_sum_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_sum_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_update.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_update_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_update_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_update_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_update_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_update_mv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_update_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_gemv.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_gemv_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_gemv_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_gemv_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas2_gemv_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_gemv_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_serial_gemv.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_serial_gemv_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas_util.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_serial_gemv_internal.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_set_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_serial_gemv_inner_multiple_dot.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_serial_gemv_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Util.hpp \
+  /usr/include/c++/11/random \
+  /usr/include/c++/11/bits/random.h \
+  /usr/include/x86_64-linux-gnu/c++/11/bits/opt_random.h \
+  /usr/include/c++/11/bits/random.tcc \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_Arith.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_Logical.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_Relation.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_Math.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_Misc.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_View.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_team_gemv.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_team_gemv_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_team_gemv_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_team_scal_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Macros.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm_dotbased_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas3_gemm_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_team_gemv_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Gemm_Serial_Internal.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerGemmFixC_Serial_Impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerGemmFixC_Decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Gemm_TeamVector_Internal.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_bsrmatrix_impl_v42.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_ViewUtils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_bsrmatrix_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_bsrmatrix_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_mv_bsrmatrix_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_bsrmatrix_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_Utils_mkl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_Utils_cusparse.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Utils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Handle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_Utils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_Distance1Color.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_color_d1_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_Distance1Color_impl.hpp \
+  /usr/include/c++/11/bitset \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosGraph_color_d1_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Uniform_Initialized_MemoryPool.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_BitUtils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_SortCrs.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Sorting.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_cluster_gauss_seidel_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Sort.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/Kokkos_BinSortPublicAPI.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/Kokkos_BinOpsPublicAPI.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/impl/Kokkos_CopyOpsForBinSortImpl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/Kokkos_SortPublicAPI.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/impl/Kokkos_SortImpl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/Kokkos_BinOpsPublicAPI.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/Kokkos_BinSortPublicAPI.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/Kokkos_BeginEnd.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/impl/Kokkos_RandomAccessIterator.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/impl/Kokkos_Constraints.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/impl/Kokkos_Constraints.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/Kokkos_Copy.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/impl/Kokkos_CopyCopyN.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/impl/Kokkos_HelperPredicates.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/Kokkos_Distance.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/Kokkos_BeginEnd.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/Kokkos_NestedSortPublicAPI.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/impl/Kokkos_NestedSortImpl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/Kokkos_Swap.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/impl/Kokkos_HelperPredicates.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_partitioning_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_fill.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_MIS2.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_Distance2MIS_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_ExplicitCoarsening.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_ExplicitCoarsening_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_twostage_gauss_seidel_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_mult.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_symbolic_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_symbolic_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_handle.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_symbolic_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_sptrsv_symbolic_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_symbolic_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_solve_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_solve_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_trsm.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_trsm_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_trsm_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_Decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_Serial_Impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_Serial_Internal.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerGemmFixA_Serial_Impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerGemmFixA_Decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerTrsm_Serial_Impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerTrsm_Decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_Team_Impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_Team_Internal.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Gemm_Team_Internal.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_TeamVector_Impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_TeamVector_Internal.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_trsm_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas3_trsm_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_trsm_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_team_gemv_spec.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_solve_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_sptrsv_solve_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_solve_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_cuSPARSE_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel_tpl_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_gauss_seidel_symbolic_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_gauss_seidel_numeric_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_gauss_seidel_apply_eti_spec_avail.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel_tpl_spec_decl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sor_sequential_impl.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_IOUtils.hpp \
+  /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_default_types.hpp \
   src/BC.h \
   /home/zhengna/PnetCDF/include/pnetcdf.h \
   src/DomainIntegrator.h \
   src/tools.h \
   src/ParticleTracking.h \
-  /usr/include/c++/11/random \
-  /usr/include/c++/11/bits/random.h \
-  /usr/include/x86_64-linux-gnu/c++/11/bits/opt_random.h \
-  /usr/include/c++/11/bits/random.tcc \
-  /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Random.hpp \
   src/GwIntegrator.h \
-  src/Drainage/DrainageDywave.h \
-  src/define.h \
-  src/Drainage/enums.h \
-  src/Drainage/globals.h \
-  src/const.h \
-  src/Drainage/funcs.h \
-  src/Drainage/xsect.h \
-  src/Drainage/DrainageState.h \
-  src/Drainage/pump.h \
-  src/Drainage/storage.h \
-  src/Drainage/funcs.h \
+  src/GwBC.h \
   src/rasterTools.h \
   src/Initializer.h \
-  src/Exchange.h \
   src/TimeIntegrator.h \
   src/Edges.h \
   src/Solvers.h \
   src/Vegetation.h \
-  src/Drainage/globals.h
+  src/GwFunction.h \
+  src/GwInit.h
 
+
+src/GwInit.h:
 
 src/Vegetation.h:
 
@@ -575,27 +885,373 @@ src/Edges.h:
 
 src/TimeIntegrator.h:
 
-src/Exchange.h:
-
 src/Initializer.h:
 
 src/rasterTools.h:
 
-src/Drainage/storage.h:
+src/tools.h:
 
-src/Drainage/pump.h:
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_gauss_seidel_apply_eti_spec_avail.hpp:
 
-src/Drainage/DrainageState.h:
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel_tpl_spec_avail.hpp:
 
-src/Drainage/xsect.h:
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_cuSPARSE_impl.hpp:
 
-src/Drainage/funcs.h:
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_sptrsv_solve_eti_spec_avail.hpp:
 
-src/Drainage/DrainageDywave.h:
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_trsm_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas3_trsm_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_trsm_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_TeamVector_Impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Gemm_Team_Internal.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_Team_Internal.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerGemmFixA_Decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerGemmFixA_Serial_Impl.hpp:
 
 src/GwIntegrator.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_Serial_Internal.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_Serial_Impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_solve_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_solve_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_sptrsv_symbolic_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_symbolic_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_symbolic_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_twostage_gauss_seidel_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_Distance2MIS_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/Kokkos_Swap.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/impl/Kokkos_NestedSortImpl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/Kokkos_NestedSortPublicAPI.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/Kokkos_Copy.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/Kokkos_BeginEnd.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/impl/Kokkos_CopyOpsForBinSortImpl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/Kokkos_BinOpsPublicAPI.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_cluster_gauss_seidel_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_SortCrs.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_BitUtils.hpp:
+
+/usr/include/c++/11/bitset:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_Distance1Color_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_bsrmatrix_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_mv_bsrmatrix_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_bsrmatrix_eti_spec_avail.hpp:
+
+src/DomainIntegrator.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_bsrmatrix_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_ViewUtils.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_bsrmatrix_impl_v42.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Gemm_TeamVector_Internal.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerGemmFixC_Decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Gemm_Serial_Internal.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_team_gemv_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_team_gemv.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_View.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_Misc.hpp:
+
+src/GwFunction.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD.hpp:
+
+/usr/include/c++/11/random:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Util.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_serial_gemv_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_serial_gemv_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_gemv_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_gemv_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_gemv.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_update_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_update_mv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_update_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_sum_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_sum_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_sum_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_sum_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_reciprocal_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_gauss_seidel_symbolic_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_reciprocal_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_reciprocal_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_reciprocal.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrminf_mv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrminf_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrminf_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrminf_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas2_gemv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm2w_mv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w_squared.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2_squared.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_Team_Impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm2_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm1_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm1_mv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm1_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm1_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm1_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm1_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm1.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_mult_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_mult_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_fill.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_dot_mv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_dot_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_reciprocal_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas_serial_axpy.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_axpby_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_abs_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_abs_mv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_mult_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_abs_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_bsrmatrix_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_sum.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_mv_struct_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_struct_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_struct_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/Kokkos_BinSortPublicAPI.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_struct_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_struct_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/impl/Kokkos_RandomAccessIterator.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_mv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_solve_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_spmv_eti_spec_avail.hpp:
+
+src/GwBC.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_SafeCompare.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Iota.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_impl_merge.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_impl_omp.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_mult_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_scal_mv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_scal_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal_tpl_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/Kokkos_InnerProductSpaceTraits.hpp:
+
+/home/zhengna/PnetCDF/include/pnetcdf.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm2w_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/impl/Kokkos_SortImpl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_helpers.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gmres_handle.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_par_ilut_handle.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_HashmapAccumulator.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spiluk_handle.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spadd_handle.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosSparse_gauss_seidel_numeric_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_BsrMatrix.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Random.hpp:
+
+/usr/include/c++/11/unordered_set:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_IOUtils.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_Utils.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas_tpl_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_findRelOffset.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_StaticCrsGraph_factory.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_StaticCrsGraph.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_CrsMatrix.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel_handle.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_Distance2ColorHandle.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_VectorUtils.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_tpl_handles_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_PrintUtils.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_SimpleUtils.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_sum_mv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_UnorderedMap_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel_tpl_spec_decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_LowerBound.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Bitset_impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Functional.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/Kokkos_ArithTraits.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_nrm2_mv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Utils.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_ExecSpaceUtils.hpp:
 
 /usr/include/x86_64-linux-gnu/bits/uio_lim.h:
 
@@ -609,11 +1265,11 @@ src/GwIntegrator.h:
 
 /usr/include/c++/11/bits/sstream.tcc:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/Kokkos_Distance.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_BitOps.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Traits.hpp:
-
-/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_DetectionIdiom.hpp:
 
 /usr/include/x86_64-linux-gnu/bits/types/__locale_t.h:
 
@@ -629,13 +1285,27 @@ src/GwIntegrator.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/KokkosCore_config.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2.hpp:
+
 /usr/lib/gcc/x86_64-linux-gnu/11/include/syslimits.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosGraph_color_d1_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal_tpl_spec_decl.hpp:
 
 /usr/include/c++/11/debug/debug.h:
 
 /usr/include/c++/11/bits/stl_relops.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_UnorderedMap.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Core_fwd.hpp:
+
+/usr/include/c++/11/bits/random.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrminf.hpp:
+
+/usr/local/openmpi/include/mpi_portable_platform.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/desul/atomics/Thread_Fence_ScopeCaller.hpp:
 
@@ -647,7 +1317,11 @@ src/GwIntegrator.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_OptionalRef.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_abs_impl.hpp:
+
 /usr/include/c++/11/tr1/beta_function.tcc:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_sum_impl.hpp:
 
 /usr/include/c++/11/array:
 
@@ -657,9 +1331,9 @@ src/GwIntegrator.h:
 
 /usr/include/x86_64-linux-gnu/bits/libm-simd-decl-stubs.h:
 
-src/Drainage/enums.h:
-
 /usr/include/c++/11/string_view:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Error.hpp:
 
 /usr/include/x86_64-linux-gnu/bits/types/struct_FILE.h:
 
@@ -671,13 +1345,21 @@ src/Drainage/enums.h:
 
 /usr/include/c++/11/cinttypes:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2_spec.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Abort.hpp:
 
 /usr/include/c++/11/ostream:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/desul/atomics/Fetch_Op_Generic.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/impl/Kokkos_CopyCopyN.hpp:
+
 /usr/include/c++/11/bits/basic_ios.tcc:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_Math.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_team_scal_impl.hpp:
 
 /usr/include/c++/11/bits/enable_special_members.h:
 
@@ -693,6 +1375,8 @@ src/Drainage/enums.h:
 
 /usr/include/x86_64-linux-gnu/c++/11/bits/ctype_inline.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_partitioning_impl.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Macros.hpp:
 
 /usr/include/linux/types.h:
@@ -707,6 +1391,8 @@ src/Drainage/enums.h:
 
 /usr/include/c++/11/bits/exception.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_impl.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Extents.hpp:
 
 /usr/include/c++/11/bits/uniform_int_dist.h:
@@ -717,13 +1403,21 @@ src/Drainage/enums.h:
 
 /usr/include/c++/11/pstl/glue_algorithm_defs.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_Relation.hpp:
+
 /usr/include/c++/11/utility:
 
 /usr/include/c++/11/ios:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_abs.hpp:
+
 /usr/include/x86_64-linux-gnu/bits/fp-fast.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_mult_spec.hpp:
+
 /usr/include/c++/11/bits/node_handle.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_bsrmatrix_spec.hpp:
 
 src/driver.cpp:
 
@@ -732,6 +1426,10 @@ src/driver.cpp:
 /usr/include/x86_64-linux-gnu/bits/mathcalls-helper-functions.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/error_t.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas_util.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby.hpp:
 
 /usr/include/x86_64-linux-gnu/c++/11/bits/error_constants.h:
 
@@ -771,7 +1469,13 @@ src/Domain.h:
 
 /usr/include/c++/11/bits/stl_construct.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_trsm.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_Utils_mkl.hpp:
+
 /usr/include/c++/11/bits/shared_ptr.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal_mv_impl.hpp:
 
 /usr/include/errno.h:
 
@@ -803,7 +1507,11 @@ src/Domain.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Atomics_Desul_Volatile_Wrapper.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_serial_gemv_internal.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Parallel_Reduce.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot_tpl_spec_avail.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/KokkosCore_Config_PostInclude.hpp:
 
@@ -821,7 +1529,11 @@ src/Domain.h:
 
 /usr/include/c++/11/bits/locale_classes.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_trsm_spec.hpp:
+
 /usr/include/strings.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Macros.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/OpenMP/Kokkos_OpenMP_MDRangePolicy.hpp:
 
@@ -831,11 +1543,15 @@ src/Domain.h:
 
 /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h:
 
+src/Exchange.h:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_UniqueToken.hpp:
 
 /usr/include/c++/11/bits/std_abs.h:
 
 /usr/include/c++/11/bits/stl_heap.h:
+
+/usr/include/c++/11/bits/unordered_set.h:
 
 /usr/include/c++/11/bits/stl_vector.h:
 
@@ -851,7 +1567,11 @@ src/Domain.h:
 
 /usr/include/c++/11/bits/basic_string.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_serial_scal_impl.hpp:
+
 /usr/include/linux/limits.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_MIS2.hpp:
 
 /usr/include/c++/11/bits/shared_ptr_base.h:
 
@@ -873,11 +1593,15 @@ src/Domain.h:
 
 /usr/include/c++/11/bits/stl_iterator.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_set_impl.hpp:
+
 /usr/include/c++/11/bits/std_mutex.h:
 
 /usr/include/c++/11/bits/stl_iterator_base_types.h:
 
 /usr/include/c++/11/cstdlib:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_merge_matrix.hpp:
 
 /usr/include/stdint.h:
 
@@ -903,11 +1627,15 @@ src/Domain.h:
 
 /usr/include/c++/11/complex:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_Distance1ColorHandle.hpp:
+
 /usr/include/x86_64-linux-gnu/bits/timesize.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Error.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_TaskQueue.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Uniform_Initialized_MemoryPool.hpp:
 
 /usr/include/c++/11/functional:
 
@@ -922,6 +1650,8 @@ src/Domain.h:
 /usr/include/c++/11/iostream:
 
 /usr/include/x86_64-linux-gnu/bits/uintn-identity.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_reciprocal_mv_eti_spec_avail.hpp:
 
 /usr/include/c++/11/bits/streambuf.tcc:
 
@@ -945,15 +1675,21 @@ src/SourceSink.h:
 
 /usr/include/c++/11/cfloat:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas_serial_nrm2.hpp:
+
 /usr/include/x86_64-linux-gnu/bits/types.h:
 
 /usr/include/c++/11/backward/binders.h:
 
 /usr/include/x86_64-linux-gnu/bits/select.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Sort.hpp:
+
 /usr/include/x86_64-linux-gnu/bits/time.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/clockid_t.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Functional_impl.hpp:
 
 /usr/include/x86_64-linux-gnu/bits/types/struct___jmp_buf_tag.h:
 
@@ -975,9 +1711,13 @@ src/SourceSink.h:
 
 src/GwState.h:
 
+src/GwMatrix.h:
+
 /usr/include/x86_64-linux-gnu/bits/wordsize.h:
 
 /usr/include/c++/11/chrono:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_Preconditioner.hpp:
 
 /usr/include/c++/11/tr1/poly_laguerre.tcc:
 
@@ -1003,6 +1743,8 @@ src/define.h:
 
 /usr/include/x86_64-linux-gnu/bits/long-double.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sor_sequential_impl.hpp:
+
 src/serghei.h:
 
 /usr/include/c++/11/bits/shared_ptr_atomic.h:
@@ -1012,6 +1754,8 @@ src/serghei.h:
 /usr/include/x86_64-linux-gnu/bits/waitflags.h:
 
 /usr/include/c++/11/bits/localefwd.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_mv_tpl_spec_avail.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/OpenMP/Kokkos_OpenMP_UniqueToken.hpp:
 
@@ -1029,11 +1773,15 @@ src/serghei.h:
 
 /usr/include/c++/11/bits/predefined_ops.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_gemv_tpl_spec_decl.hpp:
+
 /usr/include/x86_64-linux-gnu/sys/types.h:
 
 /usr/include/c++/11/bits/locale_classes.tcc:
 
 /usr/include/c++/11/ext/aligned_buffer.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_Arith.hpp:
 
 /usr/include/c++/11/tr1/special_function_util.h:
 
@@ -1049,7 +1797,11 @@ src/Parser.h:
 
 /usr/include/c++/11/bits/nested_exception.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_struct_tpl_spec_decl.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/traits/Kokkos_PolicyTraitAdaptor.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_ExplicitCoarsening_impl.hpp:
 
 /usr/include/c++/11/debug/assertions.h:
 
@@ -1071,6 +1823,10 @@ src/Parser.h:
 
 /usr/local/openmpi/include/mpi.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_Decl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_symbolic_impl.hpp:
+
 /usr/include/x86_64-linux-gnu/bits/types/time_t.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/FILE.h:
@@ -1079,9 +1835,17 @@ src/Parser.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/OpenMP/Kokkos_OpenMP.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm_dotbased_impl.hpp:
+
 /usr/include/c++/11/bits/stringfwd.h:
 
 /usr/include/c++/11/exception:
+
+src/ParticleTracking.h:
+
+/usr/include/x86_64-linux-gnu/bits/iscanonical.h:
+
+/usr/include/c++/11/ext/string_conversions.h:
 
 /usr/include/math.h:
 
@@ -1093,6 +1857,8 @@ src/Parser.h:
 
 /usr/include/c++/11/bits/exception_ptr.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot_mv_impl.hpp:
+
 src/const.h:
 
 /usr/include/c++/11/ext/concurrence.h:
@@ -1101,21 +1867,29 @@ src/const.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/fwd/Kokkos_Fwd_SERIAL.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerTrsm_Serial_Impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby_mv_impl.hpp:
+
 /usr/include/x86_64-linux-gnu/c++/11/bits/atomic_word.h:
 
 /usr/include/c++/11/bits/cxxabi_init_exception.h:
 
 /usr/include/x86_64-linux-gnu/bits/cpu-set.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_dot_tpl_spec_decl.hpp:
+
 /usr/include/c++/11/bits/hash_bytes.h:
 
 /usr/include/c++/11/bits/move.h:
 
-src/Drainage/globals.h:
-
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_HostSpace.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/KokkosCore_Config_FwdBackend.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_update_spec.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_axpby_mv_eti_spec_avail.hpp:
 
 /usr/include/time.h:
 
@@ -1131,23 +1905,35 @@ src/Drainage/globals.h:
 
 src/Indexing.h:
 
+src/GwMPI.h:
+
 /usr/include/asm-generic/errno-base.h:
 
-/usr/include/c++/11/pstl/pstl_config.h:
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby_tpl_spec_avail.hpp:
 
-src/DomainIntegrator.h:
+/usr/include/c++/11/pstl/pstl_config.h:
 
 /usr/lib/gcc/x86_64-linux-gnu/11/include/stdint.h:
 
 /usr/include/c++/11/cwchar:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrm2w_impl.hpp:
+
 /usr/include/c++/11/bits/stl_algobase.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_ExplicitCoarsening.hpp:
 
 /usr/include/x86_64-linux-gnu/bits/statx.h:
 
 /usr/include/unistd.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Vector_SIMD_Logical.hpp:
+
 /usr/include/x86_64-linux-gnu/bits/xopen_lim.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_mult_mv_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_default_types.hpp:
 
 /usr/include/linux/errno.h:
 
@@ -1158,6 +1944,8 @@ src/DomainIntegrator.h:
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_SimpleTaskScheduler.hpp:
 
 /usr/include/c++/11/bits/ostream.tcc:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_gemm_impl.hpp:
 
 /usr/include/c++/11/clocale:
 
@@ -1183,6 +1971,8 @@ src/DomainIntegrator.h:
 
 /usr/include/pthread.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_QuadPrecisionMath.hpp:
+
 /usr/include/c++/11/bits/stl_pair.h:
 
 /usr/include/c++/11/ext/atomicity.h:
@@ -1207,6 +1997,8 @@ src/DomainIntegrator.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Profiling_DeviceInfo.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_reciprocal_tpl_spec_avail.hpp:
+
 /usr/include/c++/11/pstl/execution_defs.h:
 
 /usr/include/c++/11/bits/cxxabi_forced.h:
@@ -1223,11 +2015,15 @@ src/DomainIntegrator.h:
 
 /usr/include/c++/11/bits/stl_uninitialized.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/impl/Kokkos_HelperPredicates.hpp:
+
 /usr/include/c++/11/bits/stl_tempbuf.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/timer_t.h:
 
 /usr/include/c++/11/bits/std_function.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/std_algorithms/impl/Kokkos_Constraints.hpp:
 
 /usr/include/c++/11/bits/stl_raw_storage_iter.h:
 
@@ -1241,9 +2037,13 @@ src/DomainIntegrator.h:
 
 /usr/include/c++/11/tuple:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_Trsm_TeamVector_Internal.hpp:
+
 /usr/include/c++/11/bits/invoke.h:
 
 /usr/include/c++/11/bits/refwrap.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Bitset.hpp:
 
 /usr/lib/gcc/x86_64-linux-gnu/11/include/omp.h:
 
@@ -1257,6 +2057,8 @@ src/DomainIntegrator.h:
 
 /usr/include/c++/11/backward/auto_ptr.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_update_impl.hpp:
+
 /usr/include/c++/11/unordered_map:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_WorkGraphPolicy.hpp:
@@ -1267,7 +2069,11 @@ src/DomainIntegrator.h:
 
 /usr/include/c++/11/bits/hashtable_policy.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_mult.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/desul/atomics/Macros.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerTrsm_Decl.hpp:
 
 /usr/include/c++/11/bits/unordered_map.h:
 
@@ -1297,6 +2103,8 @@ src/geometry.h:
 
 /usr/include/c++/11/ctime:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_color_d1_spec.hpp:
+
 /usr/include/c++/11/bits/parse_numbers.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_hwloc.hpp:
@@ -1305,15 +2113,23 @@ src/geometry.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_ScratchSpace.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrminf_tpl_spec_avail.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_LIFO.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Parallel.hpp:
 
 /usr/include/c++/11/bits/vector.tcc:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/traits/Kokkos_Traits_fwd.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_update.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/traits/Kokkos_GraphKernelTrait.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_gauss_seidel_spec.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_ExecPolicy.hpp:
 
@@ -1325,6 +2141,10 @@ src/geometry.h:
 
 src/State.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_Utils_cusparse.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_serial_gemv_inner_multiple_dot.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/traits/Kokkos_LaunchBoundsTrait.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/traits/Kokkos_OccupancyControlTrait.hpp:
@@ -1335,12 +2155,6 @@ src/State.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/traits/Kokkos_WorkTagTrait.hpp:
 
-/usr/include/x86_64-linux-gnu/bits/iscanonical.h:
-
-/usr/include/c++/11/ext/string_conversions.h:
-
-src/ParticleTracking.h:
-
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_View.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Atomic_View.hpp:
@@ -1349,11 +2163,15 @@ src/ParticleTracking.h:
 
 /usr/include/c++/11/bits/stl_algo.h:
 
+/usr/include/c++/11/atomic:
+
 /usr/include/asm-generic/int-ll64.h:
 
 /usr/include/c++/11/vector:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_MinMaxClamp.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Controls.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Pair.hpp:
 
@@ -1364,6 +2182,8 @@ src/ParticleTracking.h:
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_ViewCtor.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Atomic.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_update_eti_spec_avail.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Array.hpp:
 
@@ -1399,6 +2219,8 @@ src/ParticleTracking.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/desul/atomics/Fetch_Op_ScopeCaller.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_symbolic_tpl_spec_decl.hpp:
+
 /usr/include/fcntl.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/desul/atomics/Lock_Based_Fetch_Op.hpp:
@@ -1409,13 +2231,25 @@ src/ParticleTracking.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/desul/atomics/Lock_Free_Fetch_Op.hpp:
 
+src/BC.h:
+
+/usr/include/x86_64-linux-gnu/sys/cdefs.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/desul/atomics/Operator_Function_Objects.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_StringManipulation.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosGraph_Distance1Color.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_ZeroMemset_fwd.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Tools_Generic.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_abs_spec.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_FunctorAnalysis.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Sorting.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_GraphImpl_fwd.hpp:
 
@@ -1459,6 +2293,10 @@ src/FileIO.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_PointerOwnership.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas1_abs_eti_spec_avail.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_scal.hpp:
+
 /usr/include/c++/11/optional:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_ChaseLev.hpp:
@@ -1473,7 +2311,11 @@ src/FileIO.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_TaskQueueMemoryManager.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_team_gemv_spec.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/OpenMP/Kokkos_OpenMP_WorkGraphPolicy.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_serial_gemv.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_MemoryTraits.hpp:
 
@@ -1515,6 +2357,8 @@ src/FileIO.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Half_MathematicalFunctions.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_AlwaysFalse.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Serial/Kokkos_Serial_Parallel_Range.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Serial/Kokkos_Serial_Parallel_MDRange.hpp:
@@ -1526,6 +2370,8 @@ src/FileIO.h:
 /usr/include/x86_64-linux-gnu/bits/statx-generic.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Serial/Kokkos_Serial_Parallel_Team.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_nrminf_tpl_spec_decl.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Serial/Kokkos_Serial_Task.hpp:
 
@@ -1545,6 +2391,8 @@ src/FileIO.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Half_NumericTraits.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby_impl.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_MathematicalFunctions.hpp:
 
 /usr/include/c++/11/ext/numeric_traits.h:
@@ -1559,11 +2407,17 @@ src/FileIO.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Complex.hpp:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas3_trsm_impl.hpp:
+
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Rank.hpp:
 
 /usr/include/c++/11/sstream:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_Timer.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Predicates.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_Handle.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_AnalyzePolicy.hpp:
 
@@ -1572,6 +2426,8 @@ src/FileIO.h:
 /usr/include/c++/11/ext/type_traits.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_TeamMDPolicy.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_handle.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Combined_Reducer.hpp:
 
@@ -1588,6 +2444,12 @@ src/SArray.h:
 /usr/include/c++/11/bits/basic_ios.h:
 
 /usr/include/x86_64-linux-gnu/c++/11/bits/messages_members.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBatched_InnerGemmFixC_Serial_Impl.hpp:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/Kokkos_DetectionIdiom.hpp:
+
+src/KokkosSparse_pcg.hpp:
 
 /usr/include/x86_64-linux-gnu/bits/thread-shared-types.h:
 
@@ -1606,6 +2468,8 @@ src/SArray.h:
 /usr/include/c++/11/fstream:
 
 /usr/include/x86_64-linux-gnu/c++/11/bits/basic_file.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas2_gemv_spec.hpp:
 
 /usr/include/x86_64-linux-gnu/c++/11/bits/c++io.h:
 
@@ -1633,6 +2497,8 @@ src/SArray.h:
 
 /usr/include/c++/11/bits/stl_set.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/generated_specializations_hpp/KokkosBlas3_gemm_eti_spec_avail.hpp:
+
 /usr/include/x86_64-linux-gnu/sys/stat.h:
 
 /usr/include/c++/11/pstl/glue_memory_defs.h:
@@ -1641,25 +2507,31 @@ src/SArray.h:
 
 /usr/include/x86_64-linux-gnu/asm/types.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosBlas1_axpby_spec.hpp:
+
 /usr/include/linux/posix_types.h:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/Kokkos_Profiling.hpp:
 
 /usr/include/x86_64-linux-gnu/asm/posix_types.h:
 
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spmv_mv_tpl_spec_decl.hpp:
+
 /usr/include/x86_64-linux-gnu/bits/types/struct_statx.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_spgemm_handle.hpp:
 
 /home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/impl/KokkosExp_Host_IterateTile.hpp:
 
 /usr/include/x86_64-linux-gnu/bits/posix_opt.h:
-
-/usr/include/x86_64-linux-gnu/bits/confname.h:
 
 /usr/include/c++/11/bits/functexcept.h:
 
 /usr/include/x86_64-linux-gnu/bits/getopt_core.h:
 
 /usr/include/x86_64-linux-gnu/bits/unistd_ext.h:
+
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosSparse_sptrsv_solve_tpl_spec_avail.hpp:
 
 /usr/include/c++/11/bits/stl_numeric.h:
 
@@ -1671,18 +2543,10 @@ src/SArray.h:
 
 src/GwDomain.h:
 
-/usr/include/x86_64-linux-gnu/sys/cdefs.h:
+src/GwSolver.h:
 
-/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/desul/atomics/Operator_Function_Objects.hpp:
+/home/zhengna/serghei-240923/serghei-gw/kokkos/install/include/sorting/Kokkos_SortPublicAPI.hpp:
 
-src/BC.h:
+/usr/include/x86_64-linux-gnu/bits/confname.h:
 
-/home/zhengna/PnetCDF/include/pnetcdf.h:
-
-/usr/include/c++/11/random:
-
-src/tools.h:
-
-/usr/local/openmpi/include/mpi_portable_platform.h:
-
-/usr/include/c++/11/bits/random.h:
+/home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/include/KokkosKernels_config.h:

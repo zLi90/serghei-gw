@@ -55,10 +55,16 @@ public:
         gdom.timers.gwlinsol += timer.seconds();
 
         Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
-            int ii, jj, kk, iGlob;
+            int ii, jj, kk, iGlob, ivg;
             gdom.unpackIndices(idom, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-            gw.h(iGlob,1) = A.x(idom);
+            ivg = gw.soilID(iGlob) * NVG;
+            if (gw.vgTable(ivg) == 0.0) {
+                gw.h(iGlob,1) = gw.h(iGlob,0);
+            } else {
+                gw.h(iGlob,1) = A.x(idom);
+                if (gw.h(iGlob,1) != gw.h(iGlob,1)) { gw.h(iGlob,1) = gw.h(iGlob,0); }
+            }
         });
 
 		timer.reset();
@@ -209,8 +215,8 @@ public:
             else {gw.k(iGlob,3) = mypow(s,0.5) * mypow(nume/deno, 2.0);}
         	gw.k(iGlob,3) = mypow(s,0.5) * mypow(1-mypow(1-mypow(s,1.0/m),m), 2.0);
             if (gw.k(iGlob,3) > 1.0 | gw.h(iGlob,1) >= gdom.aev)	{gw.k(iGlob,3) = 1.0;}
-            // set no data cells impermeable
-            if (gdom.isnodata(iGlob) == 1)  {gw.k(iGlob,3) = 0.0;}
+            // set no data and Ks=0 (impermeable wall) cells impermeable
+            if (gdom.isnodata(iGlob) == 1 || gw.vgTable(ivg) == 0.0)  {gw.k(iGlob,3) = 0.0;}
             // set top layer of a dry cell impermeable (only works for Lake Taihu!)
             //if (kk < 2 && gw.h(iGlob,1) <= 0.0)	{gw.k(iGlob,3) = 0.0;}
         });
@@ -391,21 +397,28 @@ public:
             gw.coef(idom,0) -= (gw.coef(idom,1)+gw.coef(idom,2)+gw.coef(idom,3)+gw.coef(idom,4)+gw.coef(idom,5)+gw.coef(idom,6));
         });
         
-        // Remove dependencies on internal NODATA cells
+        // Remove dependencies on internal NODATA cells; pin Ks=0 (impermeable wall) head
         Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
-            int ii, jj, kk, iGlob;
+            int ii, jj, kk, iGlob, ivg;
+            real ks_cell;
             gdom.unpackIndices(idom, kk, jj, ii);
             iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
-            // no data cells 
+            ivg = gw.soilID(iGlob) * NVG;
+            ks_cell = gw.vgTable(ivg);
             if (gdom.isnodata(iGlob) == 1)  {
             	gw.coef(idom,0) = 1e12; gw.coef(idom,7) = 1e12; gw.coef(idom,5) = 0.0;	gw.coef(idom,6) = 0.0;
             	gw.coef(idom,1) = 0.0; gw.coef(idom,2) = 0.0; gw.coef(idom,3) = 0.0; gw.coef(idom,4) = 0.0;	
             }
+            else if (ks_cell == 0.0)  {
+            	gw.coef(idom,0) = 1e12; gw.coef(idom,7) = 1e12 * gw.h(iGlob,1);
+            	gw.coef(idom,1) = 0.0; gw.coef(idom,2) = 0.0; gw.coef(idom,3) = 0.0; gw.coef(idom,4) = 0.0;
+            	gw.coef(idom,5) = 0.0; gw.coef(idom,6) = 0.0;
+            }
             else {
-            	if (gdom.isnodata(iGlob+1) == 1)	{gw.coef(idom,1) = 0.0;}
-            	if (gdom.isnodata(iGlob-1) == 1)	{gw.coef(idom,2) = 0.0;}
-            	if (gdom.isnodata(iGlob+gdom.nxhc) == 1)	{gw.coef(idom,3) = 0.0;}
-            	if (gdom.isnodata(iGlob-gdom.nxhc) == 1)	{gw.coef(idom,4) = 0.0;}
+            	if (gdom.isnodata(iGlob+1) == 1 || gw.vgTable(gw.soilID(iGlob+1) * NVG) == 0.0)	{gw.coef(idom,1) = 0.0;}
+            	if (gdom.isnodata(iGlob-1) == 1 || gw.vgTable(gw.soilID(iGlob-1) * NVG) == 0.0)	{gw.coef(idom,2) = 0.0;}
+            	if (gdom.isnodata(iGlob+gdom.nxhc) == 1 || gw.vgTable(gw.soilID(iGlob+gdom.nxhc) * NVG) == 0.0)	{gw.coef(idom,3) = 0.0;}
+            	if (gdom.isnodata(iGlob-gdom.nxhc) == 1 || gw.vgTable(gw.soilID(iGlob-gdom.nxhc) * NVG) == 0.0)	{gw.coef(idom,4) = 0.0;}
             }
         });
 
@@ -450,18 +463,22 @@ public:
         if (gdom.gw_scheme == 1)    {
             Kokkos::parallel_for( gdom.nCell , KOKKOS_LAMBDA(int idom) {
                 int ii, jj, kk, iGlob, ivg, iGlobSW;
-                real coef, qqx, qqy, qqz, wcs, ss = 1e-5;
+                real coef, qqx, qqy, qqz, wcs, wcr, ss = 1e-5;
                 gdom.unpackIndices(idom, kk, jj, ii);
                 iGlob = (hc+kk)*gdom.nxhc*gdom.nyhc + (hc+jj)*gdom.nxhc + ii + hc;
 				iGlobSW = (hc+jj)*gdom.nxhc + ii + hc;
                 ivg = gw.soilID(iGlob) * NVG;
                 wcs = gw.vgTable(ivg+2);
+                wcr = gw.vgTable(ivg+3);
                 coef = 1.0 + ss*(gw.h(iGlob,1) - gw.h(iGlob,0)) / wcs;
+                if (coef < 1e-6) { coef = 1e-6; }
                 qqx = (gw.q(iGlob,0) - gw.q(iGlob-1,0)) / gdom.dx;
                 qqy = (gw.q(iGlob,1) - gw.q(iGlob-gdom.nxhc,1)) / gdom.dy;
                 qqz = (gw.q(iGlob,2) - gw.q(iGlob-gdom.nxhc*gdom.nyhc,2)) / gdom.dz(iGlob);
-                if (gdom.isnodata(iGlob) == 0)  {
+                if (gdom.isnodata(iGlob) == 0 && gw.vgTable(ivg) != 0.0)  {
                     gw.wc(iGlob,1) = (gw.wc(iGlob,0) + gdom.dt * (qqx + qqy + qqz)) / coef;
+                    if (gw.wc(iGlob,1) < wcr) { gw.wc(iGlob,1) = wcr + 1e-5; }
+                    if (gw.wc(iGlob,1) > wcs) { gw.wc(iGlob,1) = wcs; }
     				// evaporation
     				if (kk == 0 && gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) <= 0 && gdom.isEvap == 1)	{
     					gw.wc(iGlob,1) -= gdom.dt * gdom.evapRate(iGlobSW) / gdom.dz(iGlob);
@@ -513,7 +530,7 @@ public:
                         if (gw.wc(iGlob,1) < wcs-TOL8NEG && gw.h(iGlob-gdom.nxhc*gdom.nyhc,1) == 0.0)   {flag = 0;}
                         else {flag = 1;}
                     }
-                    if (gdom.isnodata(iGlob) == 0)  {
+                    if (gdom.isnodata(iGlob) == 0 && gw.vgTable(ivg) != 0.0)  {
                         if (flag == 1)  {
                             real tmp = gw.wc(iGlob,1);
                             sbar = mypow(1.0 + mypow(myfabs(alpha*gw.h(iGlob,1)), n), -m);
@@ -524,7 +541,13 @@ public:
                         else    {
                             if (gw.wc(iGlob,1) < wcs)   {
                                 if (gw.wc(iGlob,1) < wcr)   {gw.wc(iGlob,1) = wcr + 1e-5;}
-                                gw.h(iGlob,1) = -(1.0/alpha) * (mypow(mypow((wcm-wcr)/(gw.wc(iGlob,1)-wcr),(1/m)) - 1.0, 1/n));
+                                real denom = gw.wc(iGlob,1) - wcr;
+                                if (denom < 1e-5) { denom = 1e-5; }
+                                real ratio = (wcm - wcr) / denom;
+                                if (ratio < 0.0) { ratio = 1e-5; }
+                                real inner = mypow(ratio, 1.0/m) - 1.0;
+                                if (inner < 0.0) { inner = 0.0; }
+                                gw.h(iGlob,1) = -(1.0/alpha) * mypow(inner, 1.0/n);
                             }
                             else {gw.h(iGlob,1) = 0.0;}
                         }
@@ -544,7 +567,7 @@ public:
                 m = 1.0 - 1.0 / n;
                 wcm = wcr + (wcs-wcr)*mypow((1.0 + mypow(myfabs(gdom.aev)*alpha,n)), m);
                 sbar = mypow(1.0 + mypow(myfabs(alpha*gw.h(iGlob,1)), n), -m);
-                if (gdom.isnodata(iGlob) == 0)  {
+                if (gdom.isnodata(iGlob) == 0 && gw.vgTable(ivg) != 0.0)  {
                     if (gw.h(iGlob,1) > gdom.aev)   {gw.wc(iGlob,1) = wcs;}
                     else {gw.wc(iGlob,1) = sbar * (wcm - wcr) + wcr;}
                     if (gw.wc(iGlob,1) > wcs)	{gw.wc(iGlob,2) += (gw.wc(iGlob,1)-wcs); gw.wc(iGlob,1) = wcs;}

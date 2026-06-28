@@ -279,8 +279,8 @@ public:
 			// Asynchronous coupling
 			// timer.reset();
 			if (gdom.async)	{
-				printf("asy:gdom.dt = %f\n",gdom.dt);
-				printf("asy:dom.dt = %f\n",dom.dt);
+				// printf("asy:gdom.dt = %f\n",gdom.dt);
+				// printf("asy:dom.dt = %f\n",dom.dt);
 				if (gdom.etime + gdom.dt < dom.etime)	{
 					gdom.etime += gdom.dt;
 					#ifdef __NVCC__
@@ -304,8 +304,8 @@ public:
 				}
 			}
 			else {
-				printf("syn:gdom.dt = %f\n",gdom.dt);
-				printf("syn:dom.dt = %f\n",dom.dt);
+				// printf("syn:gdom.dt = %f\n",gdom.dt);
+				// printf("syn:dom.dt = %f\n",dom.dt);
 				gdom.etime = dom.etime;
 				#ifdef __NVCC__
 				if (gdom.gw_scheme == 1)	{

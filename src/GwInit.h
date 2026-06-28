@@ -46,6 +46,22 @@ class PsLn{
     }
 
     void print()    {std::cout << "line: " << line << "\tkey: " << key << "\tvalue: " << value.str() << std::endl;}
+
+    std::string valueString() {
+        std::string s;
+        std::getline(value, s);
+        const auto start = s.find_first_not_of(" \t");
+        if (start == std::string::npos) return "";
+        const auto end = s.find_last_not_of(" \t");
+        return s.substr(start, end - start + 1);
+    }
+
+    static std::string trimToken(const std::string &s) {
+        const auto start = s.find_first_not_of(" \t");
+        if (start == std::string::npos) return "";
+        const auto end = s.find_last_not_of(" \t");
+        return s.substr(start, end - start + 1);
+    }
     };
 
 public:
@@ -342,6 +358,30 @@ public:
         d
 
     */
+    void printVGTableSummary(GwState &gw, GwDomain &gdom, const std::string &fNameIn, Parallel &par) {
+        if (!par.masterproc) return;
+        std::cerr << BDASH "Van Genuchten parameters (" << fNameIn << ")\n";
+        std::cerr << BDASH "Number of soil types (nSoilID): " << gdom.nSoilID << "\n";
+        for (int i = 0; i < gdom.nSoilID; i++) {
+            int ivg = packIndicesUniformGrid(gdom.nSoilID, NVG, i, 0);
+            real Ks     = gw.vgTable(ivg + 0);
+            real Phi    = gw.vgTable(ivg + 1);
+            real ThetaS = gw.vgTable(ivg + 2);
+            real ThetaR = gw.vgTable(ivg + 3);
+            real n      = gw.vgTable(ivg + 4);
+            real alpha  = gw.vgTable(ivg + 6);
+            real m      = (n != 0.0) ? (1.0 - 1.0 / n) : 0.0;
+            std::cerr << BDASH "Soil type " << i << ":\n";
+            std::cerr << "      Ks     = " << Ks << "\n";
+            std::cerr << "      Phi    = " << Phi << "\n";
+            std::cerr << "      ThetaS = " << ThetaS << "\n";
+            std::cerr << "      ThetaR = " << ThetaR << "\n";
+            std::cerr << "      n      = " << n << "\n";
+            std::cerr << "      m      = " << m << "  (1 - 1/n)\n";
+            std::cerr << "      alpha  = " << alpha << "\n";
+        }
+    }
+
     int readVGParameters(std::string fNameIn, GwState &gw, GwDomain &gdom, Parallel &par)  {
         std::ifstream fInStream(fNameIn);
         std::string line;
@@ -357,79 +397,79 @@ public:
                     if (!strcmp("alpha", pline.key.c_str())) {
             		    std::string tail;
             		    std::string head;
-            		    pline.value >> tail;
+            		    tail = pline.valueString();
             		    uint splitloc = tail.find(';', 0);
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
-                            head = tail.substr(0, splitloc);
+                            head = PsLn::trimToken(tail.substr(0, splitloc));
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
                             gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 6)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 6)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 6)) = std::stof(PsLn::trimToken(tail));
                     }
                     // VG n
                     else if(!strcmp("n", pline.key.c_str()))    {
             		    std::string tail;
             		    std::string head;
-            		    pline.value >> tail;
+            		    tail = pline.valueString();
             		    uint splitloc = tail.find(';', 0);
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
-                            head = tail.substr(0, splitloc);
+                            head = PsLn::trimToken(tail.substr(0, splitloc));
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
                             gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 4)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 4)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 4)) = std::stof(PsLn::trimToken(tail));
                     }
                     // VG Ks
                     else if(!strcmp("Ks", pline.key.c_str()))   {
             		    std::string tail;
             		    std::string head;
-            		    pline.value >> tail;
+            		    tail = pline.valueString();
             		    uint splitloc = tail.find(';', 0);
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
-                            head = tail.substr(0, splitloc);
+                            head = PsLn::trimToken(tail.substr(0, splitloc));
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
                             gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 0)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 0)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 0)) = std::stof(PsLn::trimToken(tail));
                     }
                     // VG porosity
                     else if(!strcmp("Phi", pline.key.c_str()))  {
             		    std::string tail;
             		    std::string head;
-            		    pline.value >> tail;
+            		    tail = pline.valueString();
             		    uint splitloc = tail.find(';', 0);
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
-                            head = tail.substr(0, splitloc);
+                            head = PsLn::trimToken(tail.substr(0, splitloc));
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
                             gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 1)) = std::stof(head);
                         }
-                        gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 1)) = std::stof(tail);
+                        gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 1)) = std::stof(PsLn::trimToken(tail));
                     }
                     // VG wcs
                     else if(!strcmp("ThetaR", pline.key.c_str()))   {
             		    std::string tail;
             		    std::string head;
-            		    pline.value >> tail;
+            		    tail = pline.valueString();
             		    uint splitloc = tail.find(';', 0);
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
-                            head = tail.substr(0, splitloc);
+                            head = PsLn::trimToken(tail.substr(0, splitloc));
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
                             gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 3)) = std::stof(head);
                         }
-            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 3)) = std::stof(tail);
+            		    gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 3)) = std::stof(PsLn::trimToken(tail));
                     }
                     // VG wcr
             		else if(!strcmp("ThetaS", pline.key.c_str())) {
             		    std::string tail;
             		    std::string head;
-            		    pline.value >> tail;
+            		    tail = pline.valueString();
             		    uint splitloc = tail.find(';', 0);
             		    for (int i = 0; i < gdom.nSoilID - 1; i ++)    {
-                            head = tail.substr(0, splitloc);
+                            head = PsLn::trimToken(tail.substr(0, splitloc));
                             tail = tail.substr(splitloc + 1, tail.length() - splitloc);
                             gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, i, 2)) = std::stof(head);
                         }
-                        gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 2)) = std::stof(tail);
+                        gw.vgTable(packIndicesUniformGrid(gdom.nSoilID, NVG, gdom.nSoilID - 1, 2)) = std::stof(PsLn::trimToken(tail));
                     }
             		else  {
                         if (par.masterproc) {
@@ -454,6 +494,7 @@ public:
                 if(par.masterproc){std::cerr<< RERROR "Unable to open VG parameters file!\n";  return 0;}
             }
         }
+        // printVGTableSummary(gw, gdom, fNameIn, par);
         if (par.masterproc) {std::cerr<< GOK "van Genuchten parameters read\n";}
         flag = 1;
         return flag;

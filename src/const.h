@@ -35,7 +35,7 @@
 #define MAX_PUMP_CURVE_PTS 256
 #define MAX_RIVER_STAGE_SERIES 8
 #define MAX_RIVER_STAGE_PTS 4096
-#define FUDGE 0.0001    // ft or ft2
+#define FUDGE 0.0001   
 #define MINSURFAREA 0.04
 #define HEAD_TOL 0.0015 // DW routing head tolerance (m); use in Kokkos device code
 #define COURANT_FACTOR 0.07 // Courant time step factor; use in Kokkos device code
@@ -76,15 +76,15 @@
 #endif
 
 #ifndef SERGHEI_SUBSURFACE_MODEL
-#define SERGHEI_SUBSURFACE_MODEL 0
+#define SERGHEI_SUBSURFACE_MODEL 1
 #endif
 
 #ifndef SERGHEI_SWE_MODEL
-#define SERGHEI_SWE_MODEL 1
+#define SERGHEI_SWE_MODEL 0
 #endif
 //drainage
 #ifndef SERGHEI_DRAINAGE_MODEL 
-#define SERGHEI_DRAINAGE_MODEL 1
+#define SERGHEI_DRAINAGE_MODEL 0
 #endif
 
 #ifndef SERGHEI_KOKKOSKERNELS_SOLVER

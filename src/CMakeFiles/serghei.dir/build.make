@@ -93,6 +93,7 @@ serghei_EXTERNAL_OBJECTS =
 src/serghei: src/CMakeFiles/serghei.dir/driver.cpp.o
 src/serghei: src/CMakeFiles/serghei.dir/build.make
 src/serghei: /home/zhengna/PnetCDF/lib/libpnetcdf.a
+src/serghei: /home/zhengna/serghei-240923/serghei-gw/kokkos-kernels/install/lib/libkokkoskernels.a
 src/serghei: /usr/local/openmpi/lib/libmpi.so
 src/serghei: /home/zhengna/serghei-240923/serghei-gw/kokkos/install/lib/libkokkoscontainers.a
 src/serghei: /home/zhengna/serghei-240923/serghei-gw/kokkos/install/lib/libkokkoscore.a
