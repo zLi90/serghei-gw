@@ -23,8 +23,8 @@
 
 /* -*- mode: c++; c-default-style: "linux" -*- */
 
-#ifndef _CROP_DYNAMIC_STATE_H_
-#define _CROP_DYNAMIC_STATE_H_
+#ifndef CROP_DYNAMIC_STATE_H
+#define CROP_DYNAMIC_STATE_H
 
 #include "../define.h"
 
@@ -212,4 +212,4 @@ public:
     }
 };
 
-#endif /* _CROP_DYNAMIC_STATE_H_ */
+#endif /* CROP_DYNAMIC_STATE_H */

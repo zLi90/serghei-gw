@@ -52,8 +52,8 @@
 
 /* -*- mode: c++; c-default-style: "linux" -*- */
 
-#ifndef _WOFOST72_H_
-#define _WOFOST72_H_
+#ifndef WOFOST72_H
+#define WOFOST72_H
 
 #include "../define.h"
 
@@ -331,6 +331,15 @@ public:
                 printf("Error in partitioning of initial biomass (TDWI) at cell %d! Checksum: %f\n", i, checksum);
             }
         });
+
+        /* --- 6. Seed the root-zone soil moisture snapshot (ets.RZSM) with the
+         *      profile average pre-computed in WofostInit (Step 4: gw.wc depth-
+         *      weighted over [0, RDI]).  Without this, ets.RZSM would keep its
+         *      zero-filled allocation value from ets.allocate() until the first
+         *      daily crop step refreshes it via compute_root_zone_moisture(),
+         *      so the initial crop output (outputIniCrop) would report a fully
+         *      dry root zone regardless of the actual groundwater state. --- */
+        Kokkos::deep_copy(ets.RZSM, initial_root_zone_SM);
         Kokkos::fence();
     }
 
@@ -430,6 +439,52 @@ public:
 
         /* --- 3. Evapotranspiration: water stress factor and actual fluxes --- */
         evtra.calc_rates(ets, p, s, m, drv_idx, root_zone_SM);
+
+        /*
+         * Diagnostic mode: calculate and retain SERGHEI's accumulated
+         * actual/potential uptake ratio, but do not feed it back into the
+         * WOFOST carbon-balance calculation. This isolates crop responses
+         * from possible discontinuities in the root-uptake coupling.
+         */
+        {
+            auto local_RFTRA = ets.RFTRA;
+            auto local_TRA = ets.TRA;
+            auto local_TRAMX = ets.TRAMX;
+            auto local_GW_RFTRA = ets.GW_RFTRA;
+            auto local_GW_TPOT_ACC = ets.GW_TPOT_ACC;
+            auto local_GW_TACT_ACC = ets.GW_TACT_ACC;
+            auto local_skip_feedback = s.skip_other_modules;
+
+            Kokkos::parallel_for("Wofost72_ApplySergheiFeedback", s.nCells,
+                                 KOKKOS_LAMBDA(const int i) {
+                if (local_skip_feedback(i) == 1) {
+                    local_GW_RFTRA(i) = 1.0;
+                    local_GW_TPOT_ACC(i) = 0.0;
+                    local_GW_TACT_ACC(i) = 0.0;
+                    return;
+                }
+
+                real ratio = 1.0;
+                const real potential = local_GW_TPOT_ACC(i);
+                if (potential > 1e-30)
+                    ratio = local_GW_TACT_ACC(i) / potential;
+                if (ratio < 0.0) ratio = 0.0;
+                if (ratio > 1.0) ratio = 1.0;
+
+                // Keep the SERGHEI ratio available for diagnostics.
+                real wofost_rftra = local_RFTRA(i);
+                real serghei_rftra = ratio;
+                local_GW_RFTRA(i) = serghei_rftra;
+
+                // Diagnostic mode: preserve WOFOST's native water-stress
+                // factor instead of overwriting it with SERGHEI feedback.
+                local_RFTRA(i) = wofost_rftra;
+                local_TRA(i) = local_TRAMX(i) * wofost_rftra;
+                local_GW_TPOT_ACC(i) = 0.0;
+                local_GW_TACT_ACC(i) = 0.0;
+            });
+            Kokkos::fence();
+        }
 
 #if DEBUG_CROP_GROWTH_MODEL
         if (s.nCells > 0)
@@ -656,4 +711,4 @@ public:
     }
 };
 
-#endif /* _WOFOST72_H_ */
+#endif /* WOFOST72_H */

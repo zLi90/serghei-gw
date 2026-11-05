@@ -3,7 +3,14 @@
 #include "const.h"
 #include "math.h"
 #include "mpi.h"
+#include "MPIUtils.h"
 #include <Kokkos_Core.hpp>
+#if SERGHEI_RT_CUDA_AWARE_MPI && !defined(KOKKOS_ENABLE_CUDA)
+// Device-pointer MPI is meaningful only for the CUDA execution path.  Keep
+// accidental non-CUDA builds on the portable host-MPI fallback.
+#undef SERGHEI_RT_CUDA_AWARE_MPI
+#define SERGHEI_RT_CUDA_AWARE_MPI 0
+#endif
 
 // Topology boundary conditions
 #define TOPOLOGY_BC_PERIODIC 1
@@ -16,7 +23,7 @@
 #define IC_WC 3
 #define IC_WT 4
 
-//!zzb Reactive transport subsurface initial mode
+//! Reactive transport subsurface initial mode
 #define IC_REACTIVE_TRANSPORT_ZERO 0
 #define IC_REACTIVE_TRANSPORT_CON 1
 
@@ -82,11 +89,22 @@ typedef unsigned char uchar;
 #endif
 
 typedef Kokkos::View<real *, Kokkos::Device<Kokkos::DefaultExecutionSpace,Kokkos::SharedSpace>> realArr;
+#if SERGHEI_RT_PINNED_HOST && defined(KOKKOS_ENABLE_CUDA)
+using RTMPIHostSpace = Kokkos::CudaHostPinnedSpace;
+#else
+using RTMPIHostSpace = Kokkos::HostSpace;
+#endif
 typedef Kokkos::View<int *, Kokkos::Device<Kokkos::DefaultExecutionSpace,Kokkos::SharedSpace>> intArr;
 typedef Kokkos::View<bool *, Kokkos::Device<Kokkos::DefaultExecutionSpace,Kokkos::SharedSpace>> boolArr;
 typedef Kokkos::View<double *, Kokkos::Device<Kokkos::DefaultExecutionSpace,Kokkos::SharedSpace>> doubleArr;
 typedef Kokkos::View<real**, Kokkos::Device<Kokkos::DefaultExecutionSpace,Kokkos::SharedSpace>> realArr2;
-typedef Kokkos::View<real***, Kokkos::Device<Kokkos::DefaultExecutionSpace,Kokkos::SharedSpace>> realArr3; // [FROM CODE1] needed for 3D subsurface arrays
+// Contiguous [first dimension][second dimension] storage for external I/O.
+// CUDA's default LayoutLeft interleaves species and produces a checkerboard
+// when a raw pointer is written to NetCDF variables shaped [species][cell].
+typedef Kokkos::View<real**, Kokkos::LayoutRight,
+                     Kokkos::Device<Kokkos::DefaultExecutionSpace,
+                                    Kokkos::SharedSpace>> realArr2Right;
+typedef Kokkos::View<real***, Kokkos::Device<Kokkos::DefaultExecutionSpace,Kokkos::SharedSpace>> realArr3; // 3D subsurface arrays
 typedef Kokkos::View<int**, Kokkos::Device<Kokkos::DefaultExecutionSpace,Kokkos::SharedSpace>> intArr2;
 typedef Kokkos::View<ushort*, Kokkos::Device<Kokkos::DefaultExecutionSpace,Kokkos::SharedSpace>> ushortArr;
 typedef Kokkos::View<uchar*, Kokkos::Device<Kokkos::DefaultExecutionSpace,Kokkos::SharedSpace>> ucharArr;
@@ -198,8 +216,10 @@ class TimeSeries{
 
 public:
 
-  int np;     // number of points in time
-  int nc;       // number of grid cells with different time series values
+  // Empty by default: forcing series are optional and are populated by the
+  // input parser only when the corresponding file/forcing is present.
+  int np = 0;     // number of points in time
+  int nc = 0;       // number of grid cells with different time series values
   int nx = 1; // number of partitions in x direction
   int ny = 1; // number of partitions in y direction
 
@@ -215,18 +235,6 @@ public:
   realArr xPoly;
   realArr yPoly;
 
-/*
-  // WARNING valid only for piece-wise constant time data
-  inline real interpolate (real const &t, int spaceIndex){
-    if(t >= time (np - 1)){
-      timeIndex = np - 1;
-    }
-    else{
-	     if (t >= time (timeIndex + 1)) timeIndex++;
-    }
-    return (value (np * spaceIndex + timeIndex));
-  }
-*/
   void initialise(int n){
     np = n;
     time = realArr("time",np);
@@ -242,4 +250,3 @@ public:
   };
 
 };
-

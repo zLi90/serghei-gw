@@ -23,8 +23,8 @@
  * apply ageing-based death (leaves older than SPAN days die).
  ******************************************************************************/
 
-#ifndef _LEAF_DYNAMICS_STATE_H_
-#define _LEAF_DYNAMICS_STATE_H_
+#ifndef LEAF_DYNAMICS_STATE_H
+#define LEAF_DYNAMICS_STATE_H
 
 #include "../define.h"
 
@@ -205,4 +205,4 @@ public:
     }
 };
 
-#endif
+#endif /* LEAF_DYNAMICS_STATE_H */

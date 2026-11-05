@@ -76,8 +76,8 @@ public:
 					#if SERGHEI_SURFACE_TRANSPORT
 					real interface_flux = 0.0;
 					solver.roeSolver(s1, s2, upwM, upwP, interface_flux, dom.dt, dom.dx(), 1, 0);
-					// 【修改点 3】：将 X 方向界面的流量保存到 state 中！
-                    // 注意：存放在 id1 位置，代表 id1(左) 到 id2(右) 之间的界面流量
+					// Save the x-direction interface discharge for scalar-transport coupling
+					// Stored at id1: the flux across the face between id1 (left) and id2 (right)
                     state.InterfaceFlux_x(id1) = interface_flux;
 					#endif
 
@@ -103,7 +103,7 @@ public:
 				else
 				{
 					#if SERGHEI_SURFACE_TRANSPORT
-					// 【新增安全保护】：如果是干涸/边界网格，流量设为0
+					// Safety: dry or boundary cells get zero interface flux
                     state.InterfaceFlux_x(id1) = 0.0;
 					#endif
 
@@ -154,8 +154,8 @@ public:
 					#if SERGHEI_SURFACE_TRANSPORT
 					real interface_flux = 0.0;
 					solver.roeSolver(s1, s2, upwM, upwP, interface_flux, dom.dt, dom.dx(), 0, -1);
-					// 【修改点 4】：将 Y 方向界面的流量保存到 state 中！
-					// 注意：存放在 id1 位置，代表 id1(上) 到 id2(下) 之间的界面流量
+					// Save the y-direction interface discharge for scalar-transport coupling
+					// Stored at id1: the flux across the face between id1 (upper) and id2 (lower)
 					state.InterfaceFlux_y(id1) = interface_flux;
 					#endif
 
@@ -181,7 +181,7 @@ public:
 				}
 				else{
 					#if SERGHEI_SURFACE_TRANSPORT
-					// 【新增安全保护】：如果是干涸/边界网格，流量设为0
+					// Safety: dry or boundary cells get zero interface flux
                     state.InterfaceFlux_y(id1) = 0.0;
 					#endif
 				}
@@ -211,7 +211,7 @@ public:
 		if (dom.nsubdom > 1)
 		{
 			timerdt.reset();
-			int ierr = MPI_Allreduce(&dtloc, &dom.dt, 1, SERGHEI_MPI_REAL, MPI_MIN, MPI_COMM_WORLD);
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&dtloc, &dom.dt, 1, SERGHEI_MPI_REAL, MPI_MIN, MPI_COMM_WORLD));
 			dom.timers.swe.flux.mpi += timerdt.seconds();
 		}
 #if SERGHEI_DEBUG_DT

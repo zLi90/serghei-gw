@@ -73,7 +73,6 @@ public:
 			}
 		}
 
-		//if(nScalar > 0) mode = 1;
 		mode = 1; //always activated
 
 		if(scalarNames.size() < nScalar || diffc.size() < nScalar){
@@ -99,8 +98,6 @@ public:
   realArr2 hphi; // transported scalars
   realArr2 dhphi0; // equivalent to dsw0 for the transport
   realArr2 dhphi1; // equivalent to dsw1 for the transport
-
-	//Kokkos::Timer timer;
 
   #if SERGHEI_SCALAR_DIFFUSION
   	realS2Arr diffc;
@@ -147,8 +144,7 @@ public:
   }
 
 
-	int readInitial(Domain &dom, const Parallel &par, const ScalarTransport &st){  
-		//if(!st.initialMode.compare("file")){
+	int readInitial(Domain &dom, const Parallel &par, const ScalarTransport &st){
 			std::string fname;
 
 			// this is the solution we are looking for
@@ -189,7 +185,6 @@ public:
   
 	  if(!st.initialMode.compare("constant")){
       for(int iphi=0; iphi<nScalar; iphi++) phi0(iphi) = st.initialValue[iphi];
-      //phi0=st.initialValue;
     }
    
     if(!st.initialMode.compare("file")){
@@ -241,7 +236,6 @@ public:
 KOKKOS_INLINE_FUNCTION void updateAndReset(int ii, real const &h, real const &dt, real const &dx ){
 	//update contributionss (solutes + sediments)
 	for(int iphi=0; iphi<nScalar; iphi++){
-		//hphi(ii,iphi) -= dt * (dhphi0(ii,iphi)+dhphi1(ii,iphi))/dx - dt * hphiSource(ii,iphi);
 		hphi(ii,iphi) -= dt * (dhphi0(ii,iphi)+dhphi1(ii,iphi))/dx;
 		
 		//reduction or remove. Should be in the order of machine accuracy
@@ -252,7 +246,6 @@ KOKKOS_INLINE_FUNCTION void updateAndReset(int ii, real const &h, real const &dt
 		//reset
 		dhphi0(ii,iphi) = 0.0;
 		dhphi1(ii,iphi) = 0.0;
-		//hphiSource(ii,iphi) = 0.0;
 	}
 
 	//add and reset source terms (only solutes)
@@ -486,7 +479,7 @@ inline real computediffDt(const Domain &dom){
 	  Kokkos::fence();
 
 	  real dtloc = diffDt;
-	  int ierr = MPI_Allreduce(&dtloc, &diffDt, 1, MPI_DOUBLE , MPI_MIN, MPI_COMM_WORLD);
+	  SERGHEI_MPI_CHECK(MPI_Allreduce(&dtloc, &diffDt, 1, SERGHEI_MPI_REAL, MPI_MIN, MPI_COMM_WORLD));
 	
 	return diffDt;
 

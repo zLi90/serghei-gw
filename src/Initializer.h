@@ -24,9 +24,9 @@ public:
 #if SERGHEI_DEBUG_WORKFLOW
 		std::cerr << GGD "Initialising MPI " << std::endl;
 #endif
-		int ierr = MPI_Init(argc, argv);
-		ierr = MPI_Comm_size(MPI_COMM_WORLD, &par.nranks);
-		ierr = MPI_Comm_rank(MPI_COMM_WORLD, &par.myrank);
+		SERGHEI_MPI_CHECK(MPI_Init(argc, argv));
+		SERGHEI_MPI_CHECK(MPI_Comm_size(MPI_COMM_WORLD, &par.nranks));
+		SERGHEI_MPI_CHECK(MPI_Comm_rank(MPI_COMM_WORLD, &par.myrank));
 
 		// Determine if I'm the master process
 		if (par.myrank == SERGHEI_MASTERPROC)

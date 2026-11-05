@@ -31,8 +31,8 @@
  * Reference: WOFOST 7.1 User Guide, Chapter 6 -- Root Dynamics
  ******************************************************************************/
 
-#ifndef _ROOT_DYNAMICS_H_
-#define _ROOT_DYNAMICS_H_
+#ifndef ROOT_DYNAMICS_H
+#define ROOT_DYNAMICS_H
 
 #include "../define.h"
 #include "CropState.h"         // Static crop parameters (TDWI, RDI, RDMCR, RRI, tables: RDRRTB)
@@ -88,11 +88,7 @@ public:
             /*-------------------------------------------------------------*/
             real RDI = p.p.RDI;                // Initial rooting depth [cm]
             real RDMCR = p.p.RDMCR;            // Crop maximum rooting depth [cm]
-            // TODO: Ensure RDMSOL is available as a soil parameter.
-            // Currently using a placeholder default of 150 cm.
-            // In a full implementation, this should come from a soil map
-            // or be passed as a spatially varying array.
-            real RDMSOL = 150.0;               // Soil-limited max root depth [cm] (placeholder)
+            real RDMSOL = p.p.RDMSOL;          // Soil-limited max root depth [cm]
 
             real rdmax = fmax(RDI, fmin(RDMCR, RDMSOL));
 
@@ -260,4 +256,4 @@ public:
     }
 };
 
-#endif
+#endif /* ROOT_DYNAMICS_H */

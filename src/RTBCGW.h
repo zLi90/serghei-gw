@@ -67,16 +67,16 @@
  *   XMINUS = left    face (minimum X)
  *   YPLUS  = back    face (maximum Y)
  *   YMINUS = front   face (minimum Y)
- *   ZPLUS  = top     face (maximum Z, land surface or uppermost layer)
- *   ZMINUS = bottom  face (minimum Z, bedrock or lowest layer)
+ *   ZPLUS  = direction 5, lower/bottom face in the groundwater layer order
+ *   ZMINUS = direction 6, upper/surface face in the groundwater layer order
  * ========================================================================== */
 
 #define XPLUS 1	 /* Right  face (X maximum) */
 #define XMINUS 2 /* Left   face (X minimum) */
 #define YPLUS 3	 /* Back   face (Y maximum) */
 #define YMINUS 4 /* Front  face (Y minimum) */
-#define ZPLUS 5	 /* Top    face (Z maximum, near land surface) */
-#define ZMINUS 6 /* Bottom face (Z minimum, near bedrock) */
+#define ZPLUS 5	 /* Direction 5: lower/bottom face in current GW convention */
+#define ZMINUS 6 /* Direction 6: upper/surface face in current GW convention */
 
 /* ==========================================================================
  * Section 3: RTBCGW Class
@@ -224,6 +224,134 @@ public:
 	std::vector<TimeSeries> spec_ts;	  // time series data per species
 	std::vector<real> spec_bcval_const;	  // constant boundary value per species [mg/L]
 	std::vector<int> has_bcfile;		  // flag: 1 if species has a boundary data file, 0 otherwise
+	std::vector<real> spec_mass_in_rate;  // per-species boundary mass inflow [mg/s]
+	std::vector<real> spec_mass_out_rate; // per-species boundary mass outflow [mg/s]
+
+	KOKKOS_INLINE_FUNCTION
+	void mergeRTCoef(RTStateGW const &rt, int idom, int exterior, int mapped) const
+	{
+		rt.RTcoef(idom, mapped) += rt.RTcoef(idom, exterior);
+		rt.RTcoef(idom, exterior) = 0.0;
+	}
+
+	KOKKOS_INLINE_FUNCTION
+	void moveRTCoefToRHS(RTStateGW const &rt, int idom, int exterior, real c_external) const
+	{
+		rt.RTcoef(idom, 7) -= rt.RTcoef(idom, exterior) * c_external;
+		rt.RTcoef(idom, exterior) = 0.0;
+	}
+
+	KOKKOS_INLINE_FUNCTION
+	void clearRTCoef(RTStateGW const &rt, int idom, int exterior) const
+	{
+		rt.RTcoef(idom, exterior) = 0.0;
+	}
+
+	KOKKOS_INLINE_FUNCTION
+	void applyConservativeFDElimination(RTStateGW const &rt, int idom, int bc_direction) const
+	{
+		if (bc_direction == XPLUS)
+		{
+			mergeRTCoef(rt, idom, 1, 0);
+			mergeRTCoef(rt, idom, 9, 3);
+			mergeRTCoef(rt, idom, 11, 4);
+			mergeRTCoef(rt, idom, 15, 5);
+			mergeRTCoef(rt, idom, 17, 6);
+		}
+		else if (bc_direction == XMINUS)
+		{
+			mergeRTCoef(rt, idom, 2, 0);
+			mergeRTCoef(rt, idom, 12, 3);
+			mergeRTCoef(rt, idom, 13, 4);
+			mergeRTCoef(rt, idom, 18, 5);
+			mergeRTCoef(rt, idom, 19, 6);
+		}
+		else if (bc_direction == YPLUS)
+		{
+			mergeRTCoef(rt, idom, 3, 0);
+			mergeRTCoef(rt, idom, 9, 1);
+			mergeRTCoef(rt, idom, 12, 2);
+			mergeRTCoef(rt, idom, 22, 5);
+			mergeRTCoef(rt, idom, 23, 6);
+		}
+		else if (bc_direction == YMINUS)
+		{
+			mergeRTCoef(rt, idom, 4, 0);
+			mergeRTCoef(rt, idom, 11, 1);
+			mergeRTCoef(rt, idom, 13, 2);
+			mergeRTCoef(rt, idom, 24, 5);
+			mergeRTCoef(rt, idom, 25, 6);
+		}
+		else if (bc_direction == ZPLUS)
+		{
+			mergeRTCoef(rt, idom, 5, 0);
+			mergeRTCoef(rt, idom, 15, 1);
+			mergeRTCoef(rt, idom, 18, 2);
+			mergeRTCoef(rt, idom, 22, 3);
+			mergeRTCoef(rt, idom, 24, 4);
+		}
+		else if (bc_direction == ZMINUS)
+		{
+			mergeRTCoef(rt, idom, 6, 0);
+			mergeRTCoef(rt, idom, 17, 1);
+			mergeRTCoef(rt, idom, 19, 2);
+			mergeRTCoef(rt, idom, 23, 3);
+			mergeRTCoef(rt, idom, 25, 4);
+		}
+	}
+
+	KOKKOS_INLINE_FUNCTION
+	void eliminateFDInflowGhost(RTStateGW const &rt, int idom, int bc_direction, real c_external) const
+	{
+		if (bc_direction == XPLUS)
+		{
+			moveRTCoefToRHS(rt, idom, 1, c_external);
+			clearRTCoef(rt, idom, 9);
+			clearRTCoef(rt, idom, 11);
+			clearRTCoef(rt, idom, 15);
+			clearRTCoef(rt, idom, 17);
+		}
+		else if (bc_direction == XMINUS)
+		{
+			moveRTCoefToRHS(rt, idom, 2, c_external);
+			clearRTCoef(rt, idom, 12);
+			clearRTCoef(rt, idom, 13);
+			clearRTCoef(rt, idom, 18);
+			clearRTCoef(rt, idom, 19);
+		}
+		else if (bc_direction == YPLUS)
+		{
+			moveRTCoefToRHS(rt, idom, 3, c_external);
+			clearRTCoef(rt, idom, 9);
+			clearRTCoef(rt, idom, 12);
+			clearRTCoef(rt, idom, 22);
+			clearRTCoef(rt, idom, 23);
+		}
+		else if (bc_direction == YMINUS)
+		{
+			moveRTCoefToRHS(rt, idom, 4, c_external);
+			clearRTCoef(rt, idom, 11);
+			clearRTCoef(rt, idom, 13);
+			clearRTCoef(rt, idom, 24);
+			clearRTCoef(rt, idom, 25);
+		}
+		else if (bc_direction == ZPLUS)
+		{
+			moveRTCoefToRHS(rt, idom, 5, c_external);
+			clearRTCoef(rt, idom, 15);
+			clearRTCoef(rt, idom, 18);
+			clearRTCoef(rt, idom, 22);
+			clearRTCoef(rt, idom, 24);
+		}
+		else if (bc_direction == ZMINUS)
+		{
+			moveRTCoefToRHS(rt, idom, 6, c_external);
+			clearRTCoef(rt, idom, 17);
+			clearRTCoef(rt, idom, 19);
+			clearRTCoef(rt, idom, 23);
+			clearRTCoef(rt, idom, 25);
+		}
+	}
 
 	/* ------------------------------------------------------------------
 	 * Member Data: MPI Communicator
@@ -296,26 +424,22 @@ public:
 					// Check if the cell center lies inside the boundary polygon
 					if (geometry::isInsidePoly(nPoly, xPoly, yPoly, xCoord, yCoord))
 					{
-						// For the top boundary (ZPLUS), only the uppermost layer (kk == nz-1)
-						// is selected.  The ghost cell is one layer above in the Z direction.
-						if (direction == ZPLUS)
+						// Keep RT boundary-cell selection consistent with GwBC:
+						// direction 5 selects kk == nz-1 (bottom/lower face),
+						// direction 6 selects kk == 0 (surface/upper face).
+						if (direction == 5)
 						{
 							if (kk == gdom.nz - 1)
 							{
 								tmpbcells.push_back(iGlob);
-								// Ghost cell for top boundary: one layer above iGlob in the
-								// halo region (offset by nxhc * nyhc in global indexing).
 								tmpgcells.push_back(iGlob + gdom.nxhc * gdom.nyhc);
 							}
 						}
-						// For the bottom boundary (ZMINUS), only the lowest layer (kk == 0)
-						// is selected.  The ghost cell is one layer below in the Z direction.
-						else if (direction == ZMINUS)
+						else if (direction == 6)
 						{
 							if (kk == 0)
 							{
 								tmpbcells.push_back(iGlob);
-								// Ghost cell for bottom boundary: one layer below iGlob.
 								tmpgcells.push_back(iGlob - gdom.nxhc * gdom.nyhc);
 							}
 						}
@@ -357,13 +481,13 @@ public:
 
 		// Sum the number of BC cells across all MPI ranks to get the global total.
 		int ncells_all;
-		MPI_Allreduce(&ncellsBC, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&ncellsBC, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
 
 		// Gather which ranks have BC cells.
 		// subdoms[i] >= 0 means rank i participates in this BC.
 		int *subdoms;
 		subdoms = (int *)malloc(par.nranks * sizeof(int));
-		MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD);
+		SERGHEI_MPI_CHECK(MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD));
 #if SERGHEI_DEBUG_BOUNDARY
 		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "GW ncellsBC " << ncells_all << std::endl;
 		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "GW BC subdomains: ";
@@ -397,9 +521,9 @@ public:
 		// Create an MPI communicator that includes only the participating ranks,
 		// so that collective operations on this BC only involve relevant processes.
 		MPI_Group group, subgroup;
-		MPI_Comm_group(MPI_COMM_WORLD, &group);
-		MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup);
-		MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm);
+		SERGHEI_MPI_CHECK(MPI_Comm_group(MPI_COMM_WORLD, &group));
+		SERGHEI_MPI_CHECK(MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup));
+		SERGHEI_MPI_CHECK(MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm));
 
 		// If boundary cells were found, copy the temporary lists into Kokkos
 		// device arrays (or host arrays for non-CUDA builds).  If no cells
@@ -443,8 +567,10 @@ public:
 	 * ==================================================================
 	 * Applies concentration-type boundary conditions for a specific
 	 * chemical species by setting the ghost-cell concentration values.
-	 * Also computes the total mass flux across the boundary for mass
-	 * balance accounting.
+	 * Legacy advective mass-flux accounting is only updated when
+	 * calculate_fluxes is true.  The groundwater transport driver normally
+	 * leaves this false and fills the mass rates after the linear solve via
+	 * boundary-type-specific diagnostics.
 	 *
 	 * This method is called once per species per time step.
 	 *
@@ -457,10 +583,13 @@ public:
 	 *   par         - (in)     MPI parallel decomposition information.
 	 *   target_spec - (in)     Zero-based index of the chemical species
 	 *                to apply the BC for.  Default: 0 (first species).
+	 *   calculate_fluxes - (in) If true, compute the legacy v*C*A flux
+	 *                diagnostic.  Default: false.
 	 *
 	 * Returns:
 	 *   void.  Results are stored in rt.c (concentrations) and in the
-	 *   member variables QMassTot, QMassInflow, QMassOutflow [mg/s].
+	 *   member variables QMassTot, QMassInflow, QMassOutflow [mg/s] when
+	 *   calculate_fluxes is true.
 	 *
 	 * BC type behavior:
 	 *   - Cauchy / FD: zero-gradient condition (ghost = interior).
@@ -471,12 +600,32 @@ public:
 	 *     surface-water / groundwater exchange flux (infiltration vs.
 	 *     exfiltration).
 	 * ================================================================== */
-	inline void applyConcentrationBC(RTStateGW &rt, GwState &gw, GwDomain &gdom, Parallel &par, int target_spec = 0)
+	inline void applyConcentrationBC(RTStateGW &rt, GwState &gw, GwDomain &gdom, Parallel &par, int target_spec = 0, bool calculate_fluxes = false)
 	{
-		// Reset mass flux accumulators for this time step
-		QMassTot = 0;
-		QMassInflow = 0;
-		QMassOutflow = 0;
+		// ConQss is shared by all boundary objects and species.  It must be
+		// cleared by the transport driver before a complete boundary refresh,
+		// not here: this routine is called once for every boundary, so clearing
+		// on target_spec == 0 would erase the species-0 SWE flux when the next
+		// (for example, bottom free-drainage) boundary is processed.
+		if (spec_mass_in_rate.size() != rt.n_mass)
+		{
+			spec_mass_in_rate.assign(rt.n_mass, 0.0);
+			spec_mass_out_rate.assign(rt.n_mass, 0.0);
+		}
+		if (calculate_fluxes)
+		{
+			// Legacy advective-flux diagnostics.  The main GW transport
+			// driver now uses boundary-type-specific diagnostics after the
+			// linear solve.
+			QMassTot = 0;
+			QMassInflow = 0;
+			QMassOutflow = 0;
+			if (target_spec >= 0 && target_spec < rt.n_mass)
+			{
+				spec_mass_in_rate[target_spec] = 0.0;
+				spec_mass_out_rate[target_spec] = 0.0;
+			}
+		}
 
 		// Determine whether this subdomain actually lies on the global
 		// domain boundary face specified by 'direction'.  Only subdomains
@@ -509,43 +658,103 @@ public:
 			// If multi-species BC data exists, use the per-species type;
 			// otherwise fall back to the global default (rtbctype).
 			int current_bctype = rtbctype;
+			realArr current_bcvals = bcvals;
+			TimeSeries current_ts = ts;
 			if (target_spec < spec_bctype.size())
 			{
 				current_bctype = spec_bctype[target_spec];
 			}
+			if (target_spec < spec_bcvals.size() && spec_bcvals[target_spec].size() > 0)
+			{
+				current_bcvals = spec_bcvals[target_spec];
+			}
+			if (target_spec < spec_ts.size() && spec_ts[target_spec].np > 0)
+			{
+				current_ts = spec_ts[target_spec];
+			}
 
-			real Conbc;
+			real Conbc = 0.0;
 			// For time-varying Dirichlet BC, interpolate the boundary
 			// concentration from the species-specific time series.
-			if (current_bctype == SUB_RT_BC_Dirichlet_T)
+			if (current_bctype == SUB_RT_BC_Dirichlet_T || current_bctype == SUB_RT_BC_Cauchy_T)
 			{
 				// Use the per-species time series if available
-				if (target_spec < spec_ts.size() && spec_ts[target_spec].np > 0)
+				if (current_ts.np > 0)
 				{
-					Conbc = interpolateLinear(spec_ts[target_spec], gdom.etime);
+					Conbc = interpolateLinear(current_ts, gdom.etime);
 				}
 				else
 				{
 					if (ncellsBC > 0)
 					{
-						std::cerr << RERROR "GWRTM: Boundary Dirichlet_T: No timeseries data for species " << target_spec << std::endl;
+						std::cerr << RERROR "GWRTM: Boundary time-series BC: No timeseries data for species " << target_spec << std::endl;
 					}
 					Conbc = 0.0;
 				}
 			}
 
 			/* ----------------------------------------------------------
-			 * Cauchy and Free-Drainage BCs: zero-gradient (Neumann) condition.
-			 * The ghost-cell concentration is set equal to the interior-cell
-			 * concentration, which enforces a zero concentration gradient at
-			 * the boundary.  This prevents diffusive flux across the boundary
-			 * while allowing advective outflow.
+			 * Cauchy BCs: zero-gradient (Neumann) condition.
 			 * ---------------------------------------------------------- */
-			if (current_bctype == SUB_RT_BC_Cauchy_CONST || current_bctype == SUB_RT_BC_Cauchy_T || current_bctype == SUB_RT_BC_FD)
+			if (current_bctype == SUB_RT_BC_Cauchy_CONST || current_bctype == SUB_RT_BC_Cauchy_T)
 			{
 				Kokkos::parallel_for("rt_bc_c", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
-			                 int iGlob = bcells[ibc], iGhost = gcells[ibc], rtiGhost = rtgwcells[ibc];
-				  rt.c(target_spec, rtiGhost, 1) = rt.c(target_spec, iGlob, 1); });
+					int iGlob = bcells[ibc], iGhost = gcells[ibc], rtiGhost = rtgwcells[ibc];
+					rt.c(target_spec, rtiGhost, 1) = rt.c(target_spec, iGlob, 1); });
+			}
+
+			/* ----------------------------------------------------------
+			 * Free-drainage BCs are outflow-only.  Use zero gradient only
+			 * where the local Darcy velocity leaves the modeled domain.  If
+			 * the hydraulic solution produces local backflow, prescribe the
+			 * external/background concentration instead of recycling the
+			 * interior concentration through the ghost cell.
+			 * ---------------------------------------------------------- */
+			else if (current_bctype == SUB_RT_BC_FD)
+			{
+				real fd_inflow_conc = 0.0;
+				if (current_bcvals.size() > 0)
+					fd_inflow_conc = current_bcvals(0);
+
+				Kokkos::parallel_for("rt_bc_fd_ghost", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
+					int iGlob = bcells[ibc], iGhost = gcells[ibc], rtiGhost = rtgwcells[ibc];
+					const real FLOW_EPSILON = 1.0e-12;
+					real vel = 0.0;
+					bool inflow = false;
+
+					if (direction == 1)
+					{
+						vel = rt.aveVB(iGlob, 0);
+						inflow = vel < -FLOW_EPSILON;
+					}
+					else if (direction == 2)
+					{
+						vel = rt.aveVB(iGlob - 1, 0);
+						inflow = vel > FLOW_EPSILON;
+					}
+					else if (direction == 3)
+					{
+						vel = rt.aveVB(iGlob, 1);
+						inflow = vel < -FLOW_EPSILON;
+					}
+					else if (direction == 4)
+					{
+						vel = rt.aveVB(iGlob - gdom.nxhc, 1);
+						inflow = vel > FLOW_EPSILON;
+					}
+					else if (direction == 5)
+					{
+						vel = rt.aveVB(iGlob, 2);
+						inflow = vel < -FLOW_EPSILON;
+					}
+					else if (direction == 6)
+					{
+						vel = rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2);
+						inflow = vel > FLOW_EPSILON;
+					}
+
+					rt.c(target_spec, rtiGhost, 1) = inflow ? fd_inflow_conc : rt.c(target_spec, iGlob, 1);
+				});
 			}
 
 			/* ----------------------------------------------------------
@@ -556,17 +765,17 @@ public:
 			else if (current_bctype == SUB_RT_BC_Dirichlet_CONST)
 			{
 				// Use per-species boundary values if available
-				if (target_spec < spec_bcvals.size() && spec_bcvals[target_spec].size() > 0)
+				if (current_bcvals.size() > 1)
 				{
 					Kokkos::parallel_for("rt_bc_c", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
 					                 int iGlob = bcells[ibc], iGhost = gcells[ibc], rtiGhost = rtgwcells[ibc];
-					                 rt.c(target_spec, rtiGhost, 1) = spec_bcvals[target_spec](ibc); });
+					                 rt.c(target_spec, rtiGhost, 1) = current_bcvals(ibc); });
 				}
 				else
 				{
 					Kokkos::parallel_for("rt_bc_c", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
 					                 int iGlob = bcells[ibc], iGhost = gcells[ibc], rtiGhost = rtgwcells[ibc];
-					                 rt.c(target_spec, rtiGhost, 1) = bcvals(ibc); });
+					                 rt.c(target_spec, rtiGhost, 1) = current_bcvals(0); });
 				}
 			}
 
@@ -584,21 +793,17 @@ public:
 			/* ----------------------------------------------------------
 			 * Surface-water / groundwater exchange BC (SUB_RT_BC_SWE).
 			 *
-			 * This BC couples the subsurface transport model with the
-			 * overland (surface) flow model.  The ghost-cell concentration
-			 * is determined by the direction of the exchange flux:
+			 * The SWE interface is a pure advective exchange boundary.
+			 * Groundwater dispersion remains active inside the domain, but
+			 * no dispersive flux is allowed across the surface interface.
+			 * The matrix receives the explicit interface source/sink in
+			 * applyRTMatBC(); the ghost value is therefore kept equal to the
+			 * interior value and is never used to inject surface dispersion.
 			 *
-			 *   Infiltration (surface -> subsurface, qss < 0):
-			 *     Ghost cell receives the surface water concentration.
-			 *     If the surface is dry and it is raining, the rain
-			 *     concentration is used instead.
-			 *
-			 *   Exfiltration / stagnation (subsurface -> surface, qss >= 0):
-			 *     Zero-gradient condition: ghost cell = interior cell,
-			 *     preventing artificial dispersion from the surface into
-			 *     the groundwater.
-			 *
-			 * Only valid for direction == ZMINUS (top boundary).
+			 * ConQss keeps the historical groundwater sign convention:
+			 *   ConQss = -J_SW_to_GW,
+			 * where J_SW_to_GW is positive from surface water to groundwater.
+			 * This makes ConQss positive for groundwater -> surface inflow.
 			 * ---------------------------------------------------------- */
 			else if (current_bctype == SUB_RT_BC_SWE)
 			{
@@ -606,9 +811,9 @@ public:
 				if (direction == 6)
 				{
 					Kokkos::parallel_for("rt_bc_c", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
-						int iGlob = bcells[ibc], iGhost = gcells[ibc], rtiGhost = rtgwcells[ibc];
-						int ii, jj, kk, iGlobSW;
-						gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+							int iGlob = bcells[ibc], iGhost = gcells[ibc], rtiGhost = rtgwcells[ibc];
+							int ii, jj, kk, iGlobSW;
+							gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 
 						// Map from subsurface halo index to surface grid index
 						iGlobSW = jj * gdom.nxhc + ii;				// with halo
@@ -618,31 +823,31 @@ public:
 						// causing spurious boundary-direction reversal. [m/s]
 						const real FLOW_EPSILON = 1.0e-10;
 
-						// Determine the exchange direction based on the surface-
-						// groundwater exchange flux gw.qss (positive = exfiltration,
-						// negative = infiltration).  Units: [m/s].
-						if (gw.qss(iGlobSW2) < -FLOW_EPSILON) // Significant infiltration (surface -> subsurface)
-						{
-							// Only read the surface concentration during genuine infiltration.
-							// If the surface is dry but it is raining, use the rain concentration.
-							if (gdom.isRain == 1 && rt.csw(target_spec, iGlobSW) == 0) {
-								rt.c(target_spec, rtiGhost, 1) = rt.RainCon_arr(target_spec);
-							} else {
-								rt.c(target_spec, rtiGhost, 1) = rt.csw(target_spec, iGlobSW);
-							}
-						}
-						else // Exfiltration (subsurface -> surface) or stagnation (qss ~ 0)
-						{
-							// Groundwater flows toward the surface, or velocity is negligible.
-							// Apply zero-gradient condition (ghost = interior) to prevent
-							// high surface concentrations from artificially dispersing
-							// into the groundwater through the dispersive flux term.
+							// The ghost is not a concentration source for this boundary.
+							// Keeping it equal to the interior also enforces zero normal
+							// dispersive flux if any external stencil entry remains.
 							rt.c(target_spec, rtiGhost, 1) = rt.c(target_spec, iGlob, 1);
-						}
 
-						// Compute the solute mass exchange flux across the surface-
-						// groundwater interface: Q_solute = qss * C_ghost.  [mg/(m^2*s)]
-						rt.ConQss(target_spec, iGlobSW2) = gw.qss(iGlobSW2) * rt.c(target_spec, rtiGhost, 1); });
+							real qss = gw.qss(iGlobSW2);
+							if (qss != qss || fabs(qss) <= FLOW_EPSILON)
+							{
+								rt.ConQss(target_spec, iGlobSW2) = 0.0;
+							}
+							else
+							{
+								// During infiltration, surface water is the upstream donor.
+								real Csw = rt.csw(target_spec, iGlobSW);
+								if (gdom.isRain == 1 && gdom.rainRate(iGlobSW) > 0.0 && Csw == 0.0)
+									Csw = rt.RainCon_arr(target_spec);
+
+								real q_in = fmax(-qss, 0.0);
+								real q_out = fmax(qss, 0.0);
+								real J_sw_to_gw = q_in * Csw - q_out * rt.c(target_spec, iGlob, 1);
+
+								// ConQss is positive for mass entering surface water.
+								rt.ConQss(target_spec, iGlobSW2) = -J_sw_to_gw;
+							}
+						});
 				}
 				else
 				{
@@ -654,13 +859,14 @@ public:
 			}
 
 			/* ----------------------------------------------------------
-			 * Mass balance calculation: compute the total solute mass
-			 * flux across the boundary for all species.  The flux is:
+			 * Mass balance calculation: compute the solute mass flux for
+			 * the current species across the boundary.  The flux is:
 			 *   Q_mass = v * C * A
 			 * where v is the Darcy velocity (aveVB) [m/s],
-			 *       C is the concentration [mg/L or kg/m^3],
+			 *       C is the concentration [mg/L],
 			 *       A is the cross-sectional area [m^2].
-			 * The total mass flux QMassTot has units [mg/s or kg/s].
+			 * The conversion factor 1000 changes mg/L to mg/m^3.
+			 * The total mass flux QMassTot has units [mg/s].
 			 *
 			 * The sign convention distinguishes inflow from outflow
 			 * based on the boundary face direction:
@@ -668,118 +874,160 @@ public:
 			 *   - Left  (X-): positive velocity = inflow
 			 *   - Back  (Y+): positive velocity = outflow
 			 *   - Front (Y-): positive velocity = inflow
-			 *   - Top   (Z+): positive velocity = inflow (upward into domain)
-			 *   - Bottom(Z-): positive velocity = outflow (downward out)
+			 *   - Direction 5 (bottom): positive aveVB_z = outflow
+			 *   - Direction 6 (top):    positive aveVB_z = inflow
+			 *
+			 * Note: rt.aveVB is transformed from the groundwater flow
+			 * convention as aveVB = -gw.q_new.  Therefore the vertical
+			 * sign test below must follow aveVB, not the raw GwBC q sign.
 			 * ---------------------------------------------------------- */
 
-			if (direction == 1) // Right boundary (X maximum)
+			if (calculate_fluxes)
 			{
-				// Use the X-component of Darcy velocity (aveVB index 0).
-				// Cross-section area for an X-face = dy * dz.  [m^2]
-				Kokkos::parallel_reduce("reducexRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
-							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								// Sum mass flux over all mass-balanced species.
-								// Factor of 1/1000 converts [mg/L * m/s * m^2] to [g/s]
-								// (or adjusts for unit consistency).  [mg/s]
-								tmp += rt.aveVB(iGlob, 0) * rt.c(s, iGlob, 1) * gdom.dy * gdom.dz(iGlob) /1000.0;
-							} }, Kokkos::Sum<real>(QMassTot));
-				if (QMassTot > 0)
+				if (direction == 1) // Right boundary (X maximum)
 				{
-					QMassOutflow = QMassTot;
+					// Use the X-component of Darcy velocity (aveVB index 0).
+					// Cross-section area for an X-face = dy * dz.  [m^2]
+					int bcval_size = current_bcvals.size();
+					Kokkos::parallel_reduce("reducexRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+								int iGlob = bcells[ibc], rtiGhost = rtgwcells[ibc];
+								real vel = rt.aveVB(iGlob, 0);
+								real c_in = rt.c(target_spec, rtiGhost, 1);
+								if (current_bctype == SUB_RT_BC_Cauchy_CONST || current_bctype == SUB_RT_BC_Dirichlet_CONST)
+									c_in = (bcval_size > 1) ? current_bcvals(ibc) : current_bcvals(0);
+								else if (current_bctype == SUB_RT_BC_Cauchy_T || current_bctype == SUB_RT_BC_Dirichlet_T)
+									c_in = Conbc;
+								real c_flux = (vel < 0.0) ? c_in : rt.c(target_spec, iGlob, 1);
+								tmp += vel * c_flux * gdom.dy * gdom.dz(iGlob) * 1000.0; }, Kokkos::Sum<real>(QMassTot));
+					if (QMassTot > 0)
+					{
+						QMassOutflow = QMassTot;
+					}
+					else
+					{
+						QMassInflow = -QMassTot;
+					}
 				}
-				else
+				else if (direction == 2) // Left boundary (X minimum)
 				{
-					QMassInflow = -QMassTot;
+					int bcval_size = current_bcvals.size();
+					Kokkos::parallel_reduce("reducexRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+								int iGlob = bcells[ibc], rtiGhost = rtgwcells[ibc];
+								real vel = rt.aveVB(iGlob - 1, 0);
+								real c_in = rt.c(target_spec, rtiGhost, 1);
+								if (current_bctype == SUB_RT_BC_Cauchy_CONST || current_bctype == SUB_RT_BC_Dirichlet_CONST)
+									c_in = (bcval_size > 1) ? current_bcvals(ibc) : current_bcvals(0);
+								else if (current_bctype == SUB_RT_BC_Cauchy_T || current_bctype == SUB_RT_BC_Dirichlet_T)
+									c_in = Conbc;
+								real c_flux = (vel > 0.0) ? c_in : rt.c(target_spec, iGlob, 1);
+								tmp += vel * c_flux * gdom.dy * gdom.dz(iGlob) * 1000.0; }, Kokkos::Sum<real>(QMassTot));
+					if (QMassTot > 0)
+					{
+						QMassInflow = QMassTot;
+					}
+					else
+					{
+						QMassOutflow = -QMassTot;
+					}
 				}
-			}
-			else if (direction == 2) // Left boundary (X minimum)
-			{
-				Kokkos::parallel_reduce("reducexRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
-							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								tmp += rt.aveVB(iGlob, 0) * rt.c(s, iGlob, 1) * gdom.dy * gdom.dz(iGlob);
-							} }, Kokkos::Sum<real>(QMassTot));
-				if (QMassTot > 0)
-				{
-					QMassInflow = QMassTot;
-				}
-				else
-				{
-					QMassOutflow = -QMassTot;
-				}
-			}
 
-			// --- Y direction boundaries ---
+				// --- Y direction boundaries ---
 
-			if (direction == 3) // Back boundary (Y maximum)
-			{
-				// Use the Y-component of Darcy velocity (aveVB index 1).
-				// Cross-section area for a Y-face = dx * dz.  [m^2]
-				Kokkos::parallel_reduce("reduceyRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
-							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								tmp += rt.aveVB(iGlob, 1) * rt.c(s, iGlob, 1) * gdom.dx * gdom.dz(iGlob);
-							} }, Kokkos::Sum<real>(QMassTot));
-				if (QMassTot > 0)
+				if (direction == 3) // Back boundary (Y maximum)
 				{
-					QMassOutflow = QMassTot;
+					// Use the Y-component of Darcy velocity (aveVB index 1).
+					// Cross-section area for a Y-face = dx * dz.  [m^2]
+					int bcval_size = current_bcvals.size();
+					Kokkos::parallel_reduce("reduceyRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+								int iGlob = bcells[ibc], rtiGhost = rtgwcells[ibc];
+								real vel = rt.aveVB(iGlob, 1);
+								real c_in = rt.c(target_spec, rtiGhost, 1);
+								if (current_bctype == SUB_RT_BC_Cauchy_CONST || current_bctype == SUB_RT_BC_Dirichlet_CONST)
+									c_in = (bcval_size > 1) ? current_bcvals(ibc) : current_bcvals(0);
+								else if (current_bctype == SUB_RT_BC_Cauchy_T || current_bctype == SUB_RT_BC_Dirichlet_T)
+									c_in = Conbc;
+								real c_flux = (vel < 0.0) ? c_in : rt.c(target_spec, iGlob, 1);
+								tmp += vel * c_flux * gdom.dx * gdom.dz(iGlob) * 1000.0; }, Kokkos::Sum<real>(QMassTot));
+					if (QMassTot > 0)
+					{
+						QMassOutflow = QMassTot;
+					}
+					else
+					{
+						QMassInflow = -QMassTot;
+					}
 				}
-				else
+				else if (direction == 4) // Front boundary (Y minimum)
 				{
-					QMassInflow = -QMassTot;
+					int bcval_size = current_bcvals.size();
+					Kokkos::parallel_reduce("reduceyRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+								int iGlob = bcells[ibc], rtiGhost = rtgwcells[ibc];
+								real vel = rt.aveVB(iGlob - gdom.nxhc, 1);
+								real c_in = rt.c(target_spec, rtiGhost, 1);
+								if (current_bctype == SUB_RT_BC_Cauchy_CONST || current_bctype == SUB_RT_BC_Dirichlet_CONST)
+									c_in = (bcval_size > 1) ? current_bcvals(ibc) : current_bcvals(0);
+								else if (current_bctype == SUB_RT_BC_Cauchy_T || current_bctype == SUB_RT_BC_Dirichlet_T)
+									c_in = Conbc;
+								real c_flux = (vel > 0.0) ? c_in : rt.c(target_spec, iGlob, 1);
+								tmp += vel * c_flux * gdom.dx * gdom.dz(iGlob) * 1000.0; }, Kokkos::Sum<real>(QMassTot));
+					if (QMassTot > 0)
+					{
+						QMassInflow = QMassTot;
+					}
+					else
+					{
+						QMassOutflow = -QMassTot;
+					}
 				}
-			}
-			else if (direction == 4) // Front boundary (Y minimum)
-			{
-				Kokkos::parallel_reduce("reduceyRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
-							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								tmp += rt.aveVB(iGlob, 1) * rt.c(s, iGlob, 1) * gdom.dx * gdom.dz(iGlob);
-							} }, Kokkos::Sum<real>(QMassTot));
-				if (QMassTot > 0)
-				{
-					QMassInflow = QMassTot;
-				}
-				else
-				{
-					QMassOutflow = -QMassTot;
-				}
-			}
 
-			else if (direction == 5) // Bottom boundary (Z minimum)
-			{
-				// Use the Z-component of Darcy velocity (aveVB index 2).
-				// Cross-section area for a Z-face = dx * dy.  [m^2]
-				Kokkos::parallel_reduce("reducezRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
-							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								tmp += rt.aveVB(iGlob, 2) * rt.c(s, iGlob, 1) * gdom.dx * gdom.dy;
-							} }, Kokkos::Sum<real>(QMassTot));
-				if (QMassTot > 0)
+				else if (direction == 5)
 				{
-					QMassOutflow = QMassTot;
+					// Use the Z-component of Darcy velocity (aveVB index 2).
+					// Cross-section area for a Z-face = dx * dy.  [m^2]
+					int bcval_size = current_bcvals.size();
+					Kokkos::parallel_reduce("reducezRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+								int iGlob = bcells[ibc], rtiGhost = rtgwcells[ibc];
+								real vel = rt.aveVB(iGlob, 2);
+								real c_in = rt.c(target_spec, rtiGhost, 1);
+								if (current_bctype == SUB_RT_BC_Cauchy_CONST || current_bctype == SUB_RT_BC_Dirichlet_CONST)
+									c_in = (bcval_size > 1) ? current_bcvals(ibc) : current_bcvals(0);
+								else if (current_bctype == SUB_RT_BC_Cauchy_T || current_bctype == SUB_RT_BC_Dirichlet_T)
+									c_in = Conbc;
+								real c_flux = (vel < 0.0) ? c_in : rt.c(target_spec, iGlob, 1);
+								tmp += vel * c_flux * gdom.dx * gdom.dy * 1000.0; }, Kokkos::Sum<real>(QMassTot));
+					if (QMassTot > 0)
+					{
+						QMassOutflow = QMassTot;
+					}
+					else
+					{
+						QMassInflow = -QMassTot;
+					}
 				}
-				else
+				else if (direction == 6)
 				{
-					QMassInflow = -QMassTot;
+					int bcval_size = current_bcvals.size();
+					Kokkos::parallel_reduce("reducezRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
+								int iGlob = bcells[ibc], rtiGhost = rtgwcells[ibc];
+								real vel = rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2);
+								real c_in = rt.c(target_spec, rtiGhost, 1);
+								if (current_bctype == SUB_RT_BC_Cauchy_CONST || current_bctype == SUB_RT_BC_Dirichlet_CONST)
+									c_in = (bcval_size > 1) ? current_bcvals(ibc) : current_bcvals(0);
+								else if (current_bctype == SUB_RT_BC_Cauchy_T || current_bctype == SUB_RT_BC_Dirichlet_T)
+									c_in = Conbc;
+								real c_flux = (vel > 0.0) ? c_in : rt.c(target_spec, iGlob, 1);
+								tmp += vel * c_flux * gdom.dx * gdom.dy * 1000.0; }, Kokkos::Sum<real>(QMassTot));
+					if (QMassTot > 0)
+					{
+						QMassInflow = QMassTot;
+					}
+					else
+					{
+						QMassOutflow = -QMassTot;
+					}
 				}
-			}
-			else if (direction == 6) // Top boundary (Z maximum, land surface)
-			{
-				Kokkos::parallel_reduce("reducezRT", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc, real &tmp) {
-							int iGlob = bcells[ibc];
-							for (int s = 0; s < rt.n_mass; ++s) {
-								tmp += rt.aveVB(iGlob, 2) * rt.c(s, iGlob, 1) * gdom.dx * gdom.dy;
-							} }, Kokkos::Sum<real>(QMassTot));
-				if (QMassTot > 0)
-				{
-					QMassInflow = QMassTot;
-				}
-				else
-				{
-					QMassOutflow = -QMassTot;
-				}
+				spec_mass_in_rate[target_spec] = QMassInflow;
+				spec_mass_out_rate[target_spec] = QMassOutflow;
 			}
 		}
 	}
@@ -817,9 +1065,9 @@ public:
 	 *
 	 * BC type behavior:
 	 *   - Dirichlet_CONST / Dirichlet_T:
-	 *     Enforces a prescribed concentration using a large penalty
-	 *     (big-number) method: the diagonal coefficient is multiplied
-	 *     by ~1e50 and the RHS is set to 1e50 * diag * C_boundary.
+	 *     Enforces a prescribed concentration by exact row replacement:
+	 *     all physical stencil entries are cleared, the diagonal is set
+	 *     to one, and the RHS is set to C_boundary.
 	 *     For the left boundary (direction 2), a variable water-table
 	 *     adjustment is applied: cells above the water table use a
 	 *     zero-gradient outflow, while saturated cells with inflow use
@@ -836,8 +1084,10 @@ public:
 	 *     with correct sign conventions.
 	 *
 	 *   - FD (free drainage):
-	 *     Zero-gradient condition: resets all coefficients and enforces
-	 *     C_cell = C_neighbor in the outflow direction (upwind).
+	 *     Conservative zero-gradient condition: keeps the assembled
+	 *     physical equation, merges exterior ghost-cell couplings into
+	 *     the corresponding interior stencil entries, and treats local
+	 *     backflow with an external/background concentration.
 	 * ================================================================== */
 	inline void applyRTMatBC(RTStateGW &rt, GwState &gw, GwDomain &gdom, Parallel &par, int target_spec = 0)
 	{
@@ -901,12 +1151,12 @@ public:
 				}
 			}
 
-			// For time-varying Cauchy BC, interpolate the boundary value
-			// from the time series at the current simulation time.
-			real Cauchybc;
-			if (current_bctype == SUB_RT_BC_Cauchy_T)
+			// For time-varying concentration-type BCs, interpolate the
+			// boundary value from the time series at the current time.
+			real Cauchybc = 0.0;
+			if (current_bctype == SUB_RT_BC_Cauchy_T || current_bctype == SUB_RT_BC_Dirichlet_T)
 			{
-				if (target_spec < spec_ts.size() && spec_ts[target_spec].np > 0)
+				if (current_ts.np > 0)
 				{
 					Cauchybc = interpolateLinear(current_ts, gdom.etime);
 				}
@@ -919,96 +1169,58 @@ public:
 			switch (current_bctype)
 			{
 			/* --------------------------------------------------------
+			 * No-flow/no-transport boundary:
+			 * apply constant normal extension to the complete exterior
+			 * stencil.  Hydraulic no-flow implies no advective contribution,
+			 * while merging the normal and cross-dispersion coefficients
+			 * guarantees zero dispersive flux on all six face directions.
+			 * -------------------------------------------------------- */
+			case SUB_RT_BC_NOFLOW:
+				Kokkos::parallel_for("rt_bc_noflow", ncellsBC,
+					KOKKOS_CLASS_LAMBDA(int ibc) {
+						int ii, jj, kk;
+						const int iGlob = bcells[ibc];
+						gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+						const int idom = (kk - gdom.hc) * gdom.nx * gdom.ny
+						                + (jj - gdom.hc) * gdom.nx + ii - gdom.hc;
+						applyConservativeFDElimination(rt, idom, direction);
+					});
+				break;
+
+			/* --------------------------------------------------------
 			 * Dirichlet BC (constant or time-varying):
-			 * Enforced via the "big number" (penalty) method.
-			 * The diagonal coefficient is scaled by ~1e50, and the
-			 * RHS is set to 1e50 * diag * C_boundary.  This makes
-			 * the solution at the boundary cell approximately equal
-			 * to the prescribed concentration C_boundary.
+			 * Enforced by exact row replacement.  The boundary cell is
+			 * constrained to the prescribed ghost-cell concentration.
+			 * This preserves the historical SUB_RT_BC_Dirichlet behavior used
+			 * by the GW benchmark cases, where bctype=2 means a fixed
+			 * concentration boundary rather than a flux-only Cauchy inlet.
 			 * -------------------------------------------------------- */
 			case SUB_RT_BC_Dirichlet_CONST:
 			case SUB_RT_BC_Dirichlet_T:
-				Kokkos::parallel_for("rt_bc_Dirichlet_const", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
-	                        int ii, jj, kk, idom,  iGlob = bcells[ibc], iGhost = gcells[ibc], rtiGhost = rtgwcells[ibc];
+				Kokkos::parallel_for("rt_bc_Dirichlet_exact", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
+	                        int ii, jj, kk, idom, iGlob = bcells[ibc], rtiGhost = rtgwcells[ibc];
 	                        gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 	                        // Convert from halo-indexed global ID to domain-indexed (no halo) ID
 	                        idom = (kk-gdom.hc)*gdom.nx*gdom.ny + (jj-gdom.hc)*gdom.nx + ii - gdom.hc;
 
-							if (direction == 1) {  // Right boundary (X+)
-								// Penalty method: ghost cell is at iGlob+1 (right neighbor)
-								rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,0) * rt.c(target_spec, iGlob+1,1);
-								rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
-							}
-							else if (direction == 2) {  // Left boundary (X-)
-								// Variable water-table Dirichlet BC:
-								// If the cell is within the saturated zone (head >= 0),
-								// the BC behavior depends on the flow direction:
-								//   - Inflow (q <= 0): apply Dirichlet penalty to enforce
-								//     the prescribed concentration from the boundary.
-								//   - Outflow (q > 0): zero-gradient condition (free outflow
-								//     of solute from the aquifer).
-								// If the cell is in the unsaturated zone (head < 0),
-								// a seepage-face condition is applied: solute freely
-								// drains out (zero-gradient).
-
-								if (gw.h(iGlob, 1) >= 0) { // Saturated zone: cell is within the aquifer
-									if (gw.q(iGlob, 0) <= 0) { // Solute flows into the aquifer (inflow)
-										rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,0) * rt.c(target_spec, iGlob-1,1);
-										rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
-									}
-									else { // Aquifer head > river head: solute freely flows out
-										for (int i = 0; i < 30; i++) {
-											rt.RTcoef(idom, i) = 0.0;
-										}
-										rt.RTcoef(idom, 0) = 1.0;
-										rt.RTcoef(idom, 1) = -1; // C_{i+1}: zero-gradient (C = C_{i+1})
-									}
-								}
-								else { // Unsaturated zone: seepage face, solute freely drains out
-									for (int i = 0; i < 30; i++) {
-										rt.RTcoef(idom, i) = 0.0;
-									}
-									rt.RTcoef(idom, 0) = 1.0;
-									rt.RTcoef(idom, 1) = -1; // C_{i+1}: zero-gradient
-								}
-							}
-							else if (direction == 3) {  // Back boundary (Y+)
-								rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,0) * rt.c(target_spec, iGlob+gdom.nxhc,1);
-								rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
-							}
-							else if (direction == 4) {  // Front boundary (Y-)
-								rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,0) * rt.c(target_spec, iGlob-gdom.nxhc,1);
-								rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
-							}
-							else if (direction == 5) {  // Bottom boundary (Z-)
-								rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,0) * rt.c(target_spec, iGlob+gdom.nxhc*gdom.nyhc,1);
-								rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
-							}
-							else if (direction == 6) {  // Top boundary (Z+)
-								rt.RTcoef(idom,7) = 1e50 * rt.RTcoef(idom,0) * rt.c(target_spec, iGlob-gdom.nxhc*gdom.nyhc,1);
-								rt.RTcoef(idom,0) = 1e50 * rt.RTcoef(idom,0);
-							} });
+							const real c_bc = rt.c(target_spec, rtiGhost, 1);
+							for (int m = 0; m < 27; ++m)
+								rt.RTcoef(idom, m) = 0.0;
+							rt.RTcoef(idom, 0) = 1.0;
+							rt.RTcoef(idom, 7) = c_bc;
+						});
 				break;
 
 			/* --------------------------------------------------------
-			 * Surface-water exchange BC (SUB_RT_BC_SWE):
-			 * Modifies the matrix coefficients to account for mass
-			 * exchange between surface water and groundwater.
+			 * Surface-water exchange BC (SUB_RT_BC_SWE): pure advection.
+			 * This routine removes the top external stencil and adds the
+			 * complete interface flux exactly once:
 			 *
-			 *   Infiltration (qss < 0): mass enters the subsurface.
-			 *     The solute flux is added to the RHS (index 7) as:
-			 *       RHS += dt * (-ConQss) / dz
-			 *     where ConQss = qss * C_ghost [mg/(m^2*s)].
+			 *   qss < 0: RHS += dt * (-qss) * Csw / dz
+			 *   qss > 0: LHS += dt * qss / dz
+			 *   |qss| ~ 0: no solute exchange
 			 *
-			 *   Exfiltration (qss > 0): mass leaves the subsurface.
-			 *     The sink term is added to the LHS diagonal (index 0):
-			 *       diag += dt * qss / dz
-			 *     This is treated implicitly for numerical stability.
-			 *
-			 *   NaN checks are performed to prevent numerical blow-up
-			 *   from corrupted flux values.
-			 *
-			 * Only valid for direction == ZMINUS (top boundary).
+			 * No SWE normal dispersive flux is included.
 			 * -------------------------------------------------------- */
 			case SUB_RT_BC_SWE:
 
@@ -1037,34 +1249,63 @@ public:
 	        dz_val = 1.0; // Prevent division by zero
 	    }
 
-	    // 3. Apply the exchange terms to the matrix coefficients
-	    if (flux_swgw <= 0.0) // Infiltration (surface -> subsurface): source term
-	    {
-	        // Read the solute mass exchange flux and validate.
-	        // ConQss = qss * C_ghost [mg/(m^2*s)]
-	        real mass_flux = rt.ConQss(target_spec, iGlobSW2);
-	        if (mass_flux != mass_flux) { // NaN check
-	             printf("ERROR: NaN in ConQss at iGlobSW2=%d\n", iGlobSW2);
-	             mass_flux = 0.0;
-	        }
-	        // Add the mass source to the RHS (index 7).
-	        // The negative sign converts infiltration flux direction.
-	        rt.RTcoef(idom, 7) += rt.dt * (-1.0 * mass_flux) / dz_val;
-	    }
-	    else // Exfiltration (subsurface -> surface): sink term
-	    {
-	        // Add the mass sink to the LHS diagonal (index 0) implicitly.
-	        // sink_term = dt * qss / dz  [dimensionless coefficient increment]
-	        real sink_term = rt.dt * (flux_swgw) / dz_val;
+							// Remove the exterior top-face contribution from the
+							// diagonal and horizontal cross-dispersion corrections.
+							// This is deliberately applied only to active SWE cells.
+							const int plane = gdom.nxhc * gdom.nyhc;
+							const int iGlobExterior = iGlob - plane;
+							const real exterior_diag =
+								rt.c_difzz(iGlobExterior) / dz_val
+								- (1.0 - rt.Up_Weighting_zm(iGlob)) *
+								  rt.c_advzz(iGlobExterior) / dz_val;
+							rt.RTcoef(idom, 0) -= exterior_diag;
 
-	        // 4. Check for abnormally large coefficients (potential instability)
-	        if (sink_term > 1e10 || sink_term != sink_term) {
-	             printf("WARNING: Unstable sink term at iGlob=%d. Flux=%e, dt=%e, dz=%e\n",
-	                    iGlob, flux_swgw, rt.dt, dz_val);
-	        }
+							const real lower_zx =
+								(1.0 - rt.wz(iGlobExterior)) * rt.c_difzx(iGlobExterior) /
+								(2.0 * gdom.dx * dz_val);
+							const real lower_zy =
+								(1.0 - rt.wz(iGlobExterior)) * rt.c_difzy(iGlobExterior) /
+								(2.0 * gdom.dy * dz_val);
+							rt.RTcoef(idom, 1) -= lower_zx;
+							rt.RTcoef(idom, 2) += lower_zx;
+							rt.RTcoef(idom, 3) -= lower_zy;
+							rt.RTcoef(idom, 4) += lower_zy;
 
-	        rt.RTcoef(idom, 0) += sink_term;
-	    } });
+							// Do not let MPI_RHS_Update re-introduce a ghost-cell
+							// concentration as a dispersive or advective source.
+							clearRTCoef(rt, idom, 6);
+							clearRTCoef(rt, idom, 17);
+							clearRTCoef(rt, idom, 19);
+							clearRTCoef(rt, idom, 23);
+							clearRTCoef(rt, idom, 25);
+
+							const real FLOW_EPSILON = 1.0e-10;
+							if (flux_swgw < -FLOW_EPSILON)
+							{
+								// rt.csw is allocated on the surface grid including halo
+								// cells.  Use the same halo index as the exchange audit.
+								int iGlobSW = jj * gdom.nxhc + ii;
+								real Csw = rt.csw(target_spec, iGlobSW);
+								// Use the same rain fallback as applyConcentrationBC().
+								if (gdom.isRain == 1 && gdom.rainRate(iGlobSW) > 0.0 && Csw == 0.0)
+									Csw = rt.RainCon_arr(target_spec);
+
+								// Infiltration source: |qss| * Csw.
+								rt.RTcoef(idom, 7) +=
+									rt.dt * (-flux_swgw) * Csw / dz_val;
+							}
+							else if (flux_swgw > FLOW_EPSILON)
+							{
+								// Exfiltration sink: qss * Cgw, implicit in Cgw.
+								real sink_term = rt.dt * flux_swgw / dz_val;
+								if (sink_term > 1e10 || sink_term != sink_term)
+								{
+									printf("WARNING: Unstable SWE sink at iGlob=%d. Flux=%e, dt=%e, dz=%e\n",
+									       iGlob, flux_swgw, rt.dt, dz_val);
+								}
+								rt.RTcoef(idom, 0) += sink_term;
+							}
+						});
 				}
 				else
 				{
@@ -1105,14 +1346,17 @@ public:
 			case SUB_RT_BC_Cauchy_CONST:
 			case SUB_RT_BC_Cauchy_T:
 			{
+				int bcval_size = current_bcvals.size();
 				Kokkos::parallel_for("rt_bc_Cauchy", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
 					int ii, jj, kk, idom, iGlob = bcells[ibc];
 					gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 					idom = (kk - gdom.hc) * gdom.nx * gdom.ny + (jj - gdom.hc) * gdom.nx + ii - gdom.hc;
 
 					// 1. Determine the boundary concentration value:
-					//    constant (from array) or time-interpolated.
-					real val_bc = (current_bctype == SUB_RT_BC_Cauchy_CONST) ? current_bcvals(0) : Cauchybc;
+					//    constant/spatially varying (from array) or time-interpolated.
+					real val_bc = (current_bctype == SUB_RT_BC_Cauchy_CONST)
+					                 ? ((bcval_size > 1) ? current_bcvals(ibc) : current_bcvals(0))
+					                 : Cauchybc;
 
 					// 2. Get the cell thickness for flux discretization [m]
 					real dz_val = gdom.dz(iGlob);
@@ -1126,7 +1370,10 @@ public:
 					if (direction == 5 || direction == 6)
 					{
 						// Z-component of Darcy velocity [m/s].  Positive = upward.
-						real q_z = gw.q(iGlob, 2);
+						const int face = (direction == 5)
+						                   ? iGlob
+						                   : iGlob - gdom.nxhc * gdom.nyhc;
+						real q_z = gw.q(face, 2);
 
 						// --- Top boundary (Direction 6) ---
 						if (direction == 6)
@@ -1174,7 +1421,8 @@ public:
 					// =========================================================
 					else if (direction == 1 || direction == 2)
 					{
-						real q_x = gw.q(iGlob, 0); // X-component of Darcy velocity [m/s].  Positive = rightward.
+						const int face = (direction == 1) ? iGlob : iGlob - 1;
+						real q_x = gw.q(face, 0); // X-component of Darcy velocity [m/s].  Positive = rightward.
 						real dx_val = gdom.dx;      // Cell width in X direction [m]
 
 						// Right boundary (Direction 1): inflow if q < 0, outflow if q > 0
@@ -1208,7 +1456,8 @@ public:
 					// =========================================================
 					else if (direction == 3 || direction == 4)
 					{
-						real q_y = gw.q(iGlob, 1); // Y-component of Darcy velocity [m/s]
+						const int face = (direction == 3) ? iGlob : iGlob - gdom.nxhc;
+						real q_y = gw.q(face, 1); // Y-component of Darcy velocity [m/s]
 						real dy_val = gdom.dy;      // Cell width in Y direction [m]
 
 						// Back boundary (Direction 3, Ymax): inflow if q < 0, outflow if q > 0
@@ -1241,110 +1490,51 @@ public:
 			break;
 
 			/* --------------------------------------------------------
-			 * Free drainage BC (SUB_RT_BC_FD):
-			 * Zero-gradient (upwind) outflow condition.
+			 * Conservative free-drainage BC (SUB_RT_BC_FD):
 			 *
-			 * All 30 matrix coefficients are zeroed, then a simple
-			 * equation is set up: C_cell = C_upwind_neighbor, i.e.,
-			 *   RTcoef(idom, 0) = 1.0  (diagonal)
-			 *   RTcoef(idom, neighbor_idx) = -1.0  (upwind neighbor)
-			 *
-			 * The upwind neighbor index depends on the boundary face:
-			 *   Direction 1 (X+): neighbor is index 2 (C_{i-1}, left neighbor)
-			 *   Direction 2 (X-): neighbor is index 1 (C_{i+1}, right neighbor)
-			 *   Direction 3 (Y+): neighbor is index 4 (C_{j-1}, front neighbor)
-			 *   Direction 4 (Y-): neighbor is index 3 (C_{j+1}, back neighbor)
-			 *   Direction 5 (Z-): neighbor is index 6 (C_{k-1}, lower neighbor)
-			 *   Direction 6 (Z+): neighbor is index 5 (C_{k+1}, upper neighbor)
+			 * Keep the assembled physical conservation equation. Enforce the
+			 * zero-gradient condition by merging exterior normal ghost
+			 * couplings into the corresponding interior stencil entries,
+			 * instead of replacing the whole row with a concentration-copy
+			 * constraint.
 			 * -------------------------------------------------------- */
 			case SUB_RT_BC_FD:
+			{
+				int bcval_size = current_bcvals.size();
+				real fd_inflow_conc = 0.0;
+				if (bcval_size > 0)
+					fd_inflow_conc = current_bcvals(0);
+
 				Kokkos::parallel_for("rt_bc_fd", ncellsBC, KOKKOS_CLASS_LAMBDA(int ibc) {
-				    int ii, jj, kk, idom, iGlobSW, iGlob = bcells[ibc];
+				    int ii, jj, kk, idom, iGlob = bcells[ibc];
 				    gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
 				    idom = (kk-gdom.hc)*gdom.nx*gdom.ny + (jj-gdom.hc)*gdom.nx + ii - gdom.hc;
-				    iGlobSW = jj*gdom.nxhc + ii;
 
-				    // Determine upwind weighting factors based on the local
-				    // flow velocity direction in each coordinate.  These are
-				    // currently computed but not directly used in the matrix
-				    // modification below (reserved for future upwind schemes).
-				    double Up_Weighting_x, Up_Weighting_y, Up_Weighting_z;
-				    if (rt.aveVB(iGlob, 0) > 0)
-				    {
-				    	Up_Weighting_x = rt.Up_Weighting_vplus;
-				    }
-				    else
-				    {
-				    	Up_Weighting_x = rt.Up_Weighting_vminus;
-				    }
+					const int plane = gdom.nxhc * gdom.nyhc;
+					real vn_out = 0.0;
+					if (direction == XPLUS)
+						vn_out = rt.aveVB(iGlob, 0);
+					else if (direction == XMINUS)
+						vn_out = -rt.aveVB(iGlob - 1, 0);
+					else if (direction == YPLUS)
+						vn_out = rt.aveVB(iGlob, 1);
+					else if (direction == YMINUS)
+						vn_out = -rt.aveVB(iGlob - gdom.nxhc, 1);
+					else if (direction == ZPLUS)
+						vn_out = rt.aveVB(iGlob, 2);
+					else if (direction == ZMINUS)
+						vn_out = -rt.aveVB(iGlob - plane, 2);
 
-				    // Y-direction velocity check
-				    if (rt.aveVB(iGlob, 1) > 0)
-				    {
-				    	Up_Weighting_y = rt.Up_Weighting_vplus;
-				    }
-				    else
-				    {
-				    	Up_Weighting_y = rt.Up_Weighting_vminus;
-				    }
+					const real c_external =
+						(bcval_size > 1) ? current_bcvals(ibc) : fd_inflow_conc;
 
-				    // Z-direction velocity check
-				    if (rt.aveVB(iGlob, 2) > 0)
-				    {
-				    	Up_Weighting_z = rt.Up_Weighting_vplus;
-				    }
-				    else
-				    {
-				    	Up_Weighting_z = rt.Up_Weighting_vminus;
-				    }
-
-				    // Apply zero-gradient condition for the appropriate face.
-				    // Reset all 30 coefficients, then set diagonal = 1 and
-				    // the upwind neighbor coefficient = -1.
-					if (direction == 1) {   // Right face (X+): C = C_{i-1}
-						for (int i = 0; i < 30; i++) {
-							rt.RTcoef(idom, i) = 0.0;
-						}
-						rt.RTcoef(idom, 0) = 1.0;
-						rt.RTcoef(idom, 2) = -1; // C_{i-1}: left neighbor
-					}
-					else if (direction == 2) { // Left face (X-): C = C_{i+1}
-						for (int i = 0; i < 30; i++) {
-							rt.RTcoef(idom, i) = 0.0;
-						}
-						rt.RTcoef(idom, 0) = 1.0;
-						rt.RTcoef(idom, 1) = -1; // C_{i+1}: right neighbor
-					}
-					else if (direction == 3) { // Back face (Y+): C = C_{j-1}
-						for (int i = 0; i < 30; i++) {
-							rt.RTcoef(idom, i) = 0.0;
-						}
-						rt.RTcoef(idom, 0) = 1.0;
-						rt.RTcoef(idom, 4) = -1; // C_{j-1}: front neighbor
-					}
-					else if (direction == 4) { // Front face (Y-): C = C_{j+1}
-						for (int i = 0; i < 30; i++) {
-							rt.RTcoef(idom, i) = 0.0;
-						}
-						rt.RTcoef(idom, 0) = 1.0;
-						rt.RTcoef(idom, 3) = -1; // C_{j+1}: back neighbor
-					}
-					else if (direction == 5) { // Bottom face (Z-): C = C_{k-1}
-						for (int i = 0; i < 30; i++) {
-							rt.RTcoef(idom, i) = 0.0;
-						}
-						rt.RTcoef(idom, 0) = 1.0;
-						rt.RTcoef(idom, 6) = -1; // C_{k-1}: lower neighbor
-					}
-					else if (direction == 6) { // Top face (Z+): C = C_{k+1}
-						rt.RTcoef(idom, 6) = 0.0;
-						for (int i = 0; i < 30; i++) {
-							rt.RTcoef(idom, i) = 0.0;
-						}
-						rt.RTcoef(idom, 0) = 1.0;
-						rt.RTcoef(idom, 5) = -1;  // C_{k+1}: upper neighbor
-					} });
+					if (vn_out >= 0.0)
+						applyConservativeFDElimination(rt, idom, direction);
+					else
+						eliminateFDInflowGhost(rt, idom, direction, c_external);
+				});
 				break;
+			}
 			}
 		}
 	}

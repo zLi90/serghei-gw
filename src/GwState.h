@@ -34,25 +34,20 @@ class GwState
 public:
     // GW variables
     realArr2 h, q, wc, k;
-    //! zzb20240829修改
-    realArr2 q_new; // n+1时刻水流量
-    realArr wc_new; // n+1时刻含水量
-    realArr wc_old; // n时刻含水量
-    //! zzb20240829修改
+    // flow field and water content at the new (n+1) and old (n) time levels
+    realArr2 q_new;
+    realArr wc_new;
+    realArr wc_old;
     // matrix system
     realArr2 resi, coef;
     realArr qss, hs;
     // source/sink flow rate
     realArr ssflow;
-    //! zzb 地下水蒸散发量
+    // evaporation and transpiration contributions
+    realArr evapGW;                 //! Groundwater evaporation [L3/T]
+    realArr transpGW;               //! Groundwater transpiration [L3/T]
+    realArr surfaceWaterEvapActual; //! Actual surface-water evaporation [L3/T]
 
-    realArr evapGW;                 //! zzb地下水蒸发量
-    realArr transpGW;               //! zzb地下水蒸散
-    realArr surfaceWaterEvapActual; //! zzb 地表水蒸发量
-
-    // realArr wc_root_zone;//!zzb 20241213 根系区含水率均值
-    // int k_max_root;//!zzb 最大根深所在层数
-    //
     // reasoning
     // ---------
     // soil variables are stored in a table, soilID maps the cell to
@@ -81,30 +76,20 @@ public:
         ssflow(0) = 0.0;
         qss = realArr("qss", gdom.nCellSw);
         hs = realArr("hs", gdom.nCellSwMem);
-        q_new = realArr2("q_new", gdom.nCellMem, 3); //! zzb20240829修改
-        wc_new = realArr("wc_new", gdom.nCellMem);   //! zzb20240904修改
-        wc_old = realArr("wc_old", gdom.nCellMem);   //! zzb20240904修改
+        q_new = realArr2("q_new", gdom.nCellMem, 3);
+        wc_new = realArr("wc_new", gdom.nCellMem);
+        wc_old = realArr("wc_old", gdom.nCellMem);
 
-        // if (gdom.hasET == 1)//此处有个小bug，是因为如果用gdom.hasET判断的话，无法完成内存分配，
-        // 因为gdom.hasET的真正值获取晚于内存分配初始化函数
-        // {
-        evapGW = realArr("evapGW", gdom.nCellMem);     //! zzb地下水蒸发量
-        transpGW = realArr("transpGW", gdom.nCellMem); //! zzb地下水蒸散
+        // The ET arrays are allocated unconditionally: gdom.hasET is only
+        // determined after this allocation, so it cannot be used as a guard here
+        evapGW = realArr("evapGW", gdom.nCellMem);
+        transpGW = realArr("transpGW", gdom.nCellMem);
         Kokkos::deep_copy(evapGW, 0.0);
         Kokkos::deep_copy(transpGW, 0.0);
-        // }
 #if SW_GW_EVAPORATION_TRANSPIRATION_MODEL
-        surfaceWaterEvapActual = realArr("surfaceWaterEvapActual", gdom.nCellSwMem); //! zzb 地表水实际蒸发量
+        surfaceWaterEvapActual = realArr("surfaceWaterEvapActual", gdom.nCellSwMem);
         Kokkos::deep_copy(surfaceWaterEvapActual, 0.0);
 #endif
-        // #if SERGHEI_SUBSURFACE_TRANSPORT
-        // // concentration is (n by 2): c_now, c_old
-        // c = realArr2("c", gdom.nCellMem, 2);
-        // // dispersion is (n by 3): d_xx, d_yy, d_zz
-        // // Note that we ignore d_xy, d_xz, etc. for now,
-        // // but they should be implemented later
-        // dcal = realArr2("dcal", gdom.nCellMem, 3);
-        // #endif
     }
 };
 

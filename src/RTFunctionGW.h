@@ -42,11 +42,13 @@
 #define _RT_FUNCTIONGW_H_
 
 #include "const.h"
+#include <sstream>
 #include "define.h"
 #include "SArray.h"
 #include "Indexing.h"
 #include "GwDomain.h"
 #include "GwMPI.h"
+#include "MPIUtils.h"
 #include "GwState.h"
 #include "RTMatrix.h"
 #include "RTSolverGW.h"
@@ -72,6 +74,37 @@ class RTFunctionGW
 private:
 	Kokkos::Timer timer;  ///< General-purpose Kokkos timer (reserved)
 	Kokkos::Timer timer2; ///< Secondary Kokkos timer (reserved)
+	realArr2 orig_RTcoef; ///< Unmodified physical stencil and RHS before RT boundary constraints.
+
+	/// [P1-4] Interior row indices (idom) of the boundary cells whose RTcoef
+	/// must be backed up into orig_RTcoef.  Only the residual-based branch of
+	/// compute_boundary_mass_fluxes() reads orig_RTcoef, and only for these
+	/// rows (columns 0..25), so the backup can skip all interior rows.
+	intArr bres_rows;
+	int nbres_rows = 0;
+
+	/// [P2-4] One-time pure-geometry reciprocals (dx, dy and the dz grid
+	/// never change during a simulation).  The face-coefficient precompute
+	/// and the assembly kernel multiply these instead of dividing (~1 ulp
+	/// difference per replaced term, L2).
+	realArr inv_dz;       ///< [nCellMem] 1/dz(iGlob)
+	realArr inv_dz_denom; ///< [nCellMem] 1 / (0.5*(dz(i)+dz(i+z))) with the same clamp logic as the old per-species precompute
+	realArr inv_2dxdz;    ///< [nCellMem] 1/(2 dx dz(iGlob))
+	realArr inv_2dydz;    ///< [nCellMem] 1/(2 dy dz(iGlob))
+	realArr inv_dxdz_span; ///< [nCellMem] 1/(dx dz_span(iGlob))
+	realArr inv_dydz_span; ///< [nCellMem] 1/(dy dz_span(iGlob))
+	real inv_dx = 0.0, inv_dy = 0.0;     ///< 1/dx, 1/dy
+	real inv_dxdx = 0.0, inv_dydy = 0.0; ///< 1/dx^2, 1/dy^2
+	real inv_2dxdy = 0.0;                ///< 1/(2 dx dy)
+
+	/// [P2-5] Per-species staging buffer for the 19 Picard-invariant stencil
+	/// columns (all RTcoef columns except 0 and 7), written once per species
+	/// per half-step by RTprepare_species_coefficients() and copied by every
+	/// assembly iteration.  Columns 0 (sorption mass diagonal) and 7 (mass
+	/// RHS + TVD correction) depend on rt.c(..,1) and stay in the assembly
+	/// kernel.  A single buffer is sufficient because the species loop fully
+	/// consumes it (all Picard iterations) before the next species overwrites it.
+	realArr2 RTcoef_inv;
 
 	/* =====================================================================
 	 *  Section: Flux Limiter Functions (TVD High-Resolution Scheme)
@@ -235,7 +268,118 @@ private:
 		return psi * (flux_high - flux_low);
 	}
 
+	/**
+	 * @brief Equilibrium sorption concentration S(C) for one species.
+	 *
+	 * Linear:      S = Kd * C
+	 * Freundlich:  S = Kf * C^Nf
+	 * Langmuir:    S = (Alpha_D * Beta_D * C) / (1 + Alpha_D * C)
+	 */
+	KOKKOS_INLINE_FUNCTION
+	real sorption_equilibrium_concentration(const RTStateGW &rt, int iSpec, real C) const
+	{
+		int sorption_type = rt.Sorption_Type(iSpec);
+		if (sorption_type == 1)
+		{
+			return rt.Kd(iSpec) * C;
+		}
+		if (sorption_type == 2)
+		{
+			if (C <= 0.0)
+				return 0.0;
+			return rt.Kf(iSpec) * pow(C, rt.Nf(iSpec));
+		}
+		if (sorption_type == 3)
+		{
+			real alpha = rt.Alpha_D(iSpec);
+			real beta_L = rt.Beta_D(iSpec);
+			return (alpha * beta_L * C) / (1.0 + alpha * C);
+		}
+		return 0.0;
+	}
+
+	/**
+	 * @brief Tangent slope dS/dC for the equilibrium sorption isotherm.
+	 */
+	KOKKOS_INLINE_FUNCTION
+	real sorption_equilibrium_derivative(const RTStateGW &rt, int iSpec, real C) const
+	{
+		int sorption_type = rt.Sorption_Type(iSpec);
+		if (sorption_type == 1)
+		{
+			return rt.Kd(iSpec);
+		}
+		if (sorption_type == 2)
+		{
+			if (C <= 0.0)
+				return 0.0;
+			real Nf = rt.Nf(iSpec);
+			return rt.Kf(iSpec) * Nf * pow(C, Nf - 1.0);
+		}
+		if (sorption_type == 3)
+		{
+			real alpha = rt.Alpha_D(iSpec);
+			real beta_L = rt.Beta_D(iSpec);
+			real denom = 1.0 + alpha * C;
+			return (alpha * beta_L) / (denom * denom);
+		}
+		return 0.0;
+	}
+
 public:
+	/* -----------------------------------------------------------------
+	 *  [P3-4] Picard iteration statistics (always-on counters, reported
+	 *  to log.out together with the linear-solver statistics block).
+	 * ----------------------------------------------------------------- */
+	std::vector<long> rtPicardEpisodes; ///< [n_mass] Picard episodes entered (species half-steps)
+	std::vector<long> rtPicardIters;    ///< [n_mass] total Picard iterations executed
+	std::vector<long> rtPicardConv1;    ///< [n_mass] episodes converged at iteration 1
+	std::vector<long> rtPicardConv2;    ///< [n_mass] episodes converged at iteration 2
+	std::vector<long> rtPicardConv3;    ///< [n_mass] episodes converged at iteration 3
+
+	inline void rtPicardEnsure(int n_mass)
+	{
+		if ((int)rtPicardIters.size() < n_mass)
+		{
+			rtPicardEpisodes.assign(n_mass, 0);
+			rtPicardIters.assign(n_mass, 0);
+			rtPicardConv1.assign(n_mass, 0);
+			rtPicardConv2.assign(n_mass, 0);
+			rtPicardConv3.assign(n_mass, 0);
+		}
+	}
+
+	/// Episodes that exhausted picard_iter_max without meeting the
+	/// tolerance (derived: episodes minus the converged buckets).
+	inline long rtPicardMaxed(int iSpec) const
+	{
+		return rtPicardEpisodes[iSpec] - rtPicardConv1[iSpec] - rtPicardConv2[iSpec] - rtPicardConv3[iSpec];
+	}
+
+	std::string picardStatsReport()
+	{
+		std::ostringstream os;
+		os << "-----RTGW PICARD STATISTICS-----" << std::endl;
+		long ep = 0, it = 0;
+		for (size_t sp = 0; sp < rtPicardIters.size(); ++sp) { ep += rtPicardEpisodes[sp]; it += rtPicardIters[sp]; }
+		os << "rtgw.pic.episodes\t" << ep << "\titers\t" << it;
+		if (ep > 0) os << "\tmean\t" << (double)it / (double)ep;
+		os << std::endl;
+		for (size_t sp = 0; sp < rtPicardIters.size(); ++sp)
+		{
+			if (rtPicardEpisodes[sp] == 0) continue;
+			os << "rtgw.pic.spec" << sp
+			   << "\tepisodes\t" << rtPicardEpisodes[sp]
+			   << "\titers\t" << rtPicardIters[sp]
+			   << "\tmean\t" << (double)rtPicardIters[sp] / (double)rtPicardEpisodes[sp]
+			   << "\tconv@1\t" << rtPicardConv1[sp]
+			   << "\tconv@2\t" << rtPicardConv2[sp]
+			   << "\tconv@3\t" << rtPicardConv3[sp]
+			   << "\tmaxed\t" << rtPicardMaxed(sp) << std::endl;
+		}
+		return os.str();
+	}
+
 	/* =====================================================================
 	 *  Section: Dispersion Tensor Computation
 	 *
@@ -296,9 +440,11 @@ public:
 			rt.aveVB(iGlob, 2) = -(gw.q_new(iGlob, 2)); // vz [m/s]
 
 			// Velocity magnitude |v| [m/s]
-			rt.aveVB(iGlob, 3) = sqrt(pow(rt.aveVB(iGlob, 0), 2) +
-										  pow(rt.aveVB(iGlob, 1), 2) +
-										  pow(rt.aveVB(iGlob, 2), 2)); });
+			// [P1-6] x*x instead of pow(x,2) (same value, cheaper on GPU)
+			const real vx = rt.aveVB(iGlob, 0);
+			const real vy = rt.aveVB(iGlob, 1);
+			const real vz = rt.aveVB(iGlob, 2);
+			rt.aveVB(iGlob, 3) = sqrt(vx * vx + vy * vy + vz * vz); });
 		Kokkos::fence();
 
 		// [Critical Fix 1]: Exchange velocity vectors across MPI boundaries.
@@ -337,36 +483,90 @@ public:
                 return rt.aveVB(safe_idx, comp);
             };
 
+            auto Dz = [&](int c_k, int c_j, int c_i) {
+                if (c_k < 0) c_k = 0; else if (c_k >= gdom.nzhc) c_k = gdom.nzhc - 1;
+                if (c_j < 0) c_j = 0; else if (c_j >= gdom.nyhc) c_j = gdom.nyhc - 1;
+                if (c_i < 0) c_i = 0; else if (c_i >= gdom.nxhc) c_i = gdom.nxhc - 1;
+                int safe_idx = c_k * gdom.nxhc * gdom.nyhc + c_j * gdom.nxhc + c_i;
+                return gdom.dz(safe_idx);
+            };
+
 			// --- Face i+1/2 velocity components ---
 			// vx at i+1/2 (direct cell-centre value) [m/s]
-			rt.q_dispersion(iGlob, 0) = rt.aveVB(iGlob, 0);
+			rt.q_dispersion(iGlob, 0) = V(kk, jj, ii, 0);
 			// vy at i+1/2 (four-point average) [m/s]
-			rt.q_dispersion(iGlob, 1) = 0.5 * ((rt.aveVB(iGlob - gdom.nxhc, 1) + rt.aveVB(iGlob, 1)) * 0.5 + (rt.aveVB(iGlob + 1 - gdom.nxhc, 1) + rt.aveVB(iGlob + 1, 1)) * 0.5);
+			rt.q_dispersion(iGlob, 1) = 0.5 * ((V(kk, jj - 1, ii, 1) + V(kk, jj, ii, 1)) * 0.5 + (V(kk, jj - 1, ii + 1, 1) + V(kk, jj, ii + 1, 1)) * 0.5);
 			// vz at i+1/2 (four-point average) [m/s]
-			rt.q_dispersion(iGlob, 2) = 0.5 * ((rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2) + rt.aveVB(iGlob, 2)) * 0.5 + (rt.aveVB(iGlob + 1 - gdom.nxhc * gdom.nyhc, 2) + rt.aveVB(iGlob + 1, 2)) * 0.5);
+			rt.q_dispersion(iGlob, 2) = 0.5 * ((V(kk - 1, jj, ii, 2) + V(kk, jj, ii, 2)) * 0.5 + (V(kk - 1, jj, ii + 1, 2) + V(kk, jj, ii + 1, 2)) * 0.5);
 			// Speed at i+1/2 [m/s]
-			rt.q_dispersion(iGlob, 3) = sqrt(pow(rt.q_dispersion(iGlob, 0), 2) + pow(rt.q_dispersion(iGlob, 1), 2) + pow(rt.q_dispersion(iGlob, 2), 2));
+			// [P1-6] speed at face i+1/2 with cached products (x*x, not pow)
+			// [P2-1] Species-invariant face geometry: the velocity products,
+			// the speed and its reciprocal are staged here once per half-step
+			// so that Stage 3 no longer recomputes them for every species.
+			const real fx0 = rt.q_dispersion(iGlob, 0), fx1 = rt.q_dispersion(iGlob, 1), fx2 = rt.q_dispersion(iGlob, 2);
+			const real spd_fx = sqrt(fx0 * fx0 + fx1 * fx1 + fx2 * fx2);
+			rt.q_dispersion(iGlob, 3) = spd_fx;
+			rt.q_face_geo(iGlob, 0) = fx0 * fx0;
+			rt.q_face_geo(iGlob, 1) = fx1 * fx1;
+			rt.q_face_geo(iGlob, 2) = fx2 * fx2;
+			rt.q_face_geo(iGlob, 3) = fx0 * fx1;
+			rt.q_face_geo(iGlob, 4) = fx0 * fx2;
+			rt.q_face_geo(iGlob, 5) = fx1 * fx2;
+			rt.q_face_geo(iGlob, 6) = spd_fx;
+			rt.q_face_geo(iGlob, 7) = (spd_fx > 0.0) ? 1.0 / spd_fx : 0.0;
 
 			// --- Face j+1/2 velocity components ---
 			// vx at j+1/2 (four-point average) [m/s]
 			//! rt.q_dispersion(iGlob, 4) = 0.5 * ((rt.aveVB(iGlob, 1) + rt.aveVB(iGlob - 1, 1)) * 0.5 + (rt.aveVB(iGlob + gdom.nxhc, 1) + rt.aveVB(iGlob + gdom.nxhc - 1, 1)) * 0.5);
-			rt.q_dispersion(iGlob, 4) = 0.5 * ((rt.aveVB(iGlob, 0) + rt.aveVB(iGlob - 1, 0)) * 0.5 + (rt.aveVB(iGlob + gdom.nxhc, 0) + rt.aveVB(iGlob + gdom.nxhc - 1, 0)) * 0.5);
+			rt.q_dispersion(iGlob, 4) = 0.5 * ((V(kk, jj, ii, 0) + V(kk, jj, ii - 1, 0)) * 0.5 + (V(kk, jj + 1, ii, 0) + V(kk, jj + 1, ii - 1, 0)) * 0.5);
 			// vy at j+1/2 (direct cell-centre value) [m/s]
-			rt.q_dispersion(iGlob, 5) = rt.aveVB(iGlob, 1);
+			rt.q_dispersion(iGlob, 5) = V(kk, jj, ii, 1);
 			// vz at j+1/2 (four-point average) [m/s]
-			rt.q_dispersion(iGlob, 6) = 0.5 * ((rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2) + rt.aveVB(iGlob, 2)) * 0.5 + (rt.aveVB(iGlob + gdom.nxhc - gdom.nxhc * gdom.nyhc, 2) + rt.aveVB(iGlob + gdom.nxhc, 2)) * 0.5);
+			rt.q_dispersion(iGlob, 6) = 0.5 * ((V(kk - 1, jj, ii, 2) + V(kk, jj, ii, 2)) * 0.5 + (V(kk - 1, jj + 1, ii, 2) + V(kk, jj + 1, ii, 2)) * 0.5);
 			// Speed at j+1/2 [m/s]
-			rt.q_dispersion(iGlob, 7) = sqrt(pow(rt.q_dispersion(iGlob, 4), 2) + pow(rt.q_dispersion(iGlob, 5), 2) + pow(rt.q_dispersion(iGlob, 6), 2));
+			// [P2-1] Species-invariant face geometry (see face i+1/2 above).
+			const real fy4 = rt.q_dispersion(iGlob, 4), fy5 = rt.q_dispersion(iGlob, 5), fy6 = rt.q_dispersion(iGlob, 6);
+			const real spd_fy = sqrt(fy4 * fy4 + fy5 * fy5 + fy6 * fy6);
+			rt.q_dispersion(iGlob, 7) = spd_fy;
+			rt.q_face_geo(iGlob, 8) = fy4 * fy4;
+			rt.q_face_geo(iGlob, 9) = fy5 * fy5;
+			rt.q_face_geo(iGlob, 10) = fy6 * fy6;
+			rt.q_face_geo(iGlob, 11) = fy4 * fy5;
+			rt.q_face_geo(iGlob, 12) = fy4 * fy6;
+			rt.q_face_geo(iGlob, 13) = fy5 * fy6;
+			rt.q_face_geo(iGlob, 14) = spd_fy;
+			rt.q_face_geo(iGlob, 15) = (spd_fy > 0.0) ? 1.0 / spd_fy : 0.0;
 
-			// --- Face k+1/2 velocity components ---
-			// vx at k+1/2 (four-point average) [m/s]
-			rt.q_dispersion(iGlob, 8) = 0.5 * ((rt.aveVB(iGlob, 0) + rt.aveVB(iGlob + gdom.nxhc * gdom.nyhc, 0)) * 0.5 + (rt.aveVB(iGlob - 1, 0) + rt.aveVB(iGlob + gdom.nxhc * gdom.nyhc - 1, 0)) * 0.5);
-			// vy at k+1/2 (four-point average) [m/s]
-			rt.q_dispersion(iGlob, 9) = 0.5 * ((rt.aveVB(iGlob, 1) + rt.aveVB(iGlob - gdom.nxhc, 1)) * 0.5 + (rt.aveVB(iGlob - gdom.nxhc + gdom.nxhc * gdom.nyhc, 1) + rt.aveVB(iGlob + gdom.nxhc * gdom.nyhc, 1)) * 0.5);
-			// vz at k+1/2 (direct cell-centre value) [m/s]
-			rt.q_dispersion(iGlob, 10) = rt.aveVB(iGlob, 2);
+// --- Face k+1/2 velocity components ---
+			// Dynamic calculation of interpolation weights based on vertical grid thickness
+			real dz_k = Dz(kk, jj, ii);
+			real dz_kp1 = Dz(kk + 1, jj, ii);
+			real weight_k = dz_kp1 / (dz_k + dz_kp1);
+			real weight_kp1 = dz_k / (dz_k + dz_kp1);
+
+			// vx at k+1/2 (Performing non-uniform vertical interpolation on cell-centred VX) [m/s]
+			real vx_k = 0.5 * (V(kk, jj, ii, 0) + V(kk, jj, ii - 1, 0));
+			real vx_kp1 = 0.5 * (V(kk + 1, jj, ii, 0) + V(kk + 1, jj, ii - 1, 0));
+			rt.q_dispersion(iGlob, 8) = weight_k * vx_k + weight_kp1 * vx_kp1;
+
+			// vy at k+1/2 (Performing non-uniform vertical interpolation on cell-centred VY) [m/s]
+			real vy_k = 0.5 * (V(kk, jj, ii, 1) + V(kk, jj - 1, ii, 1));
+			real vy_kp1 = 0.5 * (V(kk + 1, jj, ii, 1) + V(kk + 1, jj - 1, ii, 1));
+			rt.q_dispersion(iGlob, 9) = weight_k * vy_k + weight_kp1 * vy_kp1;
+			rt.q_dispersion(iGlob, 10) = V(kk, jj, ii, 2);
 			// Speed at k+1/2 [m/s]
-			rt.q_dispersion(iGlob, 11) = sqrt(pow(rt.q_dispersion(iGlob, 8), 2) + pow(rt.q_dispersion(iGlob, 9), 2) + pow(rt.q_dispersion(iGlob, 10), 2)); });
+			// [P2-1] Species-invariant face geometry (see face i+1/2 above).
+			const real fz8 = rt.q_dispersion(iGlob, 8), fz9 = rt.q_dispersion(iGlob, 9), fz10 = rt.q_dispersion(iGlob, 10);
+			const real spd_fz = sqrt(fz8 * fz8 + fz9 * fz9 + fz10 * fz10);
+			rt.q_dispersion(iGlob, 11) = spd_fz;
+			rt.q_face_geo(iGlob, 16) = fz8 * fz8;
+			rt.q_face_geo(iGlob, 17) = fz9 * fz9;
+			rt.q_face_geo(iGlob, 18) = fz10 * fz10;
+			rt.q_face_geo(iGlob, 19) = fz8 * fz9;
+			rt.q_face_geo(iGlob, 20) = fz8 * fz10;
+			rt.q_face_geo(iGlob, 21) = fz9 * fz10;
+			rt.q_face_geo(iGlob, 22) = spd_fz;
+			rt.q_face_geo(iGlob, 23) = (spd_fz > 0.0) ? 1.0 / spd_fz : 0.0; });
 
 		// -----------------------------------------------------------------
 		// Stage 3: Dispersion tensor assembly (per species)
@@ -385,57 +585,63 @@ public:
 		{
 			Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
 
-			// --- Dxx at face i+1/2 [m^2/s] ---
-			// Dxx = (alpha_T * (vy^2 + vz^2) + alpha_L * vx^2) / |v|
-			rt.dcal(iSpec, iGlob, 0) = (rt.alpha_T(iSpec) * (pow(rt.q_dispersion(iGlob, 1), 2) + pow(rt.q_dispersion(iGlob, 2), 2)) + rt.alpha_L(iSpec) * pow(rt.q_dispersion(iGlob, 0), 2)) / rt.q_dispersion(iGlob, 3);
+			// [P2-1] All face velocity products, speeds and reciprocal speeds
+			// are species-invariant and were staged once per half-step by
+			// Stage 2 into q_face_geo (per face f, base = 8*f:
+			// [vx^2, vy^2, vz^2, vx*vy, vx*vz, vy*vz, |v|, 1/|v|]).
+			// This kernel only forms the species-specific alpha_L / alpha_T
+			// linear combinations.
+			const real aL = rt.alpha_L(iSpec), aT = rt.alpha_T(iSpec);
 
-			// Dxy at face i+1/2 [m^2/s]
-			rt.dcal(iSpec, iGlob, 3) = (rt.alpha_L(iSpec) - rt.alpha_T(iSpec)) * rt.q_dispersion(iGlob, 0) * rt.q_dispersion(iGlob, 1) / rt.q_dispersion(iGlob, 3);
-			// Dxz at face i+1/2 [m^2/s]
-			rt.dcal(iSpec, iGlob, 4) = (rt.alpha_L(iSpec) - rt.alpha_T(iSpec)) * rt.q_dispersion(iGlob, 0) * rt.q_dispersion(iGlob, 2) / rt.q_dispersion(iGlob, 3);
-
-			//! --- Dyy at face j+1/2 [m^2/s] ---
-			rt.dcal(iSpec, iGlob, 1) = (rt.alpha_T(iSpec) * (pow(rt.q_dispersion(iGlob, 4), 2) + pow(rt.q_dispersion(iGlob, 6), 2)) + rt.alpha_L(iSpec) * pow(rt.q_dispersion(iGlob, 5), 2)) / rt.q_dispersion(iGlob, 7);
-			// Dyx at face j+1/2 [m^2/s]
-			rt.dcal(iSpec, iGlob, 5) = (rt.alpha_L(iSpec) - rt.alpha_T(iSpec)) * rt.q_dispersion(iGlob, 5) * rt.q_dispersion(iGlob, 4) / rt.q_dispersion(iGlob, 7);
-			// Dyz at face j+1/2 [m^2/s]
-			rt.dcal(iSpec, iGlob, 6) = (rt.alpha_L(iSpec) - rt.alpha_T(iSpec)) * rt.q_dispersion(iGlob, 5) * rt.q_dispersion(iGlob, 6) / rt.q_dispersion(iGlob, 7);
-
-			//! --- Dzz at face k+1/2 [m^2/s] ---
-			rt.dcal(iSpec, iGlob, 2) = (rt.alpha_T(iSpec) * (pow(rt.q_dispersion(iGlob, 8), 2) + pow(rt.q_dispersion(iGlob, 9), 2)) + rt.alpha_L(iSpec) * pow(rt.q_dispersion(iGlob, 10), 2)) / rt.q_dispersion(iGlob, 11);
-			// Dzx at face k+1/2 [m^2/s]
-			rt.dcal(iSpec, iGlob, 7) = (rt.alpha_L(iSpec) - rt.alpha_T(iSpec)) * rt.q_dispersion(iGlob, 10) * rt.q_dispersion(iGlob, 8) / rt.q_dispersion(iGlob, 11);
-			// Dzy at face k+1/2 [m^2/s]
-			rt.dcal(iSpec, iGlob, 8) = (rt.alpha_L(iSpec) - rt.alpha_T(iSpec)) * rt.q_dispersion(iGlob, 10) * rt.q_dispersion(iGlob, 9) / rt.q_dispersion(iGlob, 11);
-
-
-			// If at a boundary, the dispersion coefficients should be set to 0
-			// to naturally enforce the boundary condition.
-			// If the qz velocity is zero at the bottom boundary (hydrodynamic
-			// no-flux BC), then Dzz = 0.
-			// TODO: Consider combining with boundary condition modifications to
-			// the dispersion tensor.
-
-			if (rt.q_dispersion(iGlob, 10) == 0) // qz,i,j,k+1/2 == 0
+			// --- Dxx, Dxy, Dxz at face i+1/2 [m^2/s] ---
+			// [P2-1b] Division by |v| is replaced by multiplication with the
+			// Stage-2 reciprocal (~1 ulp difference, L2).  Zero-velocity faces
+			// (and pathological NaN/Inf speeds, where the reciprocal is 0)
+			// take the explicit zero branch: this yields exactly the same
+			// values as the former 0/0 = NaN -> isnan sweep, without ever
+			// producing a NaN.
+			const real inv_fx = rt.q_face_geo(iGlob, 7);
+			if (inv_fx > 0.0)
 			{
-				rt.dcal(iSpec, iGlob, 2) = 0;
+				rt.dcal(iSpec, iGlob, 0) = (aT * (rt.q_face_geo(iGlob, 1) + rt.q_face_geo(iGlob, 2)) + aL * rt.q_face_geo(iGlob, 0)) * inv_fx;
+				rt.dcal(iSpec, iGlob, 3) = ((aL - aT) * rt.q_face_geo(iGlob, 3)) * inv_fx;
+				rt.dcal(iSpec, iGlob, 4) = ((aL - aT) * rt.q_face_geo(iGlob, 4)) * inv_fx;
+			}
+			else
+			{
+				rt.dcal(iSpec, iGlob, 0) = 0.0;
+				rt.dcal(iSpec, iGlob, 3) = 0.0;
+				rt.dcal(iSpec, iGlob, 4) = 0.0;
 			}
 
-			if (rt.q_dispersion(iGlob, 5) == 0) // qy,i,j+1/2,k == 0
+			//! --- Dyy, Dyx, Dyz at face j+1/2 [m^2/s] ---
+			const real inv_fy = rt.q_face_geo(iGlob, 15);
+			if (inv_fy > 0.0)
 			{
-				rt.dcal(iSpec, iGlob, 1) = 0;
+				rt.dcal(iSpec, iGlob, 1) = (aT * (rt.q_face_geo(iGlob, 8) + rt.q_face_geo(iGlob, 10)) + aL * rt.q_face_geo(iGlob, 9)) * inv_fy;
+				rt.dcal(iSpec, iGlob, 5) = ((aL - aT) * rt.q_face_geo(iGlob, 11)) * inv_fy;
+				rt.dcal(iSpec, iGlob, 6) = ((aL - aT) * rt.q_face_geo(iGlob, 13)) * inv_fy;
+			}
+			else
+			{
+				rt.dcal(iSpec, iGlob, 1) = 0.0;
+				rt.dcal(iSpec, iGlob, 5) = 0.0;
+				rt.dcal(iSpec, iGlob, 6) = 0.0;
 			}
 
-
-
-			// Replace any NaN values in the dispersion tensor with zero
-			// (can arise from 0/0 at zero-velocity faces)
-			for (int i = 0; i < 9; ++i)
+			//! --- Dzz, Dzx, Dzy at face k+1/2 [m^2/s] ---
+			const real inv_fz = rt.q_face_geo(iGlob, 23);
+			if (inv_fz > 0.0)
 			{
-				if (std::isnan(rt.dcal(iSpec, iGlob, i)))
-				{
-					rt.dcal(iSpec, iGlob, i) = 0;
-				}
+				rt.dcal(iSpec, iGlob, 2) = (aT * (rt.q_face_geo(iGlob, 16) + rt.q_face_geo(iGlob, 17)) + aL * rt.q_face_geo(iGlob, 18)) * inv_fz;
+				rt.dcal(iSpec, iGlob, 7) = ((aL - aT) * rt.q_face_geo(iGlob, 20)) * inv_fz;
+				rt.dcal(iSpec, iGlob, 8) = ((aL - aT) * rt.q_face_geo(iGlob, 21)) * inv_fz;
+			}
+			else
+			{
+				rt.dcal(iSpec, iGlob, 2) = 0.0;
+				rt.dcal(iSpec, iGlob, 7) = 0.0;
+				rt.dcal(iSpec, iGlob, 8) = 0.0;
 			}
 
 			// Add molecular diffusion (weighted by water content) to diagonal
@@ -443,7 +649,6 @@ public:
 			rt.dcal(iSpec, iGlob, 0) += gw.wc(iGlob, 0) * rt.diffusion_molecular(iSpec);
 			rt.dcal(iSpec, iGlob, 1) += gw.wc(iGlob, 0) * rt.diffusion_molecular(iSpec);
 			rt.dcal(iSpec, iGlob, 2) += gw.wc(iGlob, 0) * rt.diffusion_molecular(iSpec);
-
 			// Enforce dimensionality: zero out dispersion components that
 			// correspond to inactive spatial dimensions.
 			if (gdom.nx == 1) // 2-D YZ plane: qx = 0, so Dxx = Dxy = Dyx = Dxz = Dzx = 0
@@ -471,6 +676,273 @@ public:
 				rt.dcal(iSpec, iGlob, 8) = 0;
 			} });
 		}
+	}
+
+	/**
+	 * @brief One-time precompute of pure-geometry reciprocals and wz.
+	 *
+	 * dx, dy and the dz grid never change during a simulation, so every
+	 * geometric divisor used by the face-coefficient precompute
+	 * ([P2-4]: replaces divisions with reciprocal multiplications, ~1 ulp,
+	 * L2) and wz plus the c_difzz denominator (pure geometry, previously
+	 * recomputed for every species; values bitwise identical) are computed
+	 * once here.  Called lazily from rt_solve().
+	 *
+	 * @param gdom  Domain geometry (grid dimensions, spacing).
+	 * @param rt    Reactive transport state (wz written in place).
+	 */
+	inline void RTprecompute_geometry(GwDomain &gdom, RTStateGW &rt)
+	{
+		inv_dx = 1.0 / gdom.dx;
+		inv_dy = 1.0 / gdom.dy;
+		inv_dxdx = 1.0 / (gdom.dx * gdom.dx);
+		inv_dydy = 1.0 / (gdom.dy * gdom.dy);
+		inv_2dxdy = 1.0 / (2.0 * gdom.dx * gdom.dy);
+
+		inv_dz = realArr("inv_dz", gdom.nCellMem);
+		inv_dz_denom = realArr("inv_dz_denom", gdom.nCellMem);
+		inv_2dxdz = realArr("inv_2dxdz", gdom.nCellMem);
+		inv_2dydz = realArr("inv_2dydz", gdom.nCellMem);
+		inv_dxdz_span = realArr("inv_dxdz_span", gdom.nCellMem);
+		inv_dydz_span = realArr("inv_dydz_span", gdom.nCellMem);
+
+		const int plane = gdom.nxhc * gdom.nyhc;
+		const int nCellMem_l = gdom.nCellMem;
+		const real dx_l = gdom.dx, dy_l = gdom.dy;
+		auto wz_l = rt.wz;
+		auto inv_dz_l = inv_dz;
+		auto inv_dz_denom_l = inv_dz_denom;
+		auto inv_2dxdz_l = inv_2dxdz;
+		auto inv_2dydz_l = inv_2dydz;
+		auto inv_dxdz_span_l = inv_dxdz_span;
+		auto inv_dydz_span_l = inv_dydz_span;
+
+		Kokkos::parallel_for("RT_Geometry_Reciprocal", gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
+			// wz and the c_difzz denominator replicate the clamp logic of the
+			// former per-species precompute kernel (identical values, now
+			// computed once).
+			const int iGlob_zp = (iGlob + plane < nCellMem_l) ? iGlob + plane : iGlob;
+			const real dz_here = gdom.dz(iGlob);
+			const real dz_zp = gdom.dz(iGlob_zp);
+			const real dz_sum = dz_here + dz_zp;
+			wz_l(iGlob) = (dz_sum > 0.0) ? dz_zp / dz_sum : 0.5;
+			const real dz_denom = (dz_sum > 0.0) ? (0.5 * dz_sum) : 1.0;
+			inv_dz_denom_l(iGlob) = 1.0 / dz_denom;
+			inv_dz_l(iGlob) = 1.0 / dz_here;
+
+			// dz_span reciprocals.  Only interior cells ever read these
+			// entries; the guarded neighbour access below only affects
+			// never-read halo slots.
+			const int iGlob_zm = iGlob - plane;
+			const int iGlob_zp_raw = iGlob + plane;
+			const real dz_im = (iGlob_zm >= 0) ? gdom.dz(iGlob_zm) : dz_here;
+			const real dz_ip = (iGlob_zp_raw < nCellMem_l) ? gdom.dz(iGlob_zp_raw) : dz_here;
+			const real dz_span = 0.5 * dz_im + dz_here + 0.5 * dz_ip;
+			inv_dxdz_span_l(iGlob) = 1.0 / (dx_l * dz_span);
+			inv_dydz_span_l(iGlob) = 1.0 / (dy_l * dz_span);
+			inv_2dxdz_l(iGlob) = 1.0 / (2.0 * dx_l * dz_here);
+			inv_2dydz_l(iGlob) = 1.0 / (2.0 * dy_l * dz_here); });
+		Kokkos::fence();
+	}
+
+	/* =====================================================================
+	 *  Section: Picard-invariant precompute (performance, Level-1)
+	 *
+	 *  [P1-1]/[P1-2] The face coefficients and upwind weights below depend
+	 *  only on quantities frozen for the whole transport half-step:
+	 *  aveVB (written once per half-step by dispersion_tensor()),
+	 *  dcal(iSpec,..) (once per species per half-step), rt.dt and the grid
+	 *  geometry.  They used to be recomputed inside every Picard iteration
+	 *  of RTlinear_system(); hoisting them out is bitwise identical.
+	 * ===================================================================== */
+
+	/**
+	 * @brief Compute the Picard-invariant face coefficients and the invariant
+	 *        stencil columns for one species.
+	 *
+	 * Every coefficient computed here depends only on the half-step-invariant
+	 * face velocities (aveVB), the species dispersion tensor (dcal), the
+	 * transport sub-step rt.dt, and the grid geometry.  Must be called once
+	 * per species before the Picard loop (and after dispersion_tensor()).
+	 *
+	 * The face-coefficient loop covers the full halo memory (nCellMem)
+	 * because the assembly kernel for interior cells reads negative-side
+	 * face coefficients such as c_advxx(iGlob - 1) and c_difxx(iGlob - 1),
+	 * which live on halo/face slots at physical X-/Y-/Z- faces.
+	 *
+	 * [P2-4] Divisors are pure geometry and have been inverted once by
+	 * RTprecompute_geometry(); the expressions below multiply those
+	 * reciprocals instead of dividing (~1 ulp per term, L2).  wz itself is
+	 * pure geometry and is now written by RTprecompute_geometry() only.
+	 *
+	 * [P2-5] The second kernel additionally stages the 19 Picard-invariant
+	 * stencil columns (RTcoef columns 1-6 and 8-26; the expressions are
+	 * identical to the former assembly-kernel lines, term order preserved)
+	 * into RTcoef_inv, so every assembly iteration only has to recompute the
+	 * two Picard-dependent columns 0 (sorption mass diagonal) and 7 (mass
+	 * RHS + TVD correction).
+	 *
+	 * @param gdom   Domain geometry (grid dimensions, spacing).
+	 * @param rt     Reactive transport state (coefficients written in place).
+	 * @param iSpec  Species index (0-based).
+	 */
+	inline void RTprepare_species_coefficients(GwDomain &gdom, RTStateGW &rt, int iSpec)
+	{
+		if (RTcoef_inv.extent(0) != (size_t)gdom.nCell || RTcoef_inv.extent(1) != 27)
+		{
+			RTcoef_inv = realArr2("RTcoef_inv", gdom.nCell, 27);
+		}
+		auto coef_inv = RTcoef_inv;
+		const real inv_dx_l = inv_dx, inv_dy_l = inv_dy;
+		const real inv_dxdx_l = inv_dxdx, inv_dydy_l = inv_dydy, inv_2dxdy_l = inv_2dxdy;
+		auto inv_dz_denom_l = inv_dz_denom;
+		auto inv_dz_l = inv_dz;
+		auto inv_2dxdz_l = inv_2dxdz;
+		auto inv_2dydz_l = inv_2dydz;
+		auto inv_dxdz_span_l = inv_dxdz_span;
+		auto inv_dydz_span_l = inv_dydz_span;
+
+		Kokkos::parallel_for("Precompute_RT_Face_Coefficients", gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
+			rt.c_advxx(iGlob) = rt.aveVB(iGlob, 0) * rt.dt * inv_dx_l;
+			rt.c_advyy(iGlob) = rt.aveVB(iGlob, 1) * rt.dt * inv_dy_l;
+			rt.c_advzz(iGlob) = rt.aveVB(iGlob, 2) * rt.dt;
+
+			rt.c_difxx(iGlob) = rt.dcal(iSpec, iGlob, 0) * rt.dt * inv_dxdx_l;
+			rt.c_difyy(iGlob) = rt.dcal(iSpec, iGlob, 1) * rt.dt * inv_dydy_l;
+			rt.c_difzz(iGlob) = rt.dcal(iSpec, iGlob, 2) * rt.dt * inv_dz_denom_l(iGlob);
+
+			rt.c_difxy(iGlob) = rt.dcal(iSpec, iGlob, 3) * rt.dt * inv_2dxdy_l;
+			rt.c_difxz(iGlob) = rt.dcal(iSpec, iGlob, 4) * rt.dt;
+			rt.c_difyx(iGlob) = rt.dcal(iSpec, iGlob, 5) * rt.dt * inv_2dxdy_l;
+			rt.c_difyz(iGlob) = rt.dcal(iSpec, iGlob, 6) * rt.dt;
+			rt.c_difzx(iGlob) = rt.dcal(iSpec, iGlob, 7) * rt.dt;
+			rt.c_difzy(iGlob) = rt.dcal(iSpec, iGlob, 8) * rt.dt; });
+
+		// [P2-5] Picard-invariant stencil columns.  Every expression is
+		// verbatim from the former Build_Matrix_Fused section (the divisions
+		// by geometric products are the [P2-4] reciprocal-multiply form).
+		// Runs after the face-coefficient kernel above on the same execution
+		// space, so the c_* / Up_Weighting arrays are already final.
+		Kokkos::parallel_for("Precompute_Invariant_Coef", gdom.nCell, KOKKOS_LAMBDA(int idom) {
+			int ii, jj, kk, iGlob;
+			gdom.unpackIndices(idom, kk, jj, ii);
+			iGlob = (gdom.hc + kk) * gdom.nxhc * gdom.nyhc + (gdom.hc + jj) * gdom.nxhc + ii + gdom.hc;
+
+			const int plane = gdom.nxhc * gdom.nyhc;
+			const real inv_dz_i = inv_dz_l(iGlob);
+			const real inv_2dxdz_i = inv_2dxdz_l(iGlob);
+			const real inv_2dydz_i = inv_2dydz_l(iGlob);
+			const real inv_dxdz_span_i = inv_dxdz_span_l(iGlob);
+			const real inv_dydz_span_i = inv_dydz_span_l(iGlob);
+
+			real local_coef[27] = {0.0};
+
+			// Face neighbour coefficients (moved to LHS, note signs)
+			// local_coef[1]: C_{i+1}
+			local_coef[1] = -(rt.c_difxx(iGlob) - (1.0 - rt.Up_Weighting_xp(iGlob)) * rt.c_advxx(iGlob));
+			// local_coef[2]: C_{i-1}
+			local_coef[2] = -(rt.c_difxx(iGlob - 1) + rt.Up_Weighting_xm(iGlob) * rt.c_advxx(iGlob - 1));
+			// local_coef[3]: C_{j+1}
+			local_coef[3] = -(rt.c_difyy(iGlob) - (1.0 - rt.Up_Weighting_yp(iGlob)) * rt.c_advyy(iGlob));
+			// local_coef[4]: C_{j-1}
+			local_coef[4] = -(rt.c_difyy(iGlob - gdom.nxhc) + rt.Up_Weighting_ym(iGlob) * rt.c_advyy(iGlob - gdom.nxhc));
+			// local_coef[5]: C_{k+1}
+			local_coef[5] = -(rt.c_difzz(iGlob) * inv_dz_i - (1.0 - rt.Up_Weighting_zp(iGlob)) * rt.c_advzz(iGlob) * inv_dz_i);
+			// local_coef[6]: C_{k-1}
+			local_coef[6] = -(rt.c_difzz(iGlob - plane) * inv_dz_i + rt.Up_Weighting_zm(iGlob) * rt.c_advzz(iGlob - plane) * inv_dz_i);
+
+			// =================================================================
+			// Cross-dispersion stencil entries (edge and corner neighbours of
+			// the 27-point stencil, from the cross-derivative terms).
+			// C_{i,j+1}: accumulated from XY and ZY cross-terms
+			local_coef[8] = -0.5 * rt.c_difxy(iGlob) + 0.5 * rt.c_difxy(iGlob - 1) - rt.wz(iGlob) * rt.c_difzy(iGlob) * inv_2dydz_i + (1 - rt.wz(iGlob - plane)) * rt.c_difzy(iGlob - plane) * inv_2dydz_i;
+			local_coef[3] += local_coef[8];
+			// C_{i+1,j+1}
+			local_coef[9] = -0.5 * rt.c_difxy(iGlob) - 0.5 * rt.c_difyx(iGlob);
+			// Correction to C_{j-1} from XY cross-dispersion
+			local_coef[10] = 0.5 * rt.c_difxy(iGlob) - 0.5 * rt.c_difxy(iGlob - 1) + rt.wz(iGlob) * rt.c_difzy(iGlob) * inv_2dydz_i - (1 - rt.wz(iGlob - plane)) * rt.c_difzy(iGlob - plane) * inv_2dydz_i;
+			local_coef[4] += local_coef[10];
+			// C_{i+1,j-1}
+			local_coef[11] = 0.5 * rt.c_difxy(iGlob) + 0.5 * rt.c_difyx(iGlob - gdom.nxhc);
+			// C_{i-1,j+1}
+			local_coef[12] = 0.5 * rt.c_difxy(iGlob - 1) + 0.5 * rt.c_difyx(iGlob);
+			// C_{i-1,j-1}
+			local_coef[13] = -0.5 * rt.c_difxy(iGlob - 1) - 0.5 * rt.c_difyx(iGlob - gdom.nxhc);
+
+			// --- Z-direction cross-dispersion contributions ---
+			// Correction to C_{k+1} from XZ and YZ cross-terms
+			local_coef[14] = -0.5 * rt.c_difxz(iGlob) * inv_dxdz_span_i + 0.5 * rt.c_difxz(iGlob - 1) * inv_dxdz_span_i - 0.5 * rt.c_difyz(iGlob) * inv_dydz_span_i + 0.5 * rt.c_difyz(iGlob - gdom.nxhc) * inv_dydz_span_i;
+			local_coef[5] += local_coef[14];
+			//! C_{i+1,k+1}
+			local_coef[15] = -0.5 * rt.c_difxz(iGlob) * inv_dxdz_span_i - (1 - rt.wz(iGlob)) * rt.c_difzx(iGlob) * inv_2dxdz_i;
+			// Correction to C_{k-1} from XZ and YZ cross-terms
+			local_coef[16] = 0.5 * rt.c_difxz(iGlob) * inv_dxdz_span_i - 0.5 * rt.c_difxz(iGlob - 1) * inv_dxdz_span_i + 0.5 * rt.c_difyz(iGlob) * inv_dydz_span_i - 0.5 * rt.c_difyz(iGlob - gdom.nxhc) * inv_dydz_span_i;
+			local_coef[6] += local_coef[16];
+			//! C_{i+1,k-1}
+			local_coef[17] = 0.5 * rt.c_difxz(iGlob) * inv_dxdz_span_i + rt.wz(iGlob - plane) * rt.c_difzx(iGlob - plane) * inv_2dxdz_i;
+			// C_{i-1,k+1}
+			local_coef[18] = 0.5 * rt.c_difxz(iGlob - 1) * inv_dxdz_span_i + (1 - rt.wz(iGlob)) * rt.c_difzx(iGlob) * inv_2dxdz_i;
+			//! C_{i-1,k-1}
+			local_coef[19] = -0.5 * rt.c_difxz(iGlob - 1) * inv_dxdz_span_i - rt.wz(iGlob - plane) * rt.c_difzx(iGlob - plane) * inv_2dxdz_i;
+			// Correction to C_{i+1} from YX and ZX cross-terms
+			local_coef[20] = -0.5 * rt.c_difyx(iGlob) + 0.5 * rt.c_difyx(iGlob - gdom.nxhc) - rt.wz(iGlob) * rt.c_difzx(iGlob) * inv_2dxdz_i + (1 - rt.wz(iGlob - plane)) * rt.c_difzx(iGlob - plane) * inv_2dxdz_i;
+			local_coef[1] += local_coef[20];
+			// Correction to C_{i-1} from YX and ZX cross-terms
+			local_coef[21] = 0.5 * rt.c_difyx(iGlob) - 0.5 * rt.c_difyx(iGlob - gdom.nxhc) + rt.wz(iGlob) * rt.c_difzx(iGlob) * inv_2dxdz_i - (1 - rt.wz(iGlob - plane)) * rt.c_difzx(iGlob - plane) * inv_2dxdz_i;
+			local_coef[2] += local_coef[21];
+			// C_{j+1,k+1}
+			local_coef[22] = -0.5 * rt.c_difyz(iGlob) * inv_dydz_span_i - (1 - rt.wz(iGlob)) * rt.c_difzy(iGlob) * inv_2dydz_i;
+			// C_{j+1,k-1}
+			local_coef[23] = 0.5 * rt.c_difyz(iGlob) * inv_dydz_span_i + rt.wz(iGlob - plane) * rt.c_difzy(iGlob - plane) * inv_2dydz_i;
+			// C_{j-1,k+1}
+			local_coef[24] = 0.5 * rt.c_difyz(iGlob - gdom.nxhc) * inv_dydz_span_i + (1 - rt.wz(iGlob)) * rt.c_difzy(iGlob) * inv_2dydz_i;
+			// C_{j-1,k-1}
+			local_coef[25] = -0.5 * rt.c_difyz(iGlob - gdom.nxhc) * inv_dydz_span_i - rt.wz(iGlob - plane) * rt.c_difzy(iGlob - plane) * inv_2dydz_i;
+
+			// Stage everything except the Picard-dependent columns 0 and 7
+			// (column 26 is structurally zero).
+			for (int k = 0; k < 27; ++k)
+				if (k != 0 && k != 7)
+					coef_inv(idom, k) = local_coef[k]; });
+
+		Kokkos::fence();
+	}
+
+	/**
+	 * @brief Compute the upwind weighting factors for one transport half-step.
+	 *
+	 * The weights depend only on the sign of the half-step-invariant face
+	 * velocities (aveVB): they are neither species- nor Picard-dependent.
+	 * Called once per half-step right after dispersion_tensor(); the
+	 * assembly kernel and the RT boundary conditions (applyRTMatBC) read
+	 * exactly the same values as before the hoisting.
+	 *
+	 * @param gdom  Domain geometry (grid dimensions).
+	 * @param rt    Reactive transport state (weights written in place).
+	 */
+	inline void RTcompute_upwind_weights(GwDomain &gdom, RTStateGW &rt)
+	{
+		Kokkos::parallel_for("RT_Upwind_Weights", gdom.nCell, KOKKOS_LAMBDA(int idom) {
+			int ii, jj, kk, iGlob;
+			gdom.unpackIndices(idom, kk, jj, ii);
+			iGlob = (gdom.hc + kk) * gdom.nxhc * gdom.nyhc + (gdom.hc + jj) * gdom.nxhc + ii + gdom.hc;
+
+			// --- Upwind weighting factors (based on corrected velocity) ---
+			// v > 0 (flow in positive direction): weight = 1.0 (use C_i)
+			// v < 0 (flow in negative direction): weight = 0.0 (use C_{i+1})
+			// v = 0: weight = 0.5 (central average)
+			rt.Up_Weighting_xp(iGlob) = (rt.aveVB(iGlob, 0) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob, 0) < 0) ? rt.Up_Weighting_vminus
+																													: 0.5;
+			rt.Up_Weighting_xm(iGlob) = (rt.aveVB(iGlob - 1, 0) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob - 1, 0) < 0) ? rt.Up_Weighting_vminus
+																																: 0.5;
+			rt.Up_Weighting_yp(iGlob) = (rt.aveVB(iGlob, 1) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob, 1) < 0) ? rt.Up_Weighting_vminus
+																													: 0.5;
+			rt.Up_Weighting_ym(iGlob) = (rt.aveVB(iGlob - gdom.nxhc, 1) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob - gdom.nxhc, 1) < 0) ? rt.Up_Weighting_vminus
+																																				: 0.5;
+			rt.Up_Weighting_zp(iGlob) = (rt.aveVB(iGlob, 2) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob, 2) < 0) ? rt.Up_Weighting_vminus
+																													: 0.5;
+			rt.Up_Weighting_zm(iGlob) = (rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2) < 0) ? rt.Up_Weighting_vminus
+																																											: 0.5; });
 	}
 
 	/* =====================================================================
@@ -520,130 +992,100 @@ public:
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering RTlinear_system() for iSpec=" << iSpec << " picard_iter=" << picard_iter << std::endl;
 #endif
 		// -----------------------------------------------------------------
-		// Fused kernel: clear coefficients + main stencil assembly +
-		//               cross-dispersion terms  =>  single parallel_for
+		// [P1-1] The face-coefficient precompute (wz, c_adv**, c_dif**) is
+		// Picard-invariant and now runs once per species per half-step in
+		// RTprepare_species_coefficients(), called by rt_solve() before the
+		// Picard loop.  [P2-5] That function also stages the 19 Picard-
+		// invariant stencil columns into RTcoef_inv; this kernel copies them
+		// and only recomputes the truly Picard-dependent work (sorption mass
+		// terms and TVD flux corrections, both functions of rt.c(..,1)).
 		// -----------------------------------------------------------------
+		auto coef_inv_l = RTcoef_inv;
+		auto inv_dz_l = inv_dz;
+		const real inv_dx_l = inv_dx, inv_dy_l = inv_dy;
 		Kokkos::parallel_for("Build_Matrix_Fused", gdom.nCell, KOKKOS_LAMBDA(int idom) {
 			int ii, jj, kk, iGlob;
 			gdom.unpackIndices(idom, kk, jj, ii);
 			iGlob = (gdom.hc + kk) * gdom.nxhc * gdom.nyhc + (gdom.hc + jj) * gdom.nxhc + ii + gdom.hc;
 
-			// Allocate local coefficient array in registers / fast cache;
-			// initialisation to zero also clears any stale data.
-			real local_coef[27] = {0.0};
+			// [P1-7]/[P2-4] Cached geometry and one-time reciprocals: the
+			// former divisions by dz are reciprocal multiplications (~1 ulp,
+			// L2); dz_i is kept for the TVD flux-correction calls below.
+			const int plane = gdom.nxhc * gdom.nyhc;
+			const real dz_i = gdom.dz(iGlob);
+			const real inv_dz_i = inv_dz_l(iGlob);
+			const real dt_ = rt.dt;
 
-			// --- Upwind weighting factors (based on corrected velocity) ---
-			// v > 0 (flow in positive direction): weight = 1.0 (use C_i)
-			// v < 0 (flow in negative direction): weight = 0.0 (use C_{i+1})
-			// v = 0: weight = 0.5 (central average)
-			rt.Up_Weighting_xp(iGlob) = (rt.aveVB(iGlob, 0) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob, 0) < 0) ? rt.Up_Weighting_vminus
-																														: 0.5;
-			rt.Up_Weighting_xm(iGlob) = (rt.aveVB(iGlob - 1, 0) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob - 1, 0) < 0) ? rt.Up_Weighting_vminus
-																																: 0.5;
-			rt.Up_Weighting_yp(iGlob) = (rt.aveVB(iGlob, 1) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob, 1) < 0) ? rt.Up_Weighting_vminus
-																														: 0.5;
-			rt.Up_Weighting_ym(iGlob) = (rt.aveVB(iGlob - gdom.nxhc, 1) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob - gdom.nxhc, 1) < 0) ? rt.Up_Weighting_vminus
-																																				: 0.5;
-			rt.Up_Weighting_zp(iGlob) = (rt.aveVB(iGlob, 2) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob, 2) < 0) ? rt.Up_Weighting_vminus
-																														: 0.5;
-			rt.Up_Weighting_zm(iGlob) = (rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2) > 0) ? rt.Up_Weighting_vplus : (rt.aveVB(iGlob - gdom.nxhc * gdom.nyhc, 2) < 0) ? rt.Up_Weighting_vminus
-																																										: 0.5;
+			// Allocate local coefficient array in registers / fast cache.
+			// [P2-5] Columns 1-6 and 8-26 are Picard-invariant: staged once
+			// per species per half-step in RTcoef_inv by
+			// RTprepare_species_coefficients() and copied here.  Buffer
+			// columns 0 and 7 are never written and are immediately
+			// overwritten below.
+			real local_coef[27];
+			for (int k = 0; k < 27; ++k)
+				local_coef[k] = coef_inv_l(idom, k);
 
-			// Vertical geometric weight (used for cross-dispersion z-terms)
-			rt.wz(iGlob) = 0.5;
-
-			// --- Flux coefficients ---
-			// Advection coefficients: v * dt / dx  [dimensionless Courant number]
-			// (note: aveVB is already corrected to follow the coordinate axes)
-			rt.c_advxx(iSpec, iGlob) = rt.aveVB(iGlob, 0) * rt.dt / gdom.dx;
-			rt.c_advyy(iSpec, iGlob) = rt.aveVB(iGlob, 1) * rt.dt / gdom.dy;
-			rt.c_advzz(iSpec, iGlob) = rt.aveVB(iGlob, 2) * rt.dt; // divided by dz later
-
-			// Dispersion coefficients: D * dt / dx^2  [dimensionless]
-			rt.c_difxx(iSpec, iGlob) = rt.dcal(iSpec, iGlob, 0) * rt.dt / (gdom.dx * gdom.dx);
-			rt.c_difyy(iSpec, iGlob) = rt.dcal(iSpec, iGlob, 1) * rt.dt / (gdom.dy * gdom.dy);
-			rt.c_difzz(iSpec, iGlob) = rt.dcal(iSpec, iGlob, 2) * rt.dt / (0.5 * gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc));
-
-			// Cross-dispersion coefficients [dimensionless]
-			rt.c_difxy(iSpec, iGlob) = rt.dcal(iSpec, iGlob, 3) * rt.dt / (2 * gdom.dx * gdom.dy);
-			rt.c_difxz(iSpec, iGlob) = rt.dcal(iSpec, iGlob, 4) * rt.dt;
-			rt.c_difyx(iSpec, iGlob) = rt.dcal(iSpec, iGlob, 5) * rt.dt / (2 * gdom.dx * gdom.dy);
-			rt.c_difyz(iSpec, iGlob) = rt.dcal(iSpec, iGlob, 6) * rt.dt;
-			rt.c_difzx(iSpec, iGlob) = rt.dcal(iSpec, iGlob, 7) * rt.dt;
-			rt.c_difzy(iSpec, iGlob) = rt.dcal(iSpec, iGlob, 8) * rt.dt;
+			// [P1-2] Upwind weighting factors depend only on the sign of the
+			// half-step-invariant face velocities; they are now precomputed
+			// once per half-step by RTcompute_upwind_weights() and are only
+			// read here (applyRTMatBC reads the same values).
 
 			// =================================================================
 			// Mass conservation storage term with sorption and decay
 			// =================================================================
-			real min_conc = 1e-6;
-			real Rf = 1.0;                  // Retardation factor [dimensionless]
 			real intermediate_variable = 0.0; // Intermediate variable for kinetic sorption
 			int sorption_type = rt.Sorption_Type(iSpec);
+			real Kd_eff = 0.0; // Dynamic equivalent partition coefficient [L/kg]
+			real sorption_conc = 0.0;
+			real mass_lhs_diag = 0.0;
+			real mass_rhs = 0.0;
 
-			// During Picard iteration, use the concentration from the
-			// previous iteration to evaluate nonlinear terms.
-			real C_iter = fmax(0.0, rt.c(iSpec, iGlob, 1));
+				// During Picard iteration, use the concentration from the
+				// previous iteration to evaluate nonlinear terms.
+				real C_iter = fmax(0.0, rt.c(iSpec, iGlob, 1));
 
-			if (sorption_type == 1) // Linear equilibrium sorption
+				Kd_eff = sorption_equilibrium_derivative(rt, iSpec, C_iter);
+				sorption_conc = sorption_equilibrium_concentration(rt, iSpec, C_iter);
+			if (sorption_type == 0) 
 			{
-				Rf = 1.0 + rt.rho_b * rt.Kd(iSpec) / gw.wc_old(iGlob);
+				// No-sorption mode: disconnect the liquid equation from c_solid
+				// so stale solid concentrations cannot re-enter the mass balance.
+				mass_lhs_diag = gw.wc_new(iGlob) + dt_ * rt.Lambda_1(iSpec) * gw.wc_new(iGlob);
+				mass_rhs = gw.wc_old(iGlob) * rt.c(iSpec, iGlob, 0);
 			}
-			else if (sorption_type == 2) // Freundlich isotherm sorption
-			{
-				if (C_iter >= min_conc) {
-					Rf = 1.0 + (rt.rho_b * rt.Kf(iSpec) * rt.Nf(iSpec) * pow(C_iter, rt.Nf(iSpec) - 1.0)) / gw.wc_old(iGlob);
-				}
-			}
-			else if (sorption_type == 3) // Langmuir isotherm sorption
-			{
-				real alpha = rt.Alpha_D(iSpec);
-				real beta_L = rt.Beta_D(iSpec);
-				Rf = 1.0 + (rt.rho_b / gw.wc_old(iGlob)) * ((alpha * beta_L) / pow(1.0 + alpha * C_iter, 2.0));
-			}
+
 			else if (sorption_type == 4) // Non-equilibrium (kinetic) sorption
 			{
+				
 				real beta_k = rt.Beta(iSpec);
 				real Kd = rt.Kd(iSpec);
+				real intermediate_variable = 0.0;
 				if (Kd > 0.0) {
-					intermediate_variable = beta_k / (Kd * (rt.rho_b / rt.dt + beta_k / Kd + rt.Lambda_2(iSpec) * rt.rho_b));
+					intermediate_variable = beta_k / (Kd * (rt.rho_b / dt_ + beta_k / Kd + rt.Lambda_2(iSpec) * rt.rho_b));
 				}
-				Rf = 1.0;
+				// [P1-6] pow(Beta,2.0) -> beta_k * beta_k (same value, avoids pow)
+				mass_lhs_diag = gw.wc_new(iGlob) + dt_ * (beta_k + rt.Lambda_1(iSpec) * gw.wc_new(iGlob) - intermediate_variable * beta_k * beta_k);
+				mass_rhs = gw.wc_old(iGlob) * rt.c(iSpec, iGlob, 0) + intermediate_variable * rt.rho_b * rt.c_solid(iSpec, iGlob, 0);
 			}
-
-			// Apply retardation factor to the storage term (LHS diagonal and RHS)
-			real mass_lhs_diag = gw.wc_new(iGlob) * Rf;
-			real mass_rhs = gw.wc_old(iGlob) * rt.c(iSpec, iGlob, 0) * Rf;
-
-			// Additional reaction source/sink terms (decay and kinetic terms)
-			if (sorption_type == 4)
+			else 
 			{
-				mass_lhs_diag += rt.dt * (rt.Beta(iSpec) + rt.Lambda_1(iSpec) * gw.wc_new(iGlob) - intermediate_variable * pow(rt.Beta(iSpec), 2.0));
-				mass_rhs += intermediate_variable * rt.rho_b * rt.c_solid(iSpec, iGlob, 0); // previous solid-phase concentration
-			}
-			else
-			{
-				// Equilibrium sorption and no-sorption modes: apply only
-				// first-order liquid-phase natural decay
-				mass_lhs_diag += rt.dt * rt.Lambda_1(iSpec) * gw.wc_new(iGlob);
+				// Equilibrium adsorption (linear/Freundlich/Langmuir) and non-adsorption models
+				// LHS = wc_new + rho_b * dS/dC + dt * Lambda_1 * wc_new (Natural decay in the liquid phase)
+				mass_lhs_diag = gw.wc_new(iGlob) + rt.rho_b * Kd_eff + dt_ * rt.Lambda_1(iSpec) * gw.wc_new(iGlob);
+				
+				// RHS includes the Picard/Newton tangent intercept so nonlinear sorption remains conservative.
+				real sorption_old = sorption_equilibrium_concentration(rt, iSpec, rt.c(iSpec, iGlob, 0));
+				real tangent_intercept = rt.rho_b * (Kd_eff * C_iter - sorption_conc);
+				mass_rhs = gw.wc_old(iGlob) * rt.c(iSpec, iGlob, 0) + rt.rho_b * sorption_old + tangent_intercept;
 			}
 
-			// --- Assemble main diagonal and face-neighbour coefficients ---
+			
+
+			// --- Main diagonal (face-neighbour columns 1-6 and cross-dispersion
+			// columns 8-26 are final from the [P2-5] buffer copy above) ---
 			// local_coef[0]: diagonal (i,j,k)
-			local_coef[0] = mass_lhs_diag + rt.c_difxx(iSpec, iGlob) + rt.c_difxx(iSpec, iGlob - 1) + rt.Up_Weighting_xp(iGlob) * rt.c_advxx(iSpec, iGlob) - (1.0 - rt.Up_Weighting_xm(iGlob)) * rt.c_advxx(iSpec, iGlob - 1) + rt.c_difyy(iSpec, iGlob) + rt.c_difyy(iSpec, iGlob - gdom.nxhc) + rt.Up_Weighting_yp(iGlob) * rt.c_advyy(iSpec, iGlob) - (1.0 - rt.Up_Weighting_ym(iGlob)) * rt.c_advyy(iSpec, iGlob - gdom.nxhc) + rt.c_difzz(iSpec, iGlob) / gdom.dz(iGlob) + rt.c_difzz(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / gdom.dz(iGlob) + rt.Up_Weighting_zp(iGlob) * rt.c_advzz(iSpec, iGlob) / gdom.dz(iGlob) - (1.0 - rt.Up_Weighting_zm(iGlob)) * rt.c_advzz(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / gdom.dz(iGlob);
-
-			// Face neighbour coefficients (moved to LHS, note signs)
-			// local_coef[1]: C_{i+1}
-			local_coef[1] = -(rt.c_difxx(iSpec, iGlob) - (1.0 - rt.Up_Weighting_xp(iGlob)) * rt.c_advxx(iSpec, iGlob));
-			// local_coef[2]: C_{i-1}
-			local_coef[2] = -(rt.c_difxx(iSpec, iGlob - 1) + rt.Up_Weighting_xm(iGlob) * rt.c_advxx(iSpec, iGlob - 1));
-			// local_coef[3]: C_{j+1}
-			local_coef[3] = -(rt.c_difyy(iSpec, iGlob) - (1.0 - rt.Up_Weighting_yp(iGlob)) * rt.c_advyy(iSpec, iGlob));
-			// local_coef[4]: C_{j-1}
-			local_coef[4] = -(rt.c_difyy(iSpec, iGlob - gdom.nxhc) + rt.Up_Weighting_ym(iGlob) * rt.c_advyy(iSpec, iGlob - gdom.nxhc));
-			// local_coef[5]: C_{k+1}
-			local_coef[5] = -(rt.c_difzz(iSpec, iGlob) / gdom.dz(iGlob) - (1.0 - rt.Up_Weighting_zp(iGlob)) * rt.c_advzz(iSpec, iGlob) / gdom.dz(iGlob));
-			// local_coef[6]: C_{k-1}
-			local_coef[6] = -(rt.c_difzz(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / gdom.dz(iGlob) + rt.Up_Weighting_zm(iGlob) * rt.c_advzz(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / gdom.dz(iGlob));
+			local_coef[0] = mass_lhs_diag + rt.c_difxx(iGlob) + rt.c_difxx(iGlob - 1) + rt.Up_Weighting_xp(iGlob) * rt.c_advxx(iGlob) - (1.0 - rt.Up_Weighting_xm(iGlob)) * rt.c_advxx(iGlob - 1) + rt.c_difyy(iGlob) + rt.c_difyy(iGlob - gdom.nxhc) + rt.Up_Weighting_yp(iGlob) * rt.c_advyy(iGlob) - (1.0 - rt.Up_Weighting_ym(iGlob)) * rt.c_advyy(iGlob - gdom.nxhc) + rt.c_difzz(iGlob) * inv_dz_i + rt.c_difzz(iGlob - plane) * inv_dz_i + rt.Up_Weighting_zp(iGlob) * rt.c_advzz(iGlob) * inv_dz_i - (1.0 - rt.Up_Weighting_zm(iGlob)) * rt.c_advzz(iGlob - plane) * inv_dz_i;
 
 			// local_coef[7]: RHS (previous time-step mass + source/sink terms)
 			local_coef[7] = mass_rhs;
@@ -683,10 +1125,10 @@ public:
 					}
 
 					real flux_corr = compute_flux_correction(C_upstream, C_downstream, C_upstream_upstream,
-															rt.aveVB(iGlob, 0), rt.dt, gdom.dx, limiter_type);
+															rt.aveVB(iGlob, 0), dt_, gdom.dx, limiter_type);
 					// Add divergence of flux correction to RHS:
 					//   dt/dx * (F_corr_{i+1/2} - F_corr_{i-1/2})
-					local_coef[7] -= rt.dt / gdom.dx * flux_corr;
+					local_coef[7] -= dt_ * inv_dx_l * flux_corr;
 				}
 
 				// Face i-1/2 flux correction
@@ -711,9 +1153,9 @@ public:
 					}
 
 					real flux_corr = compute_flux_correction(C_upstream, C_downstream, C_upstream_upstream,
-															rt.aveVB(iGlob_minus, 0), rt.dt, gdom.dx, limiter_type);
+															rt.aveVB(iGlob_minus, 0), dt_, gdom.dx, limiter_type);
 					// Subtract from RHS (flux divergence at i-1/2)
-					local_coef[7] += rt.dt / gdom.dx * flux_corr;
+					local_coef[7] += dt_ * inv_dx_l * flux_corr;
 				}
 
 				// === Y-direction high-order flux correction ===
@@ -737,8 +1179,8 @@ public:
 					}
 
 					real flux_corr = compute_flux_correction(C_upstream, C_downstream, C_upstream_upstream,
-															rt.aveVB(iGlob, 1), rt.dt, gdom.dy, limiter_type);
-					local_coef[7] -= rt.dt / gdom.dy * flux_corr;
+															rt.aveVB(iGlob, 1), dt_, gdom.dy, limiter_type);
+					local_coef[7] -= dt_ * inv_dy_l * flux_corr;
 				}
 
 				if (jj > 0)
@@ -761,8 +1203,8 @@ public:
 					}
 
 					real flux_corr = compute_flux_correction(C_upstream, C_downstream, C_upstream_upstream,
-															rt.aveVB(iGlob_minus, 1), rt.dt, gdom.dy, limiter_type);
-					local_coef[7] += rt.dt / gdom.dy * flux_corr;
+															rt.aveVB(iGlob_minus, 1), dt_, gdom.dy, limiter_type);
+					local_coef[7] += dt_ * inv_dy_l * flux_corr;
 				}
 
 				// === Z-direction high-order flux correction ===
@@ -786,8 +1228,8 @@ public:
 					}
 
 					real flux_corr = compute_flux_correction(C_upstream, C_downstream, C_upstream_upstream,
-															rt.aveVB(iGlob, 2), rt.dt, gdom.dz(iGlob), limiter_type);
-					local_coef[7] -= rt.dt / gdom.dz(iGlob) * flux_corr;
+															rt.aveVB(iGlob, 2), dt_, dz_i, limiter_type);
+					local_coef[7] -= dt_ * inv_dz_i * flux_corr;
 				}
 
 				if (kk > 0)
@@ -810,72 +1252,40 @@ public:
 					}
 
 					real flux_corr = compute_flux_correction(C_upstream, C_downstream, C_upstream_upstream,
-															rt.aveVB(iGlob_minus, 2), rt.dt, gdom.dz(iGlob), limiter_type);
-					local_coef[7] += rt.dt / gdom.dz(iGlob) * flux_corr;
+															rt.aveVB(iGlob_minus, 2), dt_, dz_i, limiter_type);
+					local_coef[7] += dt_ * inv_dz_i * flux_corr;
 				}
 			}
 
+
 			// =================================================================
-			// Cross-dispersion stencil entries
-			//
-			// The following coefficients correspond to edge and corner
-			// neighbours in the 27-point stencil.  They arise from the
-			// cross-derivative terms in the dispersion tensor.
+			// Cross-dispersion stencil entries (local_coef[8..26] and their
+			// face-column corrections to local_coef[1..6]) are Picard-
+			// invariant and now come from the [P2-5] RTcoef_inv buffer; see
+			// RTprepare_species_coefficients().
 			// =================================================================
 
-			// Correction to C_{j+1} from XY cross-dispersion
-			local_coef[8] = -0.5 * rt.c_difxy(iSpec, iGlob) + 0.5 * rt.c_difxy(iSpec, iGlob - 1);
-			local_coef[3] += local_coef[8];
-			// C_{i,j+1}: accumulated from XY and ZY cross-terms
-			local_coef[8] = -0.5 * rt.c_difxy(iSpec, iGlob) + 0.5 * rt.c_difxy(iSpec, iGlob - 1) - rt.wz(iGlob) * rt.c_difzy(iSpec, iGlob) / (2 * gdom.dy * gdom.dz(iGlob)) + (1 - rt.wz(iGlob - gdom.nxhc * gdom.nyhc)) * rt.c_difzy(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / (2 * gdom.dy * gdom.dz(iGlob));
-			local_coef[3] += local_coef[8];
-			// C_{i+1,j+1}
-			local_coef[9] = -0.5 * rt.c_difxy(iSpec, iGlob) - 0.5 * rt.c_difyx(iSpec, iGlob);
-			// Correction to C_{j-1} from XY cross-dispersion
-			local_coef[10] = 0.5 * rt.c_difxy(iSpec, iGlob) - 0.5 * rt.c_difxy(iSpec, iGlob - 1) + rt.wz(iGlob) * rt.c_difzy(iSpec, iGlob) / (2 * gdom.dy * gdom.dz(iGlob)) - (1 - rt.wz(iGlob - gdom.nxhc * gdom.nyhc)) * rt.c_difzy(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / (2 * gdom.dy * gdom.dz(iGlob));
-			local_coef[4] += local_coef[10];
-			// C_{i+1,j-1}
-			local_coef[11] = 0.5 * rt.c_difxy(iSpec, iGlob) + 0.5 * rt.c_difyx(iSpec, iGlob - gdom.nxhc);
-			// C_{i-1,j+1}
-			local_coef[12] = 0.5 * rt.c_difxy(iSpec, iGlob - 1) + 0.5 * rt.c_difyx(iSpec, iGlob);
-			// C_{i-1,j-1}
-			local_coef[13] = -0.5 * rt.c_difxy(iSpec, iGlob - 1) - 0.5 * rt.c_difyx(iSpec, iGlob - gdom.nxhc);
-
-			// --- Z-direction cross-dispersion contributions ---
-			// Correction to C_{k+1} from XZ and YZ cross-terms
-			local_coef[14] = -0.5 * rt.c_difxz(iSpec, iGlob) / (gdom.dx * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) + 0.5 * rt.c_difxz(iSpec, iGlob - 1) / (gdom.dx * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) - 0.5 * rt.c_difyz(iSpec, iGlob) / (gdom.dy * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) + 0.5 * rt.c_difyz(iSpec, iGlob - gdom.nxhc) / (gdom.dy * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc)));
-			local_coef[5] += local_coef[14];
-			//! C_{i+1,k+1}
-			local_coef[15] = -0.5 * rt.c_difxz(iSpec, iGlob) / (gdom.dx * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) - (1 - rt.wz(iGlob)) * rt.c_difzx(iSpec, iGlob) / (2 * gdom.dx * gdom.dz(iGlob));
-			// Correction to C_{k-1} from XZ and YZ cross-terms
-			local_coef[16] = 0.5 * rt.c_difxz(iSpec, iGlob) / (gdom.dx * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) - 0.5 * rt.c_difxz(iSpec, iGlob - 1) / (gdom.dx * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) + 0.5 * rt.c_difyz(iSpec, iGlob) / (gdom.dy * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) - 0.5 * rt.c_difyz(iSpec, iGlob - gdom.nxhc) / (gdom.dy * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc)));
-			local_coef[6] += local_coef[16];
-			//! C_{i+1,k-1}
-			local_coef[17] = 0.5 * rt.c_difxz(iSpec, iGlob) / (gdom.dx * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) + rt.wz(iGlob - gdom.nxhc * gdom.nyhc) * rt.c_difzx(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / (2 * gdom.dx * gdom.dz(iGlob));
-			// C_{i-1,k+1}
-			local_coef[18] = 0.5 * rt.c_difxz(iSpec, iGlob - 1) / (gdom.dx * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) + (1 - rt.wz(iGlob)) * rt.c_difzx(iSpec, iGlob) / (2 * gdom.dx * gdom.dz(iGlob));
-			//! C_{i-1,k-1}
-			local_coef[19] = -0.5 * rt.c_difxz(iSpec, iGlob - 1) / (gdom.dx * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) - rt.wz(iGlob - gdom.nxhc * gdom.nyhc) * rt.c_difzx(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / (2 * gdom.dx * gdom.dz(iGlob));
-			// Correction to C_{i+1} from YX and ZX cross-terms
-			local_coef[20] = -0.5 * rt.c_difyx(iSpec, iGlob) + 0.5 * rt.c_difyx(iSpec, iGlob - gdom.nxhc) - rt.wz(iGlob) * rt.c_difzx(iSpec, iGlob) / (2 * gdom.dx * gdom.dz(iGlob)) + (1 - rt.wz(iGlob - gdom.nxhc * gdom.nyhc)) * rt.c_difzx(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / (2 * gdom.dx * gdom.dz(iGlob));
-			local_coef[1] += local_coef[20];
-			// Correction to C_{i-1} from YX and ZX cross-terms
-			local_coef[21] = 0.5 * rt.c_difyx(iSpec, iGlob) - 0.5 * rt.c_difyx(iSpec, iGlob - gdom.nxhc) + rt.wz(iGlob) * rt.c_difzx(iSpec, iGlob) / (2 * gdom.dx * gdom.dz(iGlob)) - (1 - rt.wz(iGlob - gdom.nxhc * gdom.nyhc)) * rt.c_difzx(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / (2 * gdom.dx * gdom.dz(iGlob));
-			local_coef[2] += local_coef[21];
-			// C_{j+1,k+1}
-			local_coef[22] = -0.5 * rt.c_difyz(iSpec, iGlob) / (gdom.dy * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) - (1 - rt.wz(iGlob)) * rt.c_difzy(iSpec, iGlob) / (2 * gdom.dy * gdom.dz(iGlob));
-			// C_{j+1,k-1}
-			local_coef[23] = 0.5 * rt.c_difyz(iSpec, iGlob) / (gdom.dy * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) + rt.wz(iGlob - gdom.nxhc * gdom.nyhc) * rt.c_difzy(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / (2 * gdom.dy * gdom.dz(iGlob));
-			// C_{j-1,k+1}
-			local_coef[24] = 0.5 * rt.c_difyz(iSpec, iGlob - gdom.nxhc) / (gdom.dy * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) + (1 - rt.wz(iGlob)) * rt.c_difzy(iSpec, iGlob) / (2 * gdom.dy * gdom.dz(iGlob));
-			// C_{j-1,k-1}
-			local_coef[25] = -0.5 * rt.c_difyz(iSpec, iGlob - gdom.nxhc) / (gdom.dy * (0.5 * gdom.dz(iGlob - gdom.nxhc * gdom.nyhc) + gdom.dz(iGlob) + 0.5 * gdom.dz(iGlob + gdom.nxhc * gdom.nyhc))) - rt.wz(iGlob - gdom.nxhc * gdom.nyhc) * rt.c_difzy(iSpec, iGlob - gdom.nxhc * gdom.nyhc) / (2 * gdom.dy * gdom.dz(iGlob));
-
-			// Final step: write all local coefficients to global memory
+			// Final step: write all local coefficients to global memory.
+			// [P1-7] The rt_rhs zero-fill that used to sit here is dead: the
+			// final rt_rhs is unconditionally (over)written by the CRS value
+			// gather at the end of this function, and neither applyRTMatBC()
+			// nor ComputeRTGWSourceSink() touches rtA.rt_rhs.
 			for(int k = 0; k < 27; k++) {
 				rt.RTcoef(idom, k) = local_coef[k];
-			}
-			rtA.rt_rhs(idom) = 0.0; });
+			} });
+
+		// [P1-4] Backup of the pre-BC physical stencil for the residual-based
+		// branch of compute_boundary_mass_fluxes().  Only the boundary rows
+		// are ever read there (columns 0..25), so the previous full
+		// nCell x 30 deep_copy is replaced by a boundary-row copy.  The
+		// backed-up values are bitwise identical to the full copy.
+		const int nrows_bak = nbres_rows;
+		auto rows_local = bres_rows;
+		auto orig_local = orig_RTcoef;
+		Kokkos::parallel_for("Backup_Boundary_RTcoef", nrows_bak, KOKKOS_LAMBDA(int i) {
+			const int idom = rows_local(i);
+			for (int k = 0; k < 27; ++k)
+				orig_local(idom, k) = rt.RTcoef(idom, k); });
 
 		// -----------------------------------------------------------------
 		// Stage 4: Apply boundary conditions to the matrix
@@ -934,153 +1344,297 @@ public:
             if (!(jj < gdom.ny - 1 && kk > 0))           rt.RTcoef(idom, 7) -= rt.RTcoef(idom, 23) * rt.c(iSpec, iGlob + gdom.nxhc - gdom.nxhc * gdom.nyhc, 1);
             if (!(jj > 0 && kk < gdom.nz - 1))           rt.RTcoef(idom, 7) -= rt.RTcoef(idom, 24) * rt.c(iSpec, iGlob - gdom.nxhc + gdom.nxhc * gdom.nyhc, 1);
             if (!(jj > 0 && kk > 0))                     rt.RTcoef(idom, 7) -= rt.RTcoef(idom, 25) * rt.c(iSpec, iGlob - gdom.nxhc - gdom.nxhc * gdom.nyhc, 1); });
-		Kokkos::fence();
+		// [P1-8] No fence needed here: the CRS gather kernels below run on
+		// the same execution space (launch-order sequenced), and the caller
+		// fences before reading the linsys timer.
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 		if (par.masterproc)
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> RTlinear_system(): MPI RHS update completed" << std::endl;
 #endif
 
 		// -----------------------------------------------------------------
-		// Stage 5: Fill the sparse matrix in CRS (Compressed Row Storage)
-		//          format.
+		// Stage 5: Fill the sparse matrix values in CRS (Compressed Row
+		//          Storage) format.
 		//
-		// Each row corresponds to one cell (idom).  Non-zero entries are
-		// inserted only for neighbours that exist (boundary check).
-		// The ordering follows a lexicographic sweep so that the
-		// CRS row pointer (rt_ptr) advances correctly.
+		// [P1-3] The CRS graph (rt_ind) and the per-entry (row, RTcoef-slot)
+		// gather map are geometry-only: they were filled once by
+		// RTMatrix::fillGraph() at initialisation, replicating the exact
+		// boundary-checked 19-entry insertion order that used to live here.
+		// Each assembly therefore only gathers the (possibly BC-modified)
+		// coefficient values into rt_val and copies column 7 into rt_rhs;
+		// the written values and their positions are identical to the
+		// previous branch-based fill.
 		// -----------------------------------------------------------------
-		Kokkos::parallel_for(gdom.nCell, KOKKOS_LAMBDA(int idom) {
-			int ii, jj, kk;
-			int irow = rtA.rt_ptr(idom);
-			gdom.unpackIndices(idom, kk, jj, ii);
-
-			// Boundary-checked insertion of non-zero stencil entries
-
-			if (kk > 0 && jj > 0){
-				rtA.rt_ind(irow) = idom - gdom.nx*gdom.ny - gdom.nx;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 25);  // C_{j-1,k-1}
-				irow++;
-			}
-
-	// C_{i-1,k-1}
-			if (ii > 0 && kk > 0){
-				rtA.rt_ind(irow) = idom -1 - gdom.nx*gdom.ny;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 19);
-				irow++;
-			}
-	// C_{k-1}
-		    if (kk > 0)	{
-			rtA.rt_ind(irow) = idom - gdom.nx*gdom.ny;
-			rtA.rt_val(irow) = rt.RTcoef(idom,6);
-			irow++;
-			}
-	// C_{i+1,k-1}
-			if (ii < gdom.nx-1 && kk > 0){
-				rtA.rt_ind(irow) = idom + 1 -gdom.nx*gdom.ny;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 17);
-				irow++;
-			}
-
-	//! C_{k-1,j+1}
-			if (kk > 0 && jj < gdom.ny-1){
-				rtA.rt_ind(irow) = idom - gdom.nx*gdom.ny + gdom.nx;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 23);
-				irow++;
-			}
-
-	//! C_{j-1,i-1}
-			if (jj > 0 && ii > 0){
-				rtA.rt_ind(irow) = idom - gdom.nx - 1;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 13);
-				irow++;
-			}
-	//! C_{j-1,i}
-			if (jj > 0)	{
-				rtA.rt_ind(irow) = idom - gdom.nx;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 4);
-				irow++;
-			}
-	//! C_{j-1,i+1}
-			if (jj > 0 && ii < gdom.nx-1){
-				rtA.rt_ind(irow) = idom - gdom.nx + 1;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 11);
-				irow++;
-			}
-
-	// C_{i-1}
-			if (ii > 0)	{
-				rtA.rt_ind(irow) = idom - 1;
-				rtA.rt_val(irow) = rt.RTcoef(idom,2);
-				irow++;
-			}
-	// C_{i,j,k}  (diagonal)
-			rtA.rt_ind(irow) = idom;
-			rtA.rt_val(irow) = rt.RTcoef(idom,0);
-			irow++;
-	// C_{i+1}
-			if (ii < gdom.nx-1)	{
-				rtA.rt_ind(irow) = idom + 1;
-				rtA.rt_val(irow) = rt.RTcoef(idom,1);
-				irow++;
-			}
-
-	//! C_{j+1,i-1}
-			if (jj < gdom.ny-1 && ii > 0){
-				rtA.rt_ind(irow) = idom + gdom.nx - 1;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 12);
-				irow++;
-			}
-	//! C_{j+1,i}
-			if (jj < gdom.ny-1)	{
-				rtA.rt_ind(irow) = idom + gdom.nx;
-				rtA.rt_val(irow) = rt.RTcoef(idom,3);
-				irow++;
-			}
-	//! C_{j+1,i+1}
-			if (jj < gdom.ny-1 && ii < gdom.nx-1){
-				rtA.rt_ind(irow) = idom + gdom.nx + 1;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 9);
-				irow++;
-			}
-
-	//! C_{k+1,j-1}
-			if (kk < gdom.nz-1 && jj > 0){
-				rtA.rt_ind(irow) = idom + gdom.nx*gdom.ny - gdom.nx;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 24);
-				irow++;
-			}
-
-	// C_{i-1,k+1}
-			if (ii > 0 && kk < gdom.nz-1){
-				rtA.rt_ind(irow) = idom -1 + gdom.nx*gdom.ny;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 18);
-				irow++;
-			}
-
-	// C_{k+1}
-			if (kk < gdom.nz-1)	{
-				rtA.rt_ind(irow) = idom + gdom.nx*gdom.ny;
-				rtA.rt_val(irow) = rt.RTcoef(idom,5);
-				irow++;
-			}
-	// C_{i+1,k+1}
-			if (ii < gdom.nx-1 && kk < gdom.nz-1){
-				rtA.rt_ind(irow) = idom + 1 + gdom.nx * gdom.ny;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 15);
-				irow++;
-			}
-	//! C_{k+1,j+1}
-			if (kk < gdom.nz-1 && jj < gdom.ny-1){
-				rtA.rt_ind(irow) = idom + gdom.nx*gdom.ny + gdom.nx;
-				rtA.rt_val(irow) = rt.RTcoef(idom, 22);
-				irow++;
-			}
-
-			rtA.rt_rhs(idom) = rt.RTcoef(idom,7); });
+		Kokkos::parallel_for("CRS_Gather_Values", rtA.rt_nnz, KOKKOS_LAMBDA(int j) {
+			rtA.rt_val(j) = rt.RTcoef(rtA.rt_row_of(j), rtA.rt_slot_of(j)); });
+		Kokkos::parallel_for("CRS_Set_RHS", rtA.rt_nrow, KOKKOS_LAMBDA(int i) {
+			rtA.rt_rhs(i) = rt.RTcoef(i, 7); });
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 		if (par.masterproc)
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> RTlinear_system() completed OK for iSpec=" << iSpec << std::endl;
 #endif
+	}
+
+	inline void compute_boundary_mass_fluxes(RTStateGW &rt, GwDomain &gdom, std::vector<RTBCGW> &rtbc, int iSpec)
+	{
+		for (size_t k = 0; k < rtbc.size(); k++)
+		{
+			if (rtbc[k].ncellsBC <= 0)
+				continue;
+
+			int current_bctype = rtbc[k].rtbctype;
+			if (iSpec < (int)rtbc[k].spec_bctype.size())
+				current_bctype = rtbc[k].spec_bctype[iSpec];
+
+			if (rtbc[k].spec_mass_in_rate.size() != rt.n_mass)
+			{
+				rtbc[k].spec_mass_in_rate.assign(rt.n_mass, 0.0);
+				rtbc[k].spec_mass_out_rate.assign(rt.n_mass, 0.0);
+			}
+
+			if (current_bctype == SUB_RT_BC_SWE)
+			{
+				rtbc[k].spec_mass_in_rate[iSpec] = 0.0;
+				rtbc[k].spec_mass_out_rate[iSpec] = 0.0;
+				continue;
+			}
+
+			real q_in_local = 0.0;
+			real q_out_local = 0.0;
+			int ncells = rtbc[k].ncellsBC;
+			auto bcells_local = rtbc[k].bcells;
+			auto gcells_local = rtbc[k].gcells;
+			int dir = rtbc[k].direction;
+			int plane = gdom.nxhc * gdom.nyhc;
+
+			if (current_bctype == SUB_RT_BC_FD)
+			{
+				Kokkos::parallel_reduce("RTGW_FD_Advective_Flux", ncells, KOKKOS_LAMBDA(int ibc, real &tmp_in, real &tmp_out) {
+					int iGlob = bcells_local(ibc);
+					int iGhost = gcells_local(ibc);
+
+					real vn_out = 0.0;
+					real area = 0.0;
+
+					if (dir == XPLUS)
+					{
+						vn_out = rt.aveVB(iGlob, 0);
+						area = gdom.dy * gdom.dz(iGlob);
+					}
+					else if (dir == XMINUS)
+					{
+						vn_out = -rt.aveVB(iGlob - 1, 0);
+						area = gdom.dy * gdom.dz(iGlob);
+					}
+					else if (dir == YPLUS)
+					{
+						vn_out = rt.aveVB(iGlob, 1);
+						area = gdom.dx * gdom.dz(iGlob);
+					}
+					else if (dir == YMINUS)
+					{
+						vn_out = -rt.aveVB(iGlob - gdom.nxhc, 1);
+						area = gdom.dx * gdom.dz(iGlob);
+					}
+					else if (dir == ZPLUS)
+					{
+						vn_out = rt.aveVB(iGlob, 2);
+						area = gdom.dx * gdom.dy;
+					}
+					else if (dir == ZMINUS)
+					{
+						vn_out = -rt.aveVB(iGlob - plane, 2);
+						area = gdom.dx * gdom.dy;
+					}
+					else
+					{
+						return;
+					}
+
+					real c_inside = fmax(0.0, rt.c(iSpec, iGlob, 1));
+					real c_external = fmax(0.0, rt.c(iSpec, iGhost, 1));
+					real c_upwind = (vn_out >= 0.0) ? c_inside : c_external;
+					real q_mass_out = vn_out * c_upwind * area * 1000.0;
+
+					if (q_mass_out >= 0.0)
+						tmp_out += q_mass_out;
+					else
+						tmp_in += -q_mass_out; }, Kokkos::Sum<real>(q_in_local), Kokkos::Sum<real>(q_out_local));
+				// [P1-8] No fence needed: parallel_reduce already synchronised.
+
+				rtbc[k].spec_mass_in_rate[iSpec] = q_in_local;
+				rtbc[k].spec_mass_out_rate[iSpec] = q_out_local;
+				rtbc[k].QMassInflow = q_in_local;
+				rtbc[k].QMassOutflow = q_out_local;
+				rtbc[k].QMassTot = q_out_local - q_in_local;
+				continue;
+			}
+
+			auto orig_RTcoef_local = orig_RTcoef;
+
+			Kokkos::parallel_reduce("RTGW_Boundary_Residual_Flux", ncells, KOKKOS_LAMBDA(int ibc, real &tmp_in, real &tmp_out) {
+				int iGlob = bcells_local(ibc);
+				int iGhost = gcells_local(ibc);
+				int ii, jj, kk;
+				gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+				int idom = (kk - gdom.hc) * gdom.nx * gdom.ny + (jj - gdom.hc) * gdom.nx + (ii - gdom.hc);
+
+				const int nxhc = gdom.nxhc;
+				const int plane = gdom.nxhc * gdom.nyhc;
+
+				real c0 = rt.c(iSpec, iGlob, 1);
+				real c1 = rt.c(iSpec, iGlob + 1, 1);
+				real c2 = rt.c(iSpec, iGlob - 1, 1);
+				real c3 = rt.c(iSpec, iGlob + nxhc, 1);
+				real c4 = rt.c(iSpec, iGlob - nxhc, 1);
+				real c5 = rt.c(iSpec, iGlob + plane, 1);
+				real c6 = rt.c(iSpec, iGlob - plane, 1);
+
+				real c9  = rt.c(iSpec, iGlob + 1 + nxhc, 1);
+				real c11 = rt.c(iSpec, iGlob + 1 - nxhc, 1);
+				real c12 = rt.c(iSpec, iGlob - 1 + nxhc, 1);
+				real c13 = rt.c(iSpec, iGlob - 1 - nxhc, 1);
+
+				real c15 = rt.c(iSpec, iGlob + 1 + plane, 1);
+				real c17 = rt.c(iSpec, iGlob + 1 - plane, 1);
+				real c18 = rt.c(iSpec, iGlob - 1 + plane, 1);
+				real c19 = rt.c(iSpec, iGlob - 1 - plane, 1);
+
+				real c22 = rt.c(iSpec, iGlob + nxhc + plane, 1);
+				real c23 = rt.c(iSpec, iGlob + nxhc - plane, 1);
+				real c24 = rt.c(iSpec, iGlob - nxhc + plane, 1);
+				real c25 = rt.c(iSpec, iGlob - nxhc - plane, 1);
+
+				// A Dirichlet boundary constrains the boundary cell itself.  For
+				// residual-based mass-flux recovery, extend that boundary state
+				// constantly in the outward normal direction.  This removes only
+				// the artificial exterior dispersive flux; the constraint reaction
+				// needed to maintain C_bc is still recovered from the physical row.
+				// Apply the same mapping to every face and all associated cross terms.
+				if (current_bctype == SUB_RT_BC_Dirichlet_CONST ||
+				    current_bctype == SUB_RT_BC_Dirichlet_T)
+				{
+					if (dir == XPLUS)
+					{
+						c1 = c0; c9 = c3; c11 = c4; c15 = c5; c17 = c6;
+					}
+					else if (dir == XMINUS)
+					{
+						c2 = c0; c12 = c3; c13 = c4; c18 = c5; c19 = c6;
+					}
+					else if (dir == YPLUS)
+					{
+						c3 = c0; c9 = c1; c12 = c2; c22 = c5; c23 = c6;
+					}
+					else if (dir == YMINUS)
+					{
+						c4 = c0; c11 = c1; c13 = c2; c24 = c5; c25 = c6;
+					}
+					else if (dir == ZPLUS)
+					{
+						c5 = c0; c15 = c1; c18 = c2; c22 = c3; c24 = c4;
+					}
+					else if (dir == ZMINUS)
+					{
+						c6 = c0; c17 = c1; c19 = c2; c23 = c3; c25 = c4;
+					}
+				}
+
+				real lhs_val = 0.0;
+				lhs_val += orig_RTcoef_local(idom, 0) * c0;
+				lhs_val += orig_RTcoef_local(idom, 1) * c1;
+				lhs_val += orig_RTcoef_local(idom, 2) * c2;
+				lhs_val += orig_RTcoef_local(idom, 3) * c3;
+				lhs_val += orig_RTcoef_local(idom, 4) * c4;
+				lhs_val += orig_RTcoef_local(idom, 5) * c5;
+				lhs_val += orig_RTcoef_local(idom, 6) * c6;
+				lhs_val += orig_RTcoef_local(idom, 9) * c9;
+				lhs_val += orig_RTcoef_local(idom, 11) * c11;
+				lhs_val += orig_RTcoef_local(idom, 12) * c12;
+				lhs_val += orig_RTcoef_local(idom, 13) * c13;
+				lhs_val += orig_RTcoef_local(idom, 15) * c15;
+				lhs_val += orig_RTcoef_local(idom, 17) * c17;
+				lhs_val += orig_RTcoef_local(idom, 18) * c18;
+				lhs_val += orig_RTcoef_local(idom, 19) * c19;
+				lhs_val += orig_RTcoef_local(idom, 22) * c22;
+				lhs_val += orig_RTcoef_local(idom, 23) * c23;
+				lhs_val += orig_RTcoef_local(idom, 24) * c24;
+				lhs_val += orig_RTcoef_local(idom, 25) * c25;
+
+				real residual = orig_RTcoef_local(idom, 7) - lhs_val;
+				real volume = gdom.dx * gdom.dy * gdom.dz(iGlob);
+				real rate = residual * volume * 1000.0 / rt.dt;
+
+				bool positive_rate_is_inflow = (dir == 1 || dir == 3 || dir == 5);
+				bool is_inflow = positive_rate_is_inflow ? (rate > 0.0) : (rate < 0.0);
+
+				if (is_inflow)
+					tmp_in += fabs(rate);
+				else
+					tmp_out += fabs(rate);
+
+				// The mapped physical-row residual recovers the Dirichlet
+				// constraint/dispersive contribution after suppressing the
+				// artificial exterior concentration jump.  The prescribed water
+				// flux through the physical face is a separate advective mass
+				// transfer and must be included explicitly.  Use one outward-normal
+				// sign convention for all six faces and the same staggered face
+				// velocity used by the transport matrix.
+				if (current_bctype == SUB_RT_BC_Dirichlet_CONST ||
+				    current_bctype == SUB_RT_BC_Dirichlet_T)
+				{
+					real vn_out = 0.0;
+					real area = 0.0;
+
+					if (dir == XPLUS)
+					{
+						vn_out = rt.aveVB(iGlob, 0);
+						area = gdom.dy * gdom.dz(iGlob);
+					}
+					else if (dir == XMINUS)
+					{
+						vn_out = -rt.aveVB(iGlob - 1, 0);
+						area = gdom.dy * gdom.dz(iGlob);
+					}
+					else if (dir == YPLUS)
+					{
+						vn_out = rt.aveVB(iGlob, 1);
+						area = gdom.dx * gdom.dz(iGlob);
+					}
+					else if (dir == YMINUS)
+					{
+						vn_out = -rt.aveVB(iGlob - nxhc, 1);
+						area = gdom.dx * gdom.dz(iGlob);
+					}
+					else if (dir == ZPLUS)
+					{
+						vn_out = rt.aveVB(iGlob, 2);
+						area = gdom.dx * gdom.dy;
+					}
+					else if (dir == ZMINUS)
+					{
+						vn_out = -rt.aveVB(iGlob - plane, 2);
+						area = gdom.dx * gdom.dy;
+					}
+
+					const real c_inside = fmax(0.0, c0);
+					const real c_external = fmax(0.0, rt.c(iSpec, iGhost, 1));
+					const real c_upwind = (vn_out >= 0.0) ? c_inside : c_external;
+					const real advective_mass_out = vn_out * c_upwind * area * 1000.0;
+
+					if (advective_mass_out >= 0.0)
+						tmp_out += advective_mass_out;
+					else
+						tmp_in += -advective_mass_out;
+				} }, Kokkos::Sum<real>(q_in_local), Kokkos::Sum<real>(q_out_local));
+			// [P1-8] No fence needed: parallel_reduce already synchronised.
+
+			rtbc[k].spec_mass_in_rate[iSpec] = q_in_local;
+			rtbc[k].spec_mass_out_rate[iSpec] = q_out_local;
+			rtbc[k].QMassInflow = q_in_local;
+			rtbc[k].QMassOutflow = q_out_local;
+			rtbc[k].QMassTot = q_out_local - q_in_local;
+		}
 	}
 
 	/* =====================================================================
@@ -1095,7 +1649,11 @@ public:
 	 *    3 = DOC  (dissolved organic carbon)  — elemental mass: 12.01 g/mol (as C)
 	 *    4 = DON  (dissolved organic nitrogen) — elemental mass: 14.01 g/mol (as N)
 	 *
-	 *  NH4 and NO3 use molecular mass; DON and DOC use elemental mass.
+	 *  Concentration mass basis is species-specific, not a universal
+	 *  nitrogen basis: NH4 and NO3 are compound masses, DO is O2 mass,
+	 *  DOC is elemental carbon mass, and DON is elemental nitrogen mass.
+	 *  Input concentrations are not automatically converted between
+	 *  compound-mass and elemental-mass conventions.
 	 *
 	 *  The reaction network includes:
 	 *    - Mineralisation  (DON -> NH4, aerobic)
@@ -1133,10 +1691,11 @@ public:
 	 *   2. Nitrification:     R_nit = mu_max_nit * f(T) * [NH4/(K_NH4+NH4)] * [DO/(K_DO+DO)]
 	 *   3. Denitrification:   R_denit = mu_max_denit * f(T) * [NO3/(K_NO3+NO3)] * [DOC/(K_DOC+DOC)] * [Ki/(Ki+DO)]
 	 *   4. Aerobic respiration: R_aer = mu_max_hetero * f(T) * [DOC/(K_DOC_aer+DOC)] * [DO/(K_DO_aer+DO)]
-	 *   5. Soil source:       re-aeration + DOC/DON release
+	 *   5. Groundwater sources: re-aeration + DOC/DON release
 	 *
-	 * @param C_new      New (guess) concentrations for 5 species [mg/L].
-	 * @param C_old      Old (previous time-step) concentrations [mg/L].
+	 * @param C_new      New concentrations for the five species on their
+	 *                   species-specific mass bases [mg/L or mg element/L].
+	 * @param C_old      Old concentrations on the same species-specific bases.
 	 * @param dt         Time step [s].
 	 * @param Resid      Output residual vector (length 5).
 	 * @param rt         Reactive transport state (kinetic parameters).
@@ -1146,14 +1705,14 @@ public:
 	 */
 	KOKKOS_INLINE_FUNCTION
 	void calculate_residual(const real C_new[], const real C_old[], real dt, real Resid[],
-							const RTStateGW &rt, real Temp_Corr, const real Rf[], real theta)
+							const RTStateGW &rt, real Temp_Corr, const real Rf[], real theta, real theta_s)
 	{
 		if (theta < 1e-5)
 			theta = 1e-5;
 		const real SMALL_CONC = 1e-15;
 
 		// --- Physical constants and environmental parameters ---
-		const real theta_s = 0.51;			 // Saturated water content [m^3/m^3]
+		// const real theta_s = 0.51;             // Saturated water content [m^3/m^3]
 		const real Ka_DO = rt.Ka_DO;		 // Re-aeration rate constant [1/s]
 		const real DO_sat = rt.DO_sat;		 // DO saturation concentration [mg/L]
 		const real DOC_eq = rt.DOC_eq;		 // DOC release equilibrium concentration [mg C/L]
@@ -1162,9 +1721,11 @@ public:
 		const real K_rel_DOC = rt.K_rel_DOC; // DOC release rate [1/s]
 
 		// =========================================================
-		// Stoichiometric yield coefficients (mass ratios, mg/mg)
-		// These are pure chemical/mass-conservation quantities,
-		// hence kept as hardcoded constants.
+		// Stoichiometric mass ratios. The base rates below use the
+		// concentration basis of the directly consumed species:
+		// R_min [mg N/L/s], R_nit [mg NH4/L/s], and R_denit/R_aer
+		// [mg C/L/s]. These coefficients convert each base rate to the
+		// basis of the affected species; they are not additional inputs.
 		// =========================================================
 		const real Y_NH4_DON = 18.04 / 14.01;		  // DON -> NH4  (molecular mass ratio)
 		const real Y_NO3_NH4 = 62.00 / 18.04;		  // NH4 -> NO3  (molecular mass ratio)
@@ -1182,30 +1743,29 @@ public:
 			real DOC = fmax(0.0, C[3]);
 			real DON = fmax(0.0, C[4]);
 
-			// =========================================================
-			// Mass reaction rates [mg/(L*s)]
-			// =========================================================
+			// Base reaction rates. Units are species-specific; see the
+			// rate comments below rather than interpreting all rates as mg/L/s.
 
-			// 1. Mineralisation rate (DON -> NH4)
+			// 1. Mineralisation rate: consumes DON-N, [mg N/L/s].
 			real R_min = rt.Rate_Max_Min * Temp_Corr * (DON / (rt.K_Monod_DON + DON + SMALL_CONC)) * (DO / (rt.K_Monod_DO_Min + DO + SMALL_CONC));
 
-			// 2. Nitrification rate (NH4 -> NO3)
+			// 2. Nitrification rate: consumes NH4 compound mass, [mg NH4/L/s].
 			real R_nit = rt.Rate_Max_Nit * Temp_Corr * (NH4 / (rt.K_Monod_NH4 + NH4 + SMALL_CONC)) * (DO / (rt.K_Monod_DO + DO + SMALL_CONC));
 
-			// 3. Denitrification rate (NO3 + DOC -> N2)
+			// 3. Denitrification rate: consumes DOC-C, [mg C/L/s].
 			real R_denit = rt.Rate_Max_Denit * Temp_Corr * (NO3 / (rt.K_Monod_NO3 + NO3 + SMALL_CONC)) * (DOC / (rt.K_Monod_DOC + DOC + SMALL_CONC)) * (rt.Ki_Inhib_DO / (rt.Ki_Inhib_DO + DO + SMALL_CONC));
 
-			// 4. Aerobic respiration rate (DOC + DO -> CO2)
+			// 4. Aerobic respiration rate: consumes DOC-C, [mg C/L/s].
 			real R_aer = rt.Rate_Max_Hetero * Temp_Corr * (DOC / (rt.K_Monod_DOC_Aerobic + DOC + SMALL_CONC)) * (DO / (rt.K_Monod_DO_Aerobic + DO + SMALL_CONC));
 
-			// 5. Soil source terms (re-aeration and organic matter release)
-			real R_air = Ka_DO * fmax(0.0, (theta - theta_s)) * fmax(0.0, DO_sat - DO);
+			// 5. Groundwater source terms. R_air is [mg O2/L/s],
+			// R_rel_DOC is [mg C/L/s], and R_rel_DON is [mg N/L/s].
+			real air_filled_porosity = fmax(0.0, theta_s - theta);
+			real R_air = Ka_DO * air_filled_porosity * fmax(0.0, DO_sat - DO);
 			real R_rel_DOC = K_rel_DOC * fmax(0.0, DOC_eq - DOC);
 			real R_rel_DON = K_rel_DON * fmax(0.0, DON_eq - DON);
 
-			// =========================================================
-			// Source/sink assembly for each species [mg/(L*s)]
-			// =========================================================
+			// Assemble source/sink terms on each species' concentration basis.
 			dCdt[0] = Y_NH4_DON * R_min - R_nit;									  // NH4: mineralisation gain - nitrification loss
 			dCdt[1] = Y_NO3_NH4 * R_nit - Y_NO3_DOC * R_denit;						  // NO3: nitrification gain - denitrification loss
 			dCdt[2] = R_air - Y_O2_DON * R_min - Y_O2_NH4 * R_nit - Y_O2_DOC * R_aer; // DO: re-aeration - mineralisation/nitrification/respiration O2 demand
@@ -1243,16 +1803,17 @@ public:
 	 */
 	KOKKOS_INLINE_FUNCTION
 	void calculate_jacobian(const real C_new[], real dt, real Jacobian[MAX_SPEC][MAX_SPEC],
-							const RTStateGW &rt, real Temp_Corr, const real Rf[], real theta)
+							const RTStateGW &rt, real Temp_Corr, const real Rf[], real theta, real theta_s)
 	{
 		const real SMALL_CONC = 1e-15;
 
-		const real theta_s = 0.51;
+		// const real theta_s = 0.51;
 		const real Ka_DO = rt.Ka_DO;		 // Re-aeration rate constant [1/s]
 		const real K_rel_DOC = rt.K_rel_DOC; // DOC release rate [1/s]
 		const real K_rel_DON = rt.K_rel_DON; // DON release rate [1/s]
+		const real DO_sat = rt.DO_sat;
 
-		// Stoichiometric yield coefficients (mass ratios, mg/mg)
+		// Stoichiometric mass ratios, expressed as mg product per mg base rate.
 		const real Y_NH4_DON = 18.04 / 14.01;
 		const real Y_O2_DON = 32.00 / 14.01;
 		const real Y_NO3_NH4 = 62.00 / 18.04;
@@ -1296,8 +1857,9 @@ public:
 		real dRaer_dDOC = rt.Rate_Max_Hetero * Temp_Corr * deriv_monod(DOC, rt.K_Monod_DOC_Aerobic) * (DO / (rt.K_Monod_DO_Aerobic + DO + SMALL_CONC));
 		real dRaer_dDO = rt.Rate_Max_Hetero * Temp_Corr * (DOC / (rt.K_Monod_DOC_Aerobic + DOC + SMALL_CONC)) * deriv_monod(DO, rt.K_Monod_DO_Aerobic);
 
-		// 5. Soil source term partial derivatives
-		real dRair_dDO = -Ka_DO * fmax(0.0, (theta - theta_s));
+		// 5. Groundwater source-term partial derivatives
+		real air_filled_porosity = fmax(0.0, theta_s - theta);
+		real dRair_dDO = (DO < DO_sat) ? (-Ka_DO * air_filled_porosity) : 0.0;
 
 		// --- Assemble the Jacobian matrix ---
 		// Start with identity (from the C_new - C_old term)
@@ -1472,11 +2034,11 @@ public:
             real dt = rt.dt;
 
             real theta = fmax(1e-5, gw.wc(iGlob, 0));  // Volumetric water content [m^3/m^3]
+			int ivg = gw.soilID(iGlob) * NVG;
+			real theta_s = gw.vgTable(ivg + 2); // wcsat from van Genuchten table for the soil type
 
-			// TODO: Couple with thermal reaction results in the future;
-			// currently uses a fixed environmental temperature for correction.
-            real T_env = 20.0;  // Future: connect to thermal module temperature [deg C]
-            // real Temp_Corr = pow(rt.Temp_Coeff_Theta, T_env - rt.Opt_Temp);
+			// TODO: Couple this kernel to the thermal module. Until then,
+			// groundwater reaction rates use a fixed correction factor of 1.0.
 			real Temp_Corr = 1.0;
 
             const int n_spec = 5; // Fixed at 5 for the nitrogen cycle species
@@ -1498,21 +2060,14 @@ public:
             }
 
             // 2. Extract retardation factors Rf for each species
-            real Rf[MAX_SPEC];
-            for (int k = 0; k < n_spec; k++) {
-                Rf[k] = 1.0;
-                int sorption_type = rt.Sorption_Type(k);
+			real Rf[MAX_SPEC];
+			for (int k = 0; k < n_spec; k++) {
+				Rf[k] = 1.0;
 				real C_liquid = rt.c(k, iGlob, 1);
-
-                if (sorption_type == 1) {           // Linear sorption
-                    Rf[k] = 1.0 + (rt.rho_b * rt.Kd(k)) / theta;
-                } else if (sorption_type == 2 && C_liquid >= 1e-6) { // Freundlich
-                    Rf[k] = 1.0 + (rt.rho_b * rt.Kf(k) * rt.Nf(k) * pow(C_liquid, rt.Nf(k) - 1.0)) / theta;
-                } else if (sorption_type == 3) {    // Langmuir
-                    real alpha = rt.Alpha_D(k);
-                    real beta_L = rt.Beta_D(k);
-                    Rf[k] = 1.0 + (rt.rho_b / theta) * ((alpha * beta_L) / pow(1.0 + alpha * C_liquid, 2.0));
-                }
+				real dSdC = sorption_equilibrium_derivative(rt, k, C_liquid);
+				if (rt.Sorption_Type(k) != 0) {
+					Rf[k] = 1.0 + (rt.rho_b * dSdC) / theta;
+				}
             }
 
             // 3. Newton-Raphson iteration for the fully-implicit reaction system
@@ -1528,7 +2083,7 @@ public:
             }
 
             for (int iter = 0; iter < MAX_NEWTON_ITER; iter++) {
-                calculate_residual(C_new, C_old, dt, Resid, rt, Temp_Corr, Rf, theta);
+                calculate_residual(C_new, C_old, dt, Resid, rt, Temp_Corr, Rf, theta, theta_s);
 
                 // Check convergence (L2 norm of residual)
                 real norm_resid = 0.0;
@@ -1536,7 +2091,7 @@ public:
                 if (sqrt(norm_resid) < NEWTON_TOLERANCE) break;
 
                 // Compute Jacobian and solve the linear system
-                calculate_jacobian(C_new, dt, Jacobian, rt, Temp_Corr, Rf, theta);
+                calculate_jacobian(C_new, dt, Jacobian, rt, Temp_Corr, Rf, theta, theta_s);
 
                 solve_small_system_NxN(Jacobian, Resid, Delta_C, n_spec);
 
@@ -1598,7 +2153,7 @@ public:
 	 * @param ss           Source/sink data (e.g. root uptake).
 	 */
 	template <typename execution_space, typename type_solver>
-	inline void rt_solve(RTStateGW &rt, RTMatrix &rtA, GwState &gw, GwDomain &gdom, std::vector<RTBCGW> &rtgbc, GwMPI &gmpi, Parallel &par, RTIntegrator &rtint, type_solver &RTSolverGW, const SourceSink &ss)
+	inline void rt_solve(RTStateGW &rt, RTMatrix &rtA, GwState &gw, GwDomain &gdom, std::vector<RTBCGW> &rtgbc, GwMPI &gmpi, GwMPI &rtgmpi, Parallel &par, RTIntegrator &rtint, type_solver &RTSolverGW, const SourceSink &ss)
 	{
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 		if (par.masterproc)
@@ -1610,9 +2165,56 @@ public:
 
 		// Store the original time step
 		rt.dt = dt_original;
+		if (orig_RTcoef.extent(0) != (size_t)gdom.nCell || orig_RTcoef.extent(1) != 30)
+		{
+			orig_RTcoef = realArr2("orig_RTcoef", gdom.nCell, 30);
+			// [P1-4] Collect the interior rows of the boundary cells whose
+			// RTcoef must be backed up.  Only the residual-based branch of
+			// compute_boundary_mass_fluxes() reads orig_RTcoef (columns
+			// 0..25); FD/SWE-type boundaries never touch it.  Built once per
+			// allocation (rtgbc is fixed after initialisation).
+			std::set<int> rows;
+			for (size_t k = 0; k < rtgbc.size(); k++)
+			{
+				if (rtgbc[k].ncellsBC <= 0)
+					continue;
+				bool needs_backup =
+					(rtgbc[k].rtbctype != SUB_RT_BC_FD && rtgbc[k].rtbctype != SUB_RT_BC_SWE);
+				for (int s = 0; s < (int)rtgbc[k].spec_bctype.size(); ++s)
+					if (rtgbc[k].spec_bctype[s] != SUB_RT_BC_FD &&
+						rtgbc[k].spec_bctype[s] != SUB_RT_BC_SWE)
+						needs_backup = true; // any species on the residual branch
+				if (!needs_backup)
+					continue;
+				auto h_bcells = Kokkos::create_mirror_view(rtgbc[k].bcells);
+				Kokkos::deep_copy(h_bcells, rtgbc[k].bcells);
+				for (int i = 0; i < rtgbc[k].ncellsBC; ++i)
+				{
+					int ii, jj, kk;
+					gdom.unpackIndicesHalo(h_bcells(i), kk, jj, ii);
+					rows.insert((kk - gdom.hc) * gdom.nx * gdom.ny
+								+ (jj - gdom.hc) * gdom.nx + (ii - gdom.hc));
+				}
+			}
+			nbres_rows = (int)rows.size();
+			bres_rows = intArr("bres_rows", nbres_rows);
+			auto h_rows = Kokkos::create_mirror_view(bres_rows);
+			int c = 0;
+			for (int r : rows)
+				h_rows(c++) = r;
+			Kokkos::deep_copy(bres_rows, h_rows);
+		}
+
+		// [P2-4] One-time pure-geometry reciprocals and wz (the grid never
+		// changes during a simulation).
+		if (inv_dz.extent(0) != (size_t)gdom.nCellMem)
+		{
+			RTprecompute_geometry(gdom, rt);
+		}
 
 		// Performance timers for each computational phase
-		Kokkos::Timer timer_bc, timer_comm, timer_disp, timer_linsys, timer_linsol, timer_react, timer_update, timer_integrate;
+		Kokkos::Timer timer_bc, timer_comm, timer_disp, timer_linsys, timer_linsol;
+		Kokkos::Timer timer_react, timer_update, timer_audit, timer_prepare, timer_postprocess;
 		Kokkos::Timer timer_total;
 		timer_total.reset();
 
@@ -1622,14 +2224,19 @@ public:
 		if (par.masterproc)
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rt_solve(): MPI sync water content" << std::endl;
 #endif
+		timer_comm.reset();
 		gmpi.mpi_sendrecv1(gw.wc_old, gdom, par);
 		gmpi.mpi_sendrecv1(gw.wc_new, gdom, par);
+		Kokkos::fence();
+		gdom.timers.rtgw.comm += timer_comm.seconds();
 		// Compute mid-point water content for the Strang splitting
+		timer_prepare.reset();
 		Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
 		    rt.wc_original_old(iGlob) = gw.wc_old(iGlob);
 		    rt.wc_original_new(iGlob) = gw.wc_new(iGlob);
 		    rt.wc_mid(iGlob) = 0.5 * (gw.wc_old(iGlob) + gw.wc_new(iGlob)); });
 		Kokkos::fence();
+		gdom.timers.rtgw.prepare += timer_prepare.seconds();
 
 		// ============================================================
 		// Step 1: Physical Transport — dt/2
@@ -1639,18 +2246,32 @@ public:
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rt_solve(): === Step 1: Transport (dt/2) ===" << std::endl;
 #endif
 		rt.dt = dt_original / 2.0;
+#if SERGHEI_OUTPUT_MASS_CONSERVATION_METRICS
+		timer_audit.reset();
+		const std::vector<real> mass_before_half_1 =
+			rtint.computeLocalTotalMasses(rt, gdom, gw.wc_old);
+		Kokkos::fence();
+		gdom.timers.rtgw.massAudit += timer_audit.seconds();
+#endif
 
 		// Use mid-point water content for the first half-step
+		timer_prepare.reset();
 		Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) { gw.wc_new(iGlob) = rt.wc_mid(iGlob); });
 		Kokkos::fence();
+		gdom.timers.rtgw.prepare += timer_prepare.seconds();
 
 		// Apply boundary conditions
 		timer_bc.reset();
+		// Start a complete boundary refresh with an empty exchange field.
+		// applyConcentrationBC() is called for multiple boundary objects; it
+		// must not clear ConQss itself or a later non-SWE boundary will erase
+		// the species-0 exchange flux written by the top SWE boundary.
+		Kokkos::deep_copy(rt.ConQss, 0.0);
 		for (int iSpec = 0; iSpec < rt.n_mass; iSpec++)
 		{
 			for (int k = 0; k < rtgbc.size(); k++)
 			{
-				rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec);
+				rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec, false);
 			}
 		}
 		Kokkos::fence(); // Ensure BC application completes
@@ -1661,7 +2282,7 @@ public:
 #endif
 		// MPI concentration halo exchange
 		timer_comm.reset();
-		gmpi.mpi_sendrecv_rt(rt.c, gdom, par, rt.n_mass, 1);
+		rtgmpi.mpi_sendrecv_rt(rt.c, gdom, par, rt.n_mass, 1);
 		gdom.timers.rtgw.comm += timer_comm.seconds();
 
 		// Compute dispersion tensor
@@ -1673,6 +2294,12 @@ public:
 		if (par.masterproc)
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Step1: dispersion tensor computed, starting Picard iteration" << std::endl;
 #endif
+		// [P1-2] Upwind weights depend only on the (now final) aveVB signs:
+		// compute once per half-step instead of inside every assembly kernel.
+		timer_prepare.reset();
+		RTcompute_upwind_weights(gdom, rt);
+		Kokkos::fence();
+		gdom.timers.rtgw.prepare += timer_prepare.seconds();
 		// Back up current concentrations as the "old" time level for Picard
 		Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
 			for (int iSpec = 0; iSpec < rt.n_mass; iSpec++)
@@ -1684,8 +2311,18 @@ public:
 		// Per-species Picard iteration loop
 		for (int iSpec = 0; iSpec < rt.n_mass; iSpec++)
 		{
+			// [P1-1] Picard-invariant face coefficients: computed once per
+			// species per half-step instead of once per Picard iteration.
+			timer_prepare.reset();
+			RTprepare_species_coefficients(gdom, rt, iSpec);
+			Kokkos::fence();
+			gdom.timers.rtgw.prepare += timer_prepare.seconds();
+
+			rtPicardEnsure(rt.n_mass); // [P3-4] Picard statistics
+			rtPicardEpisodes[iSpec]++;
 			for (int picard_iter = 0; picard_iter < picard_iter_max; picard_iter++)
 			{
+				rtPicardIters[iSpec]++; // [P3-4]
 				// Initialise the linear solver with the current guess
 				Kokkos::parallel_for("Init_Solver_X", gdom.nCell, KOKKOS_LAMBDA(int idom) {
 	            int ii, jj, kk, iGlob;
@@ -1709,7 +2346,7 @@ public:
 				}
 				else if (rt.rt_scheme == 2)
 				{
-					RTSolverGW.Jacobi_GMRES_Solve(rtA);
+					RTSolverGW.Jacobi_GMRES_Solve(rtA, false, "Step1", iSpec, picard_iter, 0.0, 0.0, rt.dt);
 				}
 				Kokkos::fence();
 				gdom.timers.rtgw.linsol += timer_linsol.seconds();
@@ -1719,6 +2356,20 @@ public:
 #endif
 				// Update concentrations and solid-phase sorption
 				timer_update.reset();
+#if SERGHEI_OUTPUT_MASS_CONSERVATION_METRICS
+				real clipped_mass_local = 0.0;
+				Kokkos::parallel_reduce("RTGW_Step1_NegativeClipMass", gdom.nCell, KOKKOS_LAMBDA(int idom, real &tmp) {
+						if (rtA.rt_x(idom) < 0.0)
+						{
+							int ii, jj, kk;
+							gdom.unpackIndices(idom, kk, jj, ii);
+							const int iGlob = (gdom.hc + kk) * gdom.nxhc * gdom.nyhc
+							                + (gdom.hc + jj) * gdom.nxhc + ii + gdom.hc;
+							const real volume = gdom.dx * gdom.dy * gdom.dz(iGlob);
+							tmp += -rtA.rt_x(idom) * gw.wc_new(iGlob) * volume * 1000.0;
+						} }, Kokkos::Sum<real>(clipped_mass_local));
+				rtint.AccumNegativeClippedMass_spec(iSpec) += clipped_mass_local;
+#endif
 				real err_max_local = 0.0;
 				Kokkos::parallel_reduce("Update_Concentration", gdom.nCell, KOKKOS_LAMBDA(int idom, real &lmax) {
 					int ii, jj, kk, iGlob;
@@ -1737,19 +2388,9 @@ public:
 					int sorption_type = rt.Sorption_Type(iSpec);
 					real C_liquid = rt.c(iSpec, iGlob, 1);
 
-					if (sorption_type == 1)       // Linear sorption: S = Kd * C
+					if (sorption_type == 1 || sorption_type == 2 || sorption_type == 3)
 					{
-						rt.c_solid(iSpec, iGlob, 1) = rt.Kd(iSpec) * C_liquid;
-					}
-					else if (sorption_type == 2)  // Freundlich: S = Kf * C^Nf
-					{
-						rt.c_solid(iSpec, iGlob, 1) = rt.Kf(iSpec) * pow(C_liquid, rt.Nf(iSpec));
-					}
-					else if (sorption_type == 3)  // Langmuir: S = (alpha*beta*C) / (1 + alpha*C)
-					{
-						real alpha = rt.Alpha_D(iSpec);
-						real beta_L = rt.Beta_D(iSpec);
-						rt.c_solid(iSpec, iGlob, 1) = (alpha * beta_L * C_liquid) / (1.0 + alpha * C_liquid);
+						rt.c_solid(iSpec, iGlob, 1) = sorption_equilibrium_concentration(rt, iSpec, C_liquid);
 					}
 					else if (sorption_type == 4)  // Kinetic sorption: implicit update
 					{
@@ -1764,40 +2405,88 @@ public:
 							real denom = rho_b / dt + beta_k / Kd + lambda_2 * rho_b;
 							rt.c_solid(iSpec, iGlob, 1) = (rho_b / dt * S_old + beta_k * C_liquid) / denom;
 						}
+					}
 
-						real diff = fabs(rt.c(iSpec, iGlob, 1) - C_old_iter);
-						if (diff > lmax)
-							lmax = diff;
-					} }, Kokkos::Max<real>(err_max_local));
-				Kokkos::fence();
+					real diff = fabs(rt.c(iSpec, iGlob, 1) - C_old_iter);
+					if (diff > lmax)
+						lmax = diff; }, Kokkos::Max<real>(err_max_local));
+				// [P1-8] No fence needed: parallel_reduce has already
+				// synchronised before delivering err_max_local to the host.
 
 				// MPI global reduction for Picard convergence check
 				real err_max_global = 0.0;
-				MPI_Allreduce(&err_max_local, &err_max_global, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+				gdom.timers.rtgw.update += timer_update.seconds();
+				timer_comm.reset();
+				SERGHEI_MPI_CHECK(MPI_Allreduce(&err_max_local, &err_max_global, 1, SERGHEI_MPI_REAL, MPI_MAX, MPI_COMM_WORLD));
+				gdom.timers.rtgw.convergence += timer_comm.seconds();
 
 				if (err_max_global < picard_tol)
 				{
+					// [P3-4] record the iteration at which convergence occurred
+					if (picard_iter == 0) rtPicardConv1[iSpec]++;
+					else if (picard_iter == 1) rtPicardConv2[iSpec]++;
+					else rtPicardConv3[iSpec]++;
 					break; // Converged: exit Picard loop for this species
 				}
-
-				gdom.timers.rtgw.update += timer_update.seconds();
 
 				// MPI concentration exchange and BC re-application for
 				// the next Picard iteration
 				timer_comm.reset();
-				gmpi.mpi_sendrecv_rt(rt.c, gdom, par, rt.n_mass, 1);
+				rtgmpi.mpi_sendrecv_rt_species(rt.c, gdom, par, iSpec, 1);
 				Kokkos::fence();
 				gdom.timers.rtgw.comm += timer_comm.seconds();
 
 				timer_bc.reset();
 				for (int k = 0; k < rtgbc.size(); k++)
 				{
-					rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec);
+					rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec, false);
 				}
 				Kokkos::fence();
 				gdom.timers.rtgw.bc += timer_bc.seconds();
 			}
+			timer_comm.reset();
+			rtgmpi.mpi_sendrecv_rt_species(rt.c, gdom, par, iSpec, 1);
+			Kokkos::fence();
+			gdom.timers.rtgw.comm += timer_comm.seconds();
+
+			timer_bc.reset();
+			for (int k = 0; k < rtgbc.size(); k++)
+			{
+				rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec, false);
+			}
+			Kokkos::fence();
+			gdom.timers.rtgw.bc += timer_bc.seconds();
+
+			timer_audit.reset();
+			compute_boundary_mass_fluxes(rt, gdom, rtgbc, iSpec);
+			Kokkos::fence();
+			gdom.timers.rtgw.boundaryAudit += timer_audit.seconds();
 		}
+		// Refresh boundary flux diagnostics with the converged concentrations
+		// before integrating the first transport half-step.
+		timer_bc.reset();
+		Kokkos::deep_copy(rt.ConQss, 0.0);
+		for (int iSpec = 0; iSpec < rt.n_mass; iSpec++)
+		{
+			for (int k = 0; k < rtgbc.size(); k++)
+			{
+				rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec, false);
+			}
+		}
+		Kokkos::fence();
+		gdom.timers.rtgw.bc += timer_bc.seconds();
+#if SERGHEI_OUTPUT_MASS_CONSERVATION_METRICS
+		timer_audit.reset();
+		const std::vector<real> mass_after_half_1 =
+			rtint.computeLocalTotalMasses(rt, gdom, gw.wc_new);
+		rtint.accumulateTransportFluxes(gw, rt, gdom, rtgbc, dt_original / 2.0,
+										&mass_before_half_1, &mass_after_half_1, 1);
+#else
+		timer_audit.reset();
+		rtint.accumulateTransportFluxes(gw, rt, gdom, rtgbc, dt_original / 2.0);
+#endif
+		Kokkos::fence();
+		gdom.timers.rtgw.massAudit += timer_audit.seconds();
 
 		// ============================================================
 		// Step 2: Chemical Reaction — dt
@@ -1809,16 +2498,40 @@ public:
 		rt.dt = dt_original;
 
 		// Record liquid mass before reaction (for mass balance diagnostics)
-		rtint.recordLiquidMassBefore(rt, gw, gdom);
+		timer_audit.reset();
+		if (rtint.hasReaction())
+			rtint.recordLiquidMassBefore(rt, gw, gdom);
+		Kokkos::fence();
+		gdom.timers.rtgw.reactAudit += timer_audit.seconds();
 
 		// Execute reaction integration kernel
 		timer_react.reset();
 		reaction_integration_kernel(rt, gw, gdom, par);
 		Kokkos::fence();
-		gdom.timers.rtgw.react += timer_react.seconds();
+		gdom.timers.rtgw.reactKernel += timer_react.seconds();
+
+		// Immediately after the reaction step ends, update the solid-phase concentration in real time based on the latest liquid-phase concentration!<\/h>
+		// Otherwise, the retained solid-phase mass will desorb again when the next Transport step begins, causing ‘mass revival’
+		timer_update.reset();
+		Kokkos::parallel_for("Update_Solid_After_Reaction", gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
+			for (int iSpec = 0; iSpec < rt.n_mass; iSpec++) {
+				int sorption_type = rt.Sorption_Type(iSpec);
+				real C_liquid = rt.c(iSpec, iGlob, 1);
+
+				if (sorption_type == 1 || sorption_type == 2 || sorption_type == 3)
+				{
+					rt.c_solid(iSpec, iGlob, 1) = sorption_equilibrium_concentration(rt, iSpec, C_liquid);
+				}
+			} });
+		Kokkos::fence();
+		gdom.timers.rtgw.solidUpdate += timer_update.seconds();
 
 		// Compute reaction loss/gain rates (mass balance diagnostics)
-		rtint.finalizeReactionFlux(rt, gw, gdom, dt_original);
+		timer_audit.reset();
+		if (rtint.hasReaction())
+			rtint.finalizeReactionFlux(rt, gw, gdom, dt_original);
+		Kokkos::fence();
+		gdom.timers.rtgw.reactAudit += timer_audit.seconds();
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 		if (par.masterproc)
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Step2: reaction completed" << std::endl;
@@ -1843,18 +2556,28 @@ public:
 		rt.dt = dt_original / 2.0;
 
 		// Use mid-point as old water content and original new as target
+		timer_prepare.reset();
 		Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
 			gw.wc_old(iGlob) = rt.wc_mid(iGlob);
 			gw.wc_new(iGlob) = rt.wc_original_new(iGlob); });
 		Kokkos::fence();
+		gdom.timers.rtgw.prepare += timer_prepare.seconds();
+#if SERGHEI_OUTPUT_MASS_CONSERVATION_METRICS
+		timer_audit.reset();
+		const std::vector<real> mass_before_half_3 =
+			rtint.computeLocalTotalMasses(rt, gdom, gw.wc_old);
+		Kokkos::fence();
+		gdom.timers.rtgw.massAudit += timer_audit.seconds();
+#endif
 
 		// Apply boundary conditions
 		timer_bc.reset();
+		Kokkos::deep_copy(rt.ConQss, 0.0);
 		for (int iSpec = 0; iSpec < rt.n_mass; iSpec++)
 		{
 			for (int k = 0; k < rtgbc.size(); k++)
 			{
-				rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec);
+				rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec, false);
 			}
 		}
 		Kokkos::fence();
@@ -1862,7 +2585,7 @@ public:
 
 		// MPI concentration halo exchange
 		timer_comm.reset();
-		gmpi.mpi_sendrecv_rt(rt.c, gdom, par, rt.n_mass, 1);
+		rtgmpi.mpi_sendrecv_rt(rt.c, gdom, par, rt.n_mass, 1);
 		gdom.timers.rtgw.comm += timer_comm.seconds();
 
 		// Compute dispersion tensor
@@ -1874,11 +2597,25 @@ public:
 		if (par.masterproc)
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Step3: dispersion tensor computed, starting Picard iteration" << std::endl;
 #endif
+		// [P1-2] Upwind weights: once per half-step (see Step 1).
+		timer_prepare.reset();
+		RTcompute_upwind_weights(gdom, rt);
+		Kokkos::fence();
+		gdom.timers.rtgw.prepare += timer_prepare.seconds();
 		// Per-species Picard iteration loop (Step 3)
 		for (int iSpec = 0; iSpec < rt.n_mass; iSpec++)
 		{
+			// [P1-1] Picard-invariant face coefficients: once per species.
+			timer_prepare.reset();
+			RTprepare_species_coefficients(gdom, rt, iSpec);
+			Kokkos::fence();
+			gdom.timers.rtgw.prepare += timer_prepare.seconds();
+
+			rtPicardEnsure(rt.n_mass); // [P3-4] Picard statistics
+			rtPicardEpisodes[iSpec]++;
 			for (int picard_iter = 0; picard_iter < picard_iter_max; picard_iter++)
 			{
+				rtPicardIters[iSpec]++; // [P3-4]
 				// Initialise linear solver guess
 				Kokkos::parallel_for("Init_Solver_X", gdom.nCell, KOKKOS_LAMBDA(int idom) {
 	            int ii, jj, kk, iGlob;
@@ -1902,7 +2639,7 @@ public:
 				}
 				else if (rt.rt_scheme == 2)
 				{
-					RTSolverGW.Jacobi_GMRES_Solve(rtA);
+					RTSolverGW.Jacobi_GMRES_Solve(rtA, false, "Step3", iSpec, picard_iter, 0.0, 0.0, rt.dt);
 				}
 				Kokkos::fence();
 				gdom.timers.rtgw.linsol += timer_linsol.seconds();
@@ -1912,6 +2649,20 @@ public:
 #endif
 				// Update concentrations and solid-phase
 				timer_update.reset();
+#if SERGHEI_OUTPUT_MASS_CONSERVATION_METRICS
+				real clipped_mass_local = 0.0;
+				Kokkos::parallel_reduce("RTGW_Step3_NegativeClipMass", gdom.nCell, KOKKOS_LAMBDA(int idom, real &tmp) {
+						if (rtA.rt_x(idom) < 0.0)
+						{
+							int ii, jj, kk;
+							gdom.unpackIndices(idom, kk, jj, ii);
+							const int iGlob = (gdom.hc + kk) * gdom.nxhc * gdom.nyhc
+							                + (gdom.hc + jj) * gdom.nxhc + ii + gdom.hc;
+							const real volume = gdom.dx * gdom.dy * gdom.dz(iGlob);
+							tmp += -rtA.rt_x(idom) * gw.wc_new(iGlob) * volume * 1000.0;
+						} }, Kokkos::Sum<real>(clipped_mass_local));
+				rtint.AccumNegativeClippedMass_spec(iSpec) += clipped_mass_local;
+#endif
 
 				real err_max_local = 0.0;
 				Kokkos::parallel_reduce("Update_Concentration", gdom.nCell, KOKKOS_LAMBDA(int idom, real &lmax) {
@@ -1928,19 +2679,9 @@ public:
 						int sorption_type = rt.Sorption_Type(iSpec);
 						real C_liquid = rt.c(iSpec, iGlob, 1);
 
-						if (sorption_type == 1)
+						if (sorption_type == 1 || sorption_type == 2 || sorption_type == 3)
 						{
-							rt.c_solid(iSpec, iGlob, 1) = rt.Kd(iSpec) * C_liquid;
-						}
-						else if (sorption_type == 2)
-						{
-							rt.c_solid(iSpec, iGlob, 1) = rt.Kf(iSpec) * pow(C_liquid, rt.Nf(iSpec));
-						}
-						else if (sorption_type == 3)
-						{
-							real alpha = rt.Alpha_D(iSpec);
-							real beta_L = rt.Beta_D(iSpec);
-							rt.c_solid(iSpec, iGlob, 1) = (alpha * beta_L * C_liquid) / (1.0 + alpha * C_liquid);
+							rt.c_solid(iSpec, iGlob, 1) = sorption_equilibrium_concentration(rt, iSpec, C_liquid);
 						}
 						else if (sorption_type == 4)
 						{
@@ -1955,47 +2696,98 @@ public:
 								real denom = rho_b / dt + beta_k / Kd + lambda_2 * rho_b;
 								rt.c_solid(iSpec, iGlob, 1) = (rho_b / dt * S_old + beta_k * C_liquid) / denom;
 							}
+						}
 
-							real diff = fabs(rt.c(iSpec, iGlob, 1) - C_old_iter);
-							if (diff > lmax)
-								lmax = diff;
-						} }, Kokkos::Max<real>(err_max_local));
+						real diff = fabs(rt.c(iSpec, iGlob, 1) - C_old_iter);
+						if (diff > lmax)
+							lmax = diff; }, Kokkos::Max<real>(err_max_local));
 				Kokkos::fence();
 
 				// MPI global reduction for Picard convergence
 				real err_max_global = 0.0;
-				MPI_Allreduce(&err_max_local, &err_max_global, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+				gdom.timers.rtgw.update += timer_update.seconds();
+				timer_comm.reset();
+				SERGHEI_MPI_CHECK(MPI_Allreduce(&err_max_local, &err_max_global, 1, SERGHEI_MPI_REAL, MPI_MAX, MPI_COMM_WORLD));
+				gdom.timers.rtgw.convergence += timer_comm.seconds();
 
 				if (err_max_global < picard_tol)
 				{
+					// [P3-4] record the iteration at which convergence occurred
+					if (picard_iter == 0) rtPicardConv1[iSpec]++;
+					else if (picard_iter == 1) rtPicardConv2[iSpec]++;
+					else rtPicardConv3[iSpec]++;
 					break; // Converged: exit Picard loop
 				}
 
-				gdom.timers.rtgw.update += timer_update.seconds();
 				// MPI exchange and BC re-application for next iteration
 				timer_comm.reset();
-				gmpi.mpi_sendrecv_rt(rt.c, gdom, par, rt.n_mass, 1);
+				rtgmpi.mpi_sendrecv_rt_species(rt.c, gdom, par, iSpec, 1);
 				Kokkos::fence();
 				gdom.timers.rtgw.comm += timer_comm.seconds();
 
 				timer_bc.reset();
 				for (int k = 0; k < rtgbc.size(); k++)
 				{
-					rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec);
+					rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec, false);
 				}
 				Kokkos::fence();
 				gdom.timers.rtgw.bc += timer_bc.seconds();
 			}
+			timer_comm.reset();
+			rtgmpi.mpi_sendrecv_rt_species(rt.c, gdom, par, iSpec, 1);
+			Kokkos::fence();
+			gdom.timers.rtgw.comm += timer_comm.seconds();
+
+			timer_bc.reset();
+			for (int k = 0; k < rtgbc.size(); k++)
+			{
+				rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec, false);
+			}
+			Kokkos::fence();
+			gdom.timers.rtgw.bc += timer_bc.seconds();
+
+			timer_audit.reset();
+			compute_boundary_mass_fluxes(rt, gdom, rtgbc, iSpec);
+			Kokkos::fence();
+			gdom.timers.rtgw.boundaryAudit += timer_audit.seconds();
 		}
+		// Refresh boundary flux diagnostics with the converged concentrations
+		// before integrating the second transport half-step.
+		timer_bc.reset();
+		Kokkos::deep_copy(rt.ConQss, 0.0);
+		for (int iSpec = 0; iSpec < rt.n_mass; iSpec++)
+		{
+			for (int k = 0; k < rtgbc.size(); k++)
+			{
+				rtgbc[k].applyConcentrationBC(rt, gw, gdom, par, iSpec, false);
+			}
+		}
+		Kokkos::fence();
+		gdom.timers.rtgw.bc += timer_bc.seconds();
+#if SERGHEI_OUTPUT_MASS_CONSERVATION_METRICS
+		timer_audit.reset();
+		const std::vector<real> mass_after_half_3 =
+			rtint.computeLocalTotalMasses(rt, gdom, gw.wc_new);
+		rtint.accumulateTransportFluxes(gw, rt, gdom, rtgbc, dt_original / 2.0,
+										&mass_before_half_3, &mass_after_half_3, 3);
+#else
+		timer_audit.reset();
+		rtint.accumulateTransportFluxes(gw, rt, gdom, rtgbc, dt_original / 2.0);
+#endif
+		Kokkos::fence();
+		gdom.timers.rtgw.massAudit += timer_audit.seconds();
 
 		// -----------------------------------------------------------------
 		// Post-processing: restore time step and synchronise old/new arrays
 		// -----------------------------------------------------------------
 		rt.dt = dt_original;
+		timer_comm.reset();
 		real dt_tmp = gdom.dt;
-		int ierr = MPI_Allreduce(&dt_tmp, &gdom.dt, 1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&dt_tmp, &gdom.dt, 1, SERGHEI_MPI_REAL, MPI_MIN, MPI_COMM_WORLD));
+		gdom.timers.rtgw.comm += timer_comm.seconds();
 
 		// Final synchronisation: copy new concentrations to old arrays
+		timer_postprocess.reset();
 		Kokkos::parallel_for(gdom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
 			for (int iSpec = 0; iSpec < rt.n_mass; iSpec++)
 			{
@@ -2003,10 +2795,8 @@ public:
 				rt.c_solid(iSpec, iGlob,  0) = rt.c_solid(iSpec, iGlob, 1);
 			} });
 
-		timer_integrate.reset();
-		// rtint.integrate(gw, rt, gdom, rtgbc);  // Reserved for future use
 		Kokkos::fence();
-		gdom.timers.rtgw.integrate += timer_integrate.seconds();
+		gdom.timers.rtgw.postprocess += timer_postprocess.seconds();
 
 		gdom.timers.rtgw.total += timer_total.seconds();
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT

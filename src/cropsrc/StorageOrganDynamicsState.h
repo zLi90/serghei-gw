@@ -21,8 +21,8 @@
  *   GWSO  [kg/(ha d)] Net storage organ biomass change rate
  ******************************************************************************/
 
-#ifndef _STORAGE_ORGAN_DYNAMICS_STATE_H_
-#define _STORAGE_ORGAN_DYNAMICS_STATE_H_
+#ifndef STORAGE_ORGAN_DYNAMICS_STATE_H
+#define STORAGE_ORGAN_DYNAMICS_STATE_H
 
 #include "../define.h"
 
@@ -107,4 +107,4 @@ public:
     }
 };
 
-#endif
+#endif /* STORAGE_ORGAN_DYNAMICS_STATE_H */

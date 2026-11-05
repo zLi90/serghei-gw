@@ -35,8 +35,8 @@
  * @see Afgen.h            for table-lookup interpolation utilities
  */
 
-#ifndef _PHENOLOGY_H_
-#define _PHENOLOGY_H_
+#ifndef PHENOLOGY_H
+#define PHENOLOGY_H
 
 #include "../define.h"
 #include "CropState.h"        // Static crop parameters (temperature thresholds, TSUM targets)
@@ -149,7 +149,7 @@ public:
             if (p.p.IDSL >= 2) { // IDSL >= 2 indicates the crop has a vernalisation requirement
                 if (s.STAGE(i) == CropStage::VEGETATIVE && s.ISVERNALISED(i) == 0) {
                     // Critical DVS threshold beyond which vernalisation is forced complete
-                    real VERNDVS = 0.3; // Typical value: 0.3 (early vegetative stage)
+                    real VERNDVS = p.p.VERNDVS;
 
                     if (s.DVS(i) < VERNDVS) {
                         // Look up daily vernalisation rate from temperature response table
@@ -207,7 +207,7 @@ public:
                 // Emergence phase (DVS: -0.1 -> 0.0)
                 // Effective temperature above the base temperature for emergence
                 real dtsume = TEMP - p.p.TBASEM; // TBASEM: base temperature for emergence [C], typically 0-10 C
-                if (dtsume < 0.0) dtsume = 0.0;  // No emergence progress below base temperature
+                dtsume = std::max(0.0, std::min(dtsume, p.p.TEFFMX - p.p.TBASEM));
                 // DVR = 0.1 * effective_temperature / TSUMEM
                 // The 0.1 factor arises because DVS must increase by exactly 0.1 (from -0.1 to 0.0)
                 // over the total temperature sum TSUMEM [C d].
@@ -270,8 +270,8 @@ public:
                     if (s.VERN(i) >= p.p.VERNSAT) {
                         // Accumulated vernalisation exceeds saturation threshold
                         s.ISVERNALISED(i) = 1; // Mark crop as fully vernalised
-                    } else if (s.DVS(i) >= 0.3 && s.ISVERNALISED(i) == 0) {
-                        // Failsafe: if DVS has reached the critical threshold (0.3)
+                    } else if (s.DVS(i) >= p.p.VERNDVS && s.ISVERNALISED(i) == 0) {
+                        // Failsafe: if DVS has reached the critical threshold VERNDVS
                         // but vernalisation is still incomplete, force it complete
                         // to prevent the crop from being permanently development-suppressed
                         s.ISVERNALISED(i) = 1;
@@ -389,4 +389,4 @@ public:
 
 };
 
-#endif
+#endif /* PHENOLOGY_H */

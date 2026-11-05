@@ -79,9 +79,9 @@ public:
     class PsLn
     {
     public:
-        std::string line;       ///< The raw input line to parse
-        std::string key;        ///< Extracted key (left of the colon, whitespace stripped)
-        std::stringstream value;///< Extracted value (right of the colon, comments removed)
+        std::string line;        ///< The raw input line to parse
+        std::string key;         ///< Extracted key (left of the colon, whitespace stripped)
+        std::stringstream value; ///< Extracted value (right of the colon, comments removed)
 
         /**
          * @brief Convert the raw line to lowercase in-place.
@@ -190,6 +190,7 @@ public:
 
         // --- Step 1: Read transport parameters (must be first to determine n_mass) ---
         std::string fNameIn = inFolder + "rttransportsw.input";
+		if (!sergheiVerifyFileConsistency(fNameIn, par.myrank)) return 0;
 
         if (!readRTFileSW(fNameIn, rtsw, par))
         {
@@ -207,46 +208,42 @@ public:
         // cannot be sized until n_mass is known and allocate() is called.
         for (int i = 0; i < rtsw.n_mass; i++)
         {
-            rtsw.diffusion_molecular(i) = rtsw.temp_diffusion_molecular[i];  ///< Molecular diffusion coefficient [m^2/s]
-            rtsw.alpha_L(i) = rtsw.temp_alpha_L[i];                          ///< Longitudinal dispersivity [m]
-            rtsw.alpha_T(i) = rtsw.temp_alpha_T[i];                          ///< Transverse dispersivity [m]
-            rtsw.RainCon_arr(i) = rtsw.RainCon[i];                           ///< Rainfall concentration [mg/L or kg/m^3]
+            rtsw.diffusion_molecular(i) = rtsw.temp_diffusion_molecular[i]; ///< Molecular diffusion coefficient [m^2/s]
+            rtsw.alpha_L(i) = rtsw.temp_alpha_L[i];                         ///< Longitudinal dispersivity [m]
+            rtsw.alpha_T(i) = rtsw.temp_alpha_T[i];                         ///< Transverse dispersivity [m]
+            rtsw.RainCon_arr(i) = rtsw.RainCon[i];                          ///< Rainfall concentration [mg/L or kg/m^3]
         }
 
         // --- Step 4: Read boundary conditions ---
         fNameIn = inFolder + "rtswbc.input";
+		if (!sergheiVerifyFileConsistency(fNameIn, par.myrank)) return 0;
         if (!readRTBCFileSW(fNameIn, dom, ebc, par, state, rtsw))
         {
-
             if (par.masterproc)
-            {
                 std::cerr << RERROR "SWRTM: Unable to read rtsw BC SW File " << std::endl;
-                return 0;
-            }
+            return 0;
         }
 
         // --- Step 5: Read source/sink terms ---
         fNameIn = inFolder + "rtswss.input";
+		if (!sergheiVerifyFileConsistency(fNameIn, par.myrank)) return 0;
         if (!readRTSSFileSW(fNameIn, dom, ss.swss, par, state, rtsw))
         {
             if (par.masterproc)
-            {
                 std::cerr << RERROR "SWRTM: Error encountered reading rtswss.input file " << std::endl;
-                return 0;
-            }
+            return 0;
         }
 
         // --- Step 6: Read reaction parameters (only if reaction module is enabled) ---
         if (rtsw.ReactionModule == 1)
         {
             fNameIn = inFolder + "reactionsw.input";
+			if (!sergheiVerifyFileConsistency(fNameIn, par.myrank)) return 0;
             if (!readRTReactionFile(fNameIn, rtsw, par))
             {
                 if (par.masterproc)
-                {
                     std::cerr << RERROR "SWRTM: Unable to read reactionsw.input file" << std::endl;
-                    return 0;
-                }
+                return 0;
             }
         }
 
@@ -276,11 +273,20 @@ public:
         // --- Step 9: Copy time level 1 concentrations to time level 0 ---
         // Initialize c(0) from c(1) so that both the current and previous time
         // levels contain valid concentration data at the start of the simulation.
-        Kokkos::parallel_for("update", dom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
+        Kokkos::parallel_for("update", dom.nCell, KOKKOS_LAMBDA(int idom) {
+            const int iGlob = rtsw.getIndex(idom);
+            const int hydro_idx = dom.getIndex(idom);
             for (int iSpec = 0; iSpec < rtsw.n_mass; iSpec++)
             {
                 rtsw.c(iSpec, iGlob, 0) = rtsw.c(iSpec, iGlob, 1);
+                // The first GW solve occurs before the first SW transport
+                // update.  Publish the initialized surface concentration to
+                // the coupling buffer immediately.
+                rtsw.csw4gw(iSpec, hydro_idx) = rtsw.c(iSpec, iGlob, 1);
+                rtsw.solute_mass(iSpec, iGlob, 0) = 0.0;
+                rtsw.solute_mass(iSpec, iGlob, 1) = 0.0;
             } });
+        Kokkos::fence();
 
         // --- Step 10: Write initial output ---
         io.outputIniRTSW(rtsw, state, dom, par, outFolder);
@@ -316,7 +322,7 @@ public:
         std::string tempStr;
 
         // Zero-initialize all concentration arrays for all species and time levels
-        for (iGlob = 0; iGlob < dom.nCellMem; iGlob++)
+        for (iGlob = 0; iGlob < rtsw.rt_nCellMem; iGlob++)
         {
             for (int iSpec = 0; iSpec < rtsw.n_mass; iSpec++)
             {
@@ -332,8 +338,9 @@ public:
             {
                 // Mode 0 (constant): Assign a uniform concentration to every cell
                 real const_val = rtsw.RT_Init_Aq_Const[iSpec];
-                for (iGlob = 0; iGlob < dom.nCellMem; iGlob++)
+                for (int idom = 0; idom < dom.nCell; idom++)
                 {
+                    iGlob = rtsw.getIndex(idom);
                     rtsw.c(iSpec, iGlob, 0) = const_val;
                     rtsw.c(iSpec, iGlob, 1) = const_val;
                 }
@@ -735,7 +742,7 @@ public:
             dom.unpackIndices(idx, jj, ii);
 
             // Compute the local memory index (including halo offset)
-            iGlob = (dom.hc + jj) * (dom.nx + 2 * dom.hc) + (dom.hc + ii);
+            iGlob = rtsw.getIndex(ii, jj);
 
             // Compute the corresponding global data index for this MPI partition
             ii2 = (par.j_beg + jj) * (dom.nx_glob) + par.i_beg + ii;
@@ -1007,6 +1014,11 @@ public:
      *   - 2 (RTSW_BC_CON_CONST): Constant concentration BC [mg/L or kg/m^3]
      *   - 3 (RTSW_BC_ZEROGRAD):  Zero-gradient (Neumann) BC
      *   - 4 (RTSW_BC_CON_T):     Time-varying concentration BC (requires timeseries file)
+     *   - 5 (RTSW_BC_TRIGGERED_IRRIGATION): Gated by the paired hydro BC (bctype 13);
+     *       Dirichlet (bcval, or bcfile timeseries if given) while irrigation is
+     *       active, zero-gradient while inactive. Pairs with SWE_BC_TRIGGERED_IRRIGATION.
+     *   - 6 (RTSW_BC_TRIGGERED_DRAINAGE): Zero-gradient outflow, explicit type for
+     *       the triggered drainage boundary. Pairs with SWE_BC_TRIGGERED_DRAINAGE.
      *
      * **Per-species keys (within each boundary "id" block):**
      *   - spec_X_bctype:  Boundary type for species X
@@ -1045,6 +1057,7 @@ public:
             for (int k = 0; k < ebc.extbc.size(); k++)
             {
                 ebc.rtbc[k].ncellsBC = ebc.extbc[k].ncellsBC;
+                ebc.rtbc[k].hydro_bctype = ebc.extbc[k].bctype;
                 ebc.rtbc[k].bcells = intArr("bcells", ebc.rtbc[k].ncellsBC);
                 Kokkos::deep_copy(ebc.rtbc[k].bcells, ebc.extbc[k].bcells);
             }
@@ -1092,13 +1105,15 @@ public:
                             if (ebc.rtbc[ibc].bctype != RTSW_BC_NONE &&
                                 ebc.rtbc[ibc].bctype != RTSW_BC_CON_CONST &&
                                 ebc.rtbc[ibc].bctype != RTSW_BC_ZEROGRAD &&
-                                ebc.rtbc[ibc].bctype != RTSW_BC_CON_T)
+                                ebc.rtbc[ibc].bctype != RTSW_BC_CON_T &&
+                                ebc.rtbc[ibc].bctype != RTSW_BC_TRIGGERED_IRRIGATION &&
+                                ebc.rtbc[ibc].bctype != RTSW_BC_TRIGGERED_DRAINAGE)
                             {
                                 if (par.masterproc)
                                 {
                                     std::cerr << RERROR "SWRTM: Invalid rtbctype=" << ebc.rtbc[ibc].bctype
                                               << " for boundary id=" << ibc << ". "
-                                              << "Valid values are: 1(NONE), 2(CON_CONST), 3(ZEROGRAD), 4(CON_T)." << std::endl;
+                                              << "Valid values are: 1(NONE), 2(CON_CONST), 3(ZEROGRAD), 4(CON_T), 5(TRIGGERED_IRRIGATION), 6(TRIGGERED_DRAINAGE)." << std::endl;
                                 }
                                 return 0;
                             }
@@ -1132,13 +1147,15 @@ public:
                                     if (ebc.rtbc[ibc].spec_bctype[spec_id] != RTSW_BC_NONE &&
                                         ebc.rtbc[ibc].spec_bctype[spec_id] != RTSW_BC_CON_CONST &&
                                         ebc.rtbc[ibc].spec_bctype[spec_id] != RTSW_BC_ZEROGRAD &&
-                                        ebc.rtbc[ibc].spec_bctype[spec_id] != RTSW_BC_CON_T)
+                                        ebc.rtbc[ibc].spec_bctype[spec_id] != RTSW_BC_CON_T &&
+                                        ebc.rtbc[ibc].spec_bctype[spec_id] != RTSW_BC_TRIGGERED_IRRIGATION &&
+                                        ebc.rtbc[ibc].spec_bctype[spec_id] != RTSW_BC_TRIGGERED_DRAINAGE)
                                     {
                                         if (par.masterproc)
                                         {
                                             std::cerr << RERROR "SWRTM: Invalid spec_" << spec_id << "_bctype=" << ebc.rtbc[ibc].spec_bctype[spec_id]
                                                       << " for boundary id=" << ibc << ", species " << spec_id << ". "
-                                                      << "Valid values are: 1(NONE), 2(CON_CONST), 3(ZEROGRAD), 4(CON_T)." << std::endl;
+                                                      << "Valid values are: 1(NONE), 2(CON_CONST), 3(ZEROGRAD), 4(CON_T), 5(TRIGGERED_IRRIGATION), 6(TRIGGERED_DRAINAGE)." << std::endl;
                                         }
                                         return 0;
                                     }
@@ -1238,6 +1255,10 @@ public:
                 case RTSW_BC_CON_T:
                     readts = 1;
                     break;
+                case RTSW_BC_TRIGGERED_IRRIGATION:
+                    // 时间序列可选：给了 bcfile 则活跃期用时间序列，否则用 bcval 常数
+                    readts = 1;
+                    break;
                 }
 
                 // Load the timeseries data if a file is specified
@@ -1265,7 +1286,7 @@ public:
                     {
                         if (par.masterproc)
                             std::cout << GOK << "SWRTM: Reading RTM timeseries file for boundary id=" << k << ", species " << iSpec << ": " << fname << std::endl;
-                        fts.ignore(256, ' ');  // Skip the "ndata" label
+                        fts.ignore(256, ' '); // Skip the "ndata" label
                         fts >> ndatat;
                         if (ndatat > 0)
                         {
@@ -1605,30 +1626,30 @@ public:
      *    - Nitrogen_Cycle_Simulation: Flag for nitrogen cycle simulation
      *    - Temp_Coeff_Theta:          Arrhenius temperature coefficient [dimensionless]
      *    - Opt_Temp:                  Optimal temperature for reactions [deg C]
-     *    - Opt_pH:                    Optimal pH for reactions [dimensionless]
+     *    - Opt_pH:                    Parsed pH reference value; currently inactive [-]
      *
      * 2. Decay reaction (per-species, multi-value):
      *    - Lambda_1: First-order decay rate constants [1/s] (one per species)
      *    - Lambda_2: Second-order decay rate constants [1/s] (one per species)
      *
      * 3. Nitrification (NH4+ -> NO3-):
-     *    - Rate_Max_Nit:  Maximum nitrification rate [mg/L/s]
+     *    - Rate_Max_Nit:  Maximum nitrification rate on the NH4 basis [mg NH4/L/s]
      *    - K_Monod_NH4:   Monod half-saturation constant for NH4+ [mg/L]
      *    - K_Monod_DO:    Monod half-saturation constant for dissolved oxygen [mg/L]
      *
      * 4. Denitrification (NO3- -> N2):
-     *    - Rate_Max_Denit: Maximum denitrification rate [mg/L/s]
+     *    - Rate_Max_Denit: Maximum denitrification rate on the DOC-C basis [mg C/L/s]
      *    - K_Monod_NO3:    Monod half-saturation constant for NO3- [mg/L]
      *    - K_Monod_DOC:    Monod half-saturation constant for dissolved organic carbon [mg/L]
      *    - Ki_Inhib_DO:    Inhibition constant for dissolved oxygen [mg/L]
      *
      * 5. Aerobic respiration (heterotrophic):
-     *    - Rate_Max_Hetero:      Maximum heterotrophic respiration rate [mg/L/s]
+     *    - Rate_Max_Hetero:      Maximum heterotrophic respiration rate [mg C/L/s]
      *    - K_Monod_DOC_Aerobic:  Monod half-saturation for DOC [mg/L]
      *    - K_Monod_DO_Aerobic:   Monod half-saturation for DO [mg/L]
      *
      * 6. Mineralization (organic N -> NH4+):
-     *    - Rate_Max_Min:   Maximum mineralization rate [mg/L/s]
+     *    - Rate_Max_Min:   Maximum mineralization rate on the DON-N basis [mg N/L/s]
      *    - K_Monod_DON:    Monod half-saturation for dissolved organic nitrogen [mg/L]
      *    - K_Monod_DO_Min: Monod half-saturation for DO [mg/L]
      *
@@ -1654,41 +1675,41 @@ public:
         rtsw.Nitrogen_Cycle_Simulation = -999;
 
         // Decay reaction parameters (per-species arrays)
-        rtsw.Lambda_1 = realArr("Lambda_1", rtsw.n_mass);  ///< First-order decay rate [1/s]
-        rtsw.Lambda_2 = realArr("Lambda_2", rtsw.n_mass);  ///< Second-order decay rate [1/s]
+        rtsw.Lambda_1 = realArr("Lambda_1", rtsw.n_mass); ///< First-order decay rate [1/s]
+        rtsw.Lambda_2 = realArr("Lambda_2", rtsw.n_mass); ///< Second-order decay rate [1/s]
 
         // Nitrification parameters (single values)
-        rtsw.Rate_Max_Nit = -999;   ///< Maximum nitrification rate [mg/L/s]
-        rtsw.K_Monod_NH4 = -999;    ///< Monod half-saturation for NH4+ [mg/L]
-        rtsw.K_Monod_DO = -999;     ///< Monod half-saturation for DO [mg/L]
+        rtsw.Rate_Max_Nit = -999; ///< Maximum nitrification rate [mg NH4/L/s]
+        rtsw.K_Monod_NH4 = -999;  ///< Monod half-saturation for NH4+ [mg/L]
+        rtsw.K_Monod_DO = -999;   ///< Monod half-saturation for DO [mg/L]
 
         // Denitrification parameters (single values)
-        rtsw.Rate_Max_Denit = -999;  ///< Maximum denitrification rate [mg/L/s]
-        rtsw.K_Monod_NO3 = -999;     ///< Monod half-saturation for NO3- [mg/L]
-        rtsw.K_Monod_DOC = -999;     ///< Monod half-saturation for DOC [mg/L]
-        rtsw.Ki_Inhib_DO = -999;     ///< DO inhibition constant [mg/L]
+        rtsw.Rate_Max_Denit = -999; ///< Maximum denitrification rate [mg C/L/s]
+        rtsw.K_Monod_NO3 = -999;    ///< Monod half-saturation for NO3- [mg/L]
+        rtsw.K_Monod_DOC = -999;    ///< Monod half-saturation for DOC [mg/L]
+        rtsw.Ki_Inhib_DO = -999;    ///< DO inhibition constant [mg/L]
 
         // Aerobic respiration parameters (single values)
-        rtsw.Rate_Max_Hetero = -999;       ///< Maximum heterotrophic respiration rate [mg/L/s]
-        rtsw.K_Monod_DOC_Aerobic = -999;   ///< Monod half-saturation for DOC [mg/L]
-        rtsw.K_Monod_DO_Aerobic = -999;    ///< Monod half-saturation for DO [mg/L]
+        rtsw.Rate_Max_Hetero = -999;     ///< Maximum heterotrophic respiration rate [mg C/L/s]
+        rtsw.K_Monod_DOC_Aerobic = -999; ///< Monod half-saturation for DOC [mg/L]
+        rtsw.K_Monod_DO_Aerobic = -999;  ///< Monod half-saturation for DO [mg/L]
 
         // Mineralization parameters (single values)
-        rtsw.Rate_Max_Min = -999;    ///< Maximum mineralization rate [mg/L/s]
-        rtsw.K_Monod_DON = -999;     ///< Monod half-saturation for DON [mg/L]
-        rtsw.K_Monod_DO_Min = -999;  ///< Monod half-saturation for DO [mg/L]
+        rtsw.Rate_Max_Min = -999;   ///< Maximum mineralization rate [mg N/L/s]
+        rtsw.K_Monod_DON = -999;    ///< Monod half-saturation for DON [mg/L]
+        rtsw.K_Monod_DO_Min = -999; ///< Monod half-saturation for DO [mg/L]
 
         // Surface-water-specific source/sink parameters
-        rtsw.Ka_sw = -999;       ///< Atmospheric reaeration coefficient [1/s]
-        rtsw.DO_sat = -999;      ///< Dissolved oxygen saturation concentration [mg/L]
-        rtsw.DOC_eq_sw = -999;   ///< Equilibrium DOC concentration [mg/L]
-        rtsw.DON_eq_sw = -999;   ///< Equilibrium DON concentration [mg/L]
-        rtsw.K_rel_sw = -999;    ///< Sediment-water exchange release rate [1/s]
+        rtsw.Ka_sw = -999;     ///< Atmospheric reaeration coefficient [1/s]
+        rtsw.DO_sat = -999;    ///< Dissolved oxygen saturation concentration [mg/L]
+        rtsw.DOC_eq_sw = -999; ///< Equilibrium DOC concentration [mg/L]
+        rtsw.DON_eq_sw = -999; ///< Equilibrium DON concentration [mg/L]
+        rtsw.K_rel_sw = -999;  ///< Sediment-water exchange release rate [1/s]
 
         // Environmental correction factors
-        rtsw.Temp_Coeff_Theta = -999;  ///< Arrhenius temperature coefficient [dimensionless]
-        rtsw.Opt_Temp = -999;          ///< Optimal temperature [deg C]
-        rtsw.Opt_pH = -999;            ///< Optimal pH [dimensionless]
+        rtsw.Temp_Coeff_Theta = -999; ///< Arrhenius temperature coefficient [dimensionless]
+        rtsw.Opt_Temp = -999;         ///< Optimal temperature [deg C]
+        rtsw.Opt_pH = -999;           ///< Parsed pH reference value; currently inactive [-]
 
         std::string strAux;
 
@@ -2109,16 +2130,6 @@ public:
         if (par.masterproc)
         {
             std::cerr << GOK "SWRTM: RTM Reaction parameters read\n";
-            std::cout << "SWRTM: DEBUG: === Reaction Parameters Check ===" << std::endl;
-            std::cout << "SWRTM: DEBUG: ReactModel_Type = " << rtsw.ReactModel_Type << std::endl;
-            std::cout << "SWRTM: DEBUG: Nitrogen_Cycle_Simulation = " << rtsw.Nitrogen_Cycle_Simulation << std::endl;
-            std::cout << "SWRTM: DEBUG: n_mass = " << rtsw.n_mass << std::endl;
-            std::cout << "SWRTM: DEBUG: Rate_Max_Nit = " << rtsw.Rate_Max_Nit << std::endl;
-            std::cout << "SWRTM: DEBUG: K_Monod_NH4 = " << rtsw.K_Monod_NH4 << std::endl;
-            std::cout << "SWRTM: DEBUG: Rate_Max_Min = " << rtsw.Rate_Max_Min << std::endl;
-            std::cout << "SWRTM: DEBUG: Ka_sw = " << rtsw.Ka_sw << std::endl;
-            std::cout << "SWRTM: DEBUG: DO_sat = " << rtsw.DO_sat << std::endl;
-            std::cout << "SWRTM: DEBUG: ===============================" << std::endl;
         }
 
         return 1;

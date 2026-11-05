@@ -414,7 +414,6 @@ public:
       gii_min[ig].rank = -1;
       in[ig].rank = dom.id;
       in[ig].val = g.ii;
-      // std::cout << GGD << "dom = " << dom.id <<"\t\tig = "  << ig << "\t\tgii[ig] = " << gii[ig] << std::endl;
     }
 
     /* Gauges should be in one domain or another, which gives them a g.ii > 0
@@ -426,12 +425,12 @@ public:
 
     // Reduce with MPI_MAX, to check if a gauge is found on any subdomain.
     // A gii_max[ig] > 0 means that gauge ig has been found in some subdomain.
-    MPI_Allreduce(gii, gii_max, N, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allreduce(gii, gii_max, N, MPI_INT, MPI_MAX, MPI_COMM_WORLD));
 
     // Reduce with MPI_MINLOC, to check if a gauge is found on more than one subdomain.
     // A gii_min[ig].val > 0 means that gauge ig has been found in more than one subdomain.
     // gii_min[ig].rank returns one of the subdomains which found the gauge.
-    MPI_Allreduce(in, gii_min, N, MPI_2INT, MPI_MINLOC, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allreduce(in, gii_min, N, MPI_2INT, MPI_MINLOC, MPI_COMM_WORLD));
 
     for (int ig = 0; ig < N; ig++)
     {
@@ -459,7 +458,6 @@ public:
           g.ii = -1;
       }
     }
-    // MPI_Barrier(MPI_COMM_WORLD);
 
     delete gii;
     delete gii_max;
@@ -496,7 +494,7 @@ public:
         if (lines[il].g(ig).ic > 0)
           std::cout << GGD << "il=" << il << "\tig=" << ig << "\tindex =" << lines[il].g(ig).ii << "\tcell=" << lines[il].g(ig).ic << "\tdom.id" << dom.id << std::endl;
       }
-      MPI_Barrier(MPI_COMM_WORLD);
+      SERGHEI_MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 #endif
 
       if (err)
@@ -712,28 +710,28 @@ public:
 
     for (int ig = 0; ig < N; ig++)
       in[ig] = gauges(ig).sw.h;
-    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC, MPI_COMM_WORLD));
     for (int ig = 0; ig < N; ig++)
     {
       if (par.masterproc)
         gauges(ig).sw.h = out[ig];
       in[ig] = gauges(ig).sw.hu;
     }
-    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC, MPI_COMM_WORLD));
     for (int ig = 0; ig < N; ig++)
     {
       if (par.masterproc)
         gauges(ig).sw.hu = out[ig];
       in[ig] = gauges(ig).sw.hv;
     }
-    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC, MPI_COMM_WORLD));
     for (int ig = 0; ig < N; ig++)
     {
       if (par.masterproc)
         gauges(ig).sw.hv = out[ig];
       in[ig] = gauges(ig).sw.z;
     }
-    MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Reduce(in, out, N, SERGHEI_MPI_REAL, MPI_SUM, SERGHEI_MASTERPROC, MPI_COMM_WORLD));
     for (int ig = 0; ig < N; ig++)
     {
       if (par.masterproc)
@@ -747,10 +745,8 @@ public:
 #if SERGHEI_DEBUG_TOOLS
     std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 #endif
-    //  Kokkos::parallel_for("get_state_for_gauges",nGauge, KOKKOS_LAMBDA (int ig){
     for (int ig = 0; ig < nGauge; ig++)
       gauges(ig).fetchSurfaceState(state);
-    // });
     if (nGauge)
     {
       gaugeStateReduction(gauges, nGauge, par);
@@ -764,12 +760,10 @@ public:
 #endif
     for (int il = 0; il < nLines; il++)
     {
-      //  Kokkos::parallel_for("get_state_for_lines",nGauge, KOKKOS_LAMBDA (int ig){
       for (int ig = 0; ig < lines[il].Ng; ig++)
       {
         lines[il].g(ig).fetchSurfaceState(state);
       }
-      // });
       gaugeStateReduction(lines[il].g, lines[il].Ng, par);
       if (par.masterproc)
       {

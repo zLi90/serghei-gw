@@ -75,6 +75,15 @@ public:
                      ///< rt_ptr(nrow) = nnz (one-past-end sentinel).
     intArr rt_ind;   ///< Column-index array [nnz].  For each non-zero entry,
                      ///< stores the column index of that entry.
+
+    /* ------------------------------------------------------------------ */
+    /*  [P1-3] Frozen CRS graph gather map (filled once by fillGraph())    */
+    /* ------------------------------------------------------------------ */
+    intArr rt_row_of;   ///< [nnz] Row (cell idom) owning each non-zero entry.
+                        ///< Geometry-only, permanent for the whole run.
+    intArr rt_slot_of;  ///< [nnz] RTcoef column that feeds each non-zero
+                        ///< entry, so each assembly only needs
+                        ///< rt_val(j) = RTcoef(rt_row_of(j), rt_slot_of(j)).
     realArr rt_val;  ///< Value array [nnz].  Stores the numerical value of
                      ///< each non-zero matrix entry (transport coefficients).
     realArr rt_diag; ///< Diagonal values [nrow].  Inverse of the diagonal
@@ -119,14 +128,45 @@ public:
      *      connectivity for 1D-z, 2D-xz, or 3D-xyz configurations.
      *   3. Allocates all Kokkos views (CRS arrays, diagonal, RHS, solution,
      *      solver work vectors).
-     *   4. Fills the row-pointer array @c rt_ptr by calling get_irow() for
-     *      each grid cell.
+     *   4. Fills the row-pointer array @c rt_ptr by cumulatively counting
+     *      the exact stencil entries inserted by RTlinear_system().
      *
      * @param gdom  Groundwater domain object providing grid geometry.
      *
      * @note The actual matrix values (rt_val, rt_rhs) are NOT filled here;
      *       they are assembled elsewhere during the transport time step.
      */
+    KOKKOS_INLINE_FUNCTION
+    int count_stencil_entries(int i, int j, int k, int nx, int ny, int nz) const
+    {
+        int count = 1; // Diagonal entry.
+
+        if (k > 0 && j > 0) count++;
+        if (i > 0 && k > 0) count++;
+        if (k > 0) count++;
+        if (i < nx - 1 && k > 0) count++;
+        if (k > 0 && j < ny - 1) count++;
+
+        if (j > 0 && i > 0) count++;
+        if (j > 0) count++;
+        if (j > 0 && i < nx - 1) count++;
+
+        if (i > 0) count++;
+        if (i < nx - 1) count++;
+
+        if (j < ny - 1 && i > 0) count++;
+        if (j < ny - 1) count++;
+        if (j < ny - 1 && i < nx - 1) count++;
+
+        if (k < nz - 1 && j > 0) count++;
+        if (i > 0 && k < nz - 1) count++;
+        if (k < nz - 1) count++;
+        if (i < nx - 1 && k < nz - 1) count++;
+        if (k < nz - 1 && j < ny - 1) count++;
+
+        return count;
+    }
+
     void init(GwDomain &gdom) {
         int ii, jj, kk, ndom = gdom.nCell;
         rt_nx = gdom.nx;   rt_ny = gdom.ny;   rt_nz = gdom.nz;
@@ -134,35 +174,15 @@ public:
         rt_ncol = ndom;  // Square system: nrow == ncol
 
         // ------------------------------------------------------------------
-        // Compute the total number of non-zero entries based on the
-        // stencil connectivity for each spatial dimensionality.
+        // Compute the total number of non-zero entries by summing the exact
+        // boundary-checked 19-point stencil used in RTlinear_system().
+        // This avoids any mismatch between the CRS row pointer and matrix
+        // fill order at 3-D boundaries.
         // ------------------------------------------------------------------
-        // Number of non-zeros for 1D-z, 2D-xz, 3D-xyz simulations
-        if (rt_nx == 1 & rt_ny == 1 & rt_nz > 1) {
-            // 1D-z: vertical column only.  Interior cells have 3 entries
-            // (self + 1 above + 1 below); boundary cells have 2 entries.
-            rt_nnz = rt_nrow + (rt_nz-2)*2 + 2;
-        }
-        else if (rt_nx > 1 & rt_ny == 1 & rt_nz > 1) {
-            // 2D-xz: extended stencil on a vertical cross-section.
-            // Corner cells: 4 entries; edge cells: 6 entries;
-            // interior cells: 9 entries.
-            rt_nnz = rt_nrow + 4*3 + ((rt_nx-2)*2 + (rt_nz-2)*2)*5 + (rt_nx-2)*(rt_nz-2)*8;
-        }
-        else if (rt_nx > 1 & rt_ny > 1 & rt_nz > 1) {
-            // 3D-xyz: full 19-point stencil
-            //   8 corner  cells: 7 non-zeros each
-            //   edge      cells: 10 non-zeros each (on 12 edges)
-            //   face      cells: 14 non-zeros each (on 6 faces)
-            //   interior  cells: 19 non-zeros each
-            rt_nnz = rt_nrow
-             + 8*6  // 8 corner points, each with 7 non-zero entries (self + 6 neighbours)
-             + ((rt_nx-2)*4 + (rt_ny-2)*4 + (rt_nz-2)*4)*9  // edge points: each edge has (nx-2) points, each with 10 non-zero entries
-             + ((rt_nx-2)*(rt_ny-2)*2 + (rt_nx-2)*(rt_nz-2)*2 + (rt_ny-2)*(rt_nz-2)*2)*13  // face points: each face has (nx-2)*(ny-2) points, each with 14 non-zero entries
-             + (rt_nx-2)*(rt_ny-2)*(rt_nz-2)*18;  // interior points: each with 19 non-zero entries (19-point finite-difference stencil)
-        }
-        else {
-            printf("ERROR : RTDomain must be 1D-z, 2D-xz or 3D-xyz!\n");
+        rt_nnz = 0;
+        for (int idx = 0; idx < rt_nrow; idx++) {
+            gdom.unpackIndices(idx, kk, jj, ii);
+            rt_nnz += count_stencil_entries(ii, jj, kk, rt_nx, rt_ny, rt_nz);
         }
 
         // ------------------------------------------------------------------
@@ -177,27 +197,141 @@ public:
         rt_w = realArr("rt_w", rt_nrow);
 
         // ------------------------------------------------------------------
-        // Build the row-pointer array rt_ptr.
-        // For each row idx, rt_ptr(idx) stores the cumulative count of
-        // non-zero entries in all preceding rows, which serves as the
-        // starting index into rt_ind / rt_val for that row.
-        // The sentinel rt_ptr(nrow) = nnz.
+        // Build the row-pointer array by cumulative summation of the same
+        // stencil counts.  rt_ptr(row+1)-rt_ptr(row) now exactly matches the
+        // number of entries written in RTlinear_system() for that row.
         // ------------------------------------------------------------------
-        for (int idx = 0; idx < rt_nrow+1; idx++) {
+        rt_ptr(0) = 0;
+        for (int idx = 0; idx < rt_nrow; idx++) {
             gdom.unpackIndices(idx, kk, jj, ii);
-            if (idx == rt_nrow)
-            {
-                // Sentinel: one-past-end index equals total non-zero count
-                rt_ptr(idx) = rt_nnz;
-            }
-            else
-            {
-                // Compute the starting non-zero index for this row based
-                // on the grid position (i, j, k)
-                rt_ptr(idx) = get_irow(ii, jj, kk, rt_nx, rt_ny, rt_nz);
-            }
+            rt_ptr(idx + 1) = rt_ptr(idx) + count_stencil_entries(ii, jj, kk, rt_nx, rt_ny, rt_nz);
         }
     }
+
+
+    /* ================================================================== */
+    /*  [P1-3] One-time CRS graph fill                                     */
+    /* ================================================================== */
+
+    /**
+     * @brief One-time fill of the CRS graph and the (row, slot) gather map.
+     *
+     * The stencil connectivity written by the CRS fill stage of
+     * RTlinear_system() is geometry-only: the column indices never change
+     * during a simulation.  This method replicates the exact boundary-checked
+     * 19-entry insertion order of the assembly to fill, for every non-zero j:
+     *   - rt_ind(j)    : column index of non-zero j (permanent),
+     *   - rt_row_of(j) : row (cell idom) owning non-zero j,
+     *   - rt_slot_of(j): RTcoef column that feeds non-zero j.
+     *
+     * After this call each assembly only gathers values:
+     *   rt_val(j) = RTcoef(rt_row_of(j), rt_slot_of(j)),
+     * which writes the same value to the same position as the previous
+     * branch-based fill (bitwise identical).
+     *
+     * The insertion order (and thus the slot order) is:
+     *   25, 19, 6, 17, 23, 13, 4, 11, 2, 0, 1, 12, 3, 9, 24, 18, 5, 15, 22
+     * matching count_stencil_entries().
+     *
+     * @param gdom  Groundwater domain object providing grid geometry.
+     */
+	    void fillGraph(GwDomain &gdom) {
+	        rt_row_of  = intArr("rt_row_of",  rt_nnz);
+	        rt_slot_of = intArr("rt_slot_of", rt_nnz);
+
+	        const int nx = gdom.nx;
+	        const int ny = gdom.ny;
+	        const int nz = gdom.nz;
+	        const int nxy = nx * ny;
+	        const int nrow = rt_nrow;
+	        auto rt_ptr_l = rt_ptr;
+	        auto rt_ind_l = rt_ind;
+	        auto rt_row_of_l = rt_row_of;
+	        auto rt_slot_of_l = rt_slot_of;
+
+	        Kokkos::parallel_for("RT_Fill_CRS_Graph", nrow, KOKKOS_LAMBDA(int idom) {
+	            int ii = idom % nx;
+	            int jj = (idom / nx) % ny;
+	            int kk = idom / nxy;
+	            int irow = rt_ptr_l(idom);
+
+	            if (kk > 0 && jj > 0) {
+	                rt_ind_l(irow) = idom - nxy - nx;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 25;  irow++;   // C_{j-1,k-1}
+	            }
+	            if (ii > 0 && kk > 0) {
+	                rt_ind_l(irow) = idom - 1 - nxy;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 19;  irow++;   // C_{i-1,k-1}
+	            }
+	            if (kk > 0) {
+	                rt_ind_l(irow) = idom - nxy;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 6;   irow++;   // C_{k-1}
+	            }
+	            if (ii < nx-1 && kk > 0) {
+	                rt_ind_l(irow) = idom + 1 - nxy;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 17;  irow++;   // C_{i+1,k-1}
+	            }
+	            if (kk > 0 && jj < ny-1) {
+	                rt_ind_l(irow) = idom - nxy + nx;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 23;  irow++;   // C_{k-1,j+1}
+	            }
+	            if (jj > 0 && ii > 0) {
+	                rt_ind_l(irow) = idom - nx - 1;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 13;  irow++;   // C_{j-1,i-1}
+	            }
+	            if (jj > 0) {
+	                rt_ind_l(irow) = idom - nx;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 4;   irow++;   // C_{j-1,i}
+	            }
+	            if (jj > 0 && ii < nx-1) {
+	                rt_ind_l(irow) = idom - nx + 1;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 11;  irow++;   // C_{j-1,i+1}
+	            }
+	            if (ii > 0) {
+	                rt_ind_l(irow) = idom - 1;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 2;   irow++;   // C_{i-1}
+	            }
+	            // Diagonal: always present
+	            rt_ind_l(irow) = idom;
+	            rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 0;   irow++;       // C_{i,j,k}
+	            if (ii < nx-1) {
+	                rt_ind_l(irow) = idom + 1;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 1;   irow++;   // C_{i+1}
+	            }
+	            if (jj < ny-1 && ii > 0) {
+	                rt_ind_l(irow) = idom + nx - 1;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 12;  irow++;   // C_{j+1,i-1}
+	            }
+	            if (jj < ny-1) {
+	                rt_ind_l(irow) = idom + nx;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 3;   irow++;   // C_{j+1,i}
+	            }
+	            if (jj < ny-1 && ii < nx-1) {
+	                rt_ind_l(irow) = idom + nx + 1;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 9;   irow++;   // C_{j+1,i+1}
+	            }
+	            if (kk < nz-1 && jj > 0) {
+	                rt_ind_l(irow) = idom + nxy - nx;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 24;  irow++;   // C_{k+1,j-1}
+	            }
+	            if (ii > 0 && kk < nz-1) {
+	                rt_ind_l(irow) = idom - 1 + nxy;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 18;  irow++;   // C_{i-1,k+1}
+	            }
+	            if (kk < nz-1) {
+	                rt_ind_l(irow) = idom + nxy;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 5;   irow++;   // C_{k+1}
+	            }
+	            if (ii < nx-1 && kk < nz-1) {
+	                rt_ind_l(irow) = idom + 1 + nxy;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 15;  irow++;   // C_{i+1,k+1}
+	            }
+	            if (kk < nz-1 && jj < ny-1) {
+	                rt_ind_l(irow) = idom + nxy + nx;
+	                rt_row_of_l(irow) = idom;  rt_slot_of_l(irow) = 22;  irow++;   // C_{k+1,j+1}
+	            } });
+	        Kokkos::fence();
+	    }
 
 
     /* ================================================================== */

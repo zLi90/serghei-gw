@@ -30,8 +30,8 @@
  * Reference: WOFOST 7.1 User Guide, Chapter 4 -- Leaf Dynamics
  ******************************************************************************/
 
-#ifndef _LEAF_DYNAMICS_H_
-#define _LEAF_DYNAMICS_H_
+#ifndef LEAF_DYNAMICS_H
+#define LEAF_DYNAMICS_H
 
 #include "../define.h"
 #include "CropState.h"               // Static crop parameters (TDWI, SPAN, TBASE, RGRLAI, LAIEM, PERDL)
@@ -525,4 +525,4 @@ public:
     }
 };
 
-#endif
+#endif /* LEAF_DYNAMICS_H */

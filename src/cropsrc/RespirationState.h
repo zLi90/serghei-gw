@@ -29,8 +29,8 @@
  * @see     Respiration.h  for the calculation routine that fills PMRES
  ******************************************************************************/
 
-#ifndef _RESPIRATION_STATE_H_
-#define _RESPIRATION_STATE_H_
+#ifndef RESPIRATION_STATE_H
+#define RESPIRATION_STATE_H
 
 #include "../define.h"
 
@@ -95,4 +95,4 @@ public:
     }
 };
 
-#endif
+#endif /* RESPIRATION_STATE_H */

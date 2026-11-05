@@ -7,10 +7,10 @@
 #include "GwDomain.h"
 #include "GwState.h"
 
-// [FROM CODE2] Atmospheric forcing support (NetCDF, wind, etc.)
+// Atmospheric forcing support (NetCDF, wind, etc.)
 #include "atmForcing.h"
 
-// [FROM CODE1] WOFOST crop growth model coupling
+// WOFOST crop growth model coupling
 #if CROP_GROWTH_MODEL
 #include "./cropsrc/Wofost72.h"
 #endif
@@ -20,13 +20,13 @@
 #define INF_HORTON 2
 #define INF_GREENAMPT 3
 
-// [FROM CODE2] Rainfall polygon support
+// Rainfall polygon support
 #ifndef SERGHEI_RAINFALL_POLYGONS
 #define SERGHEI_RAINFALL_POLYGONS 0
 #endif
 
 // ============================================================
-//[FROM CODE2] Rainfall polygon time interpolation functions
+// Rainfall polygon time interpolation functions
 // ============================================================
 #if SERGHEI_RAINFALL_POLYGONS
 KOKKOS_INLINE_FUNCTION int findTimeBlockByPolygons(const realArr raintime, const int idx0, const int idx1, real const &t)
@@ -61,6 +61,16 @@ class SourceSinkData; // forward declaration
 // ============================================================
 KOKKOS_INLINE_FUNCTION void findTimeBlock(TimeSeries &ts, real const &t)
 {
+  // Optional forcing series may be empty.  Do not dereference an empty view.
+  if (ts.np <= 0 || ts.time.data() == nullptr)
+  {
+    ts.timeIndex = 0;
+    return;
+  }
+  if (ts.timeIndex < 0)
+    ts.timeIndex = 0;
+  if (ts.timeIndex >= ts.np)
+    ts.timeIndex = ts.np - 1;
   if (t >= ts.time(ts.np - 1))
   {
     ts.timeIndex = ts.np - 1;
@@ -87,7 +97,9 @@ KOKKOS_INLINE_FUNCTION real interpolateLinear(TimeSeries &ts, real const &t)
   ii = ts.timeIndex;
   jj = ii + 1;
   if (ii == ts.np - 1)
-    jj = ii;
+    return ts.value(ii);
+  if (ts.time(jj) == ts.time(ii))
+    return ts.value(ii);
   real v = ts.value(ii) + (ts.value(jj) - ts.value(ii)) / (ts.time(jj) - ts.time(ii)) * (t - ts.time(ii));
   return (v);
 };
@@ -121,21 +133,21 @@ public:
 };
 
 // ============================================================
-// [MERGED] InfiltrationModel class
+// InfiltrationModel class
 // Base from CODE2 (spatial infiltration, color types, capacity array, checkModel)
 // + backward compatibility with CODE1's assignModel interface
 // ============================================================
 class InfiltrationModel
 {
 public:
-  // [FROM CODE2] Spatial infiltration support
+  // Spatial infiltration support
   static constexpr int spatialNone = 0;
   static constexpr int spatialRaster = 1;
   static constexpr int spatialSoilMap = 2;
   static constexpr int spatialLanduse = 3;
   static constexpr int spatialNetCDF = 4;
   int spatial = spatialRaster;
-  MapClass soilmap; // [FROM CODE2] soil map for infiltration
+  MapClass soilmap; // soil map for infiltration
 
 private:
   realArr infTime;
@@ -147,7 +159,7 @@ private:
 
 public:
   int model = -999;
-  color nLabels = 0; // [FROM CODE2] uses color (ushort) for memory efficiency
+  color nLabels = 0; // uses color (ushort) for memory efficiency
   realArr constCap;
   // Horton
   realArr k;
@@ -163,8 +175,8 @@ public:
   // State variables for output and GreenAmpt model
   realArr infVol;    // accumulated infiltration volume
   realArr rate;      // infiltration rate, m/s
-  realArr capacity;  // [FROM CODE2] prescribed infiltration capacity, m/s
-  colorArr infLabel; // [FROM CODE2] uses colorArr for labels
+  realArr capacity;  // prescribed infiltration capacity, m/s
+  colorArr infLabel; // uses colorArr for labels
 
   void allocate(const Domain &dom)
   {
@@ -174,13 +186,13 @@ public:
       infVol = realArr("infVol", dom.nCellMem);
       if (model == INF_HORTON)
         infTime = realArr("infTime", dom.nCellMem);
-      //[FROM CODE2] Allocate capacity array for raster/NetCDF spatial infiltration
+      // Allocate capacity array for raster/NetCDF spatial infiltration
       if (spatial == spatialRaster || spatial == spatialNetCDF)
         capacity = realArr("capacity", dom.nCellMem);
     }
   }
 
-  // [FROM CODE2] Renamed from assignModel to checkModel with improved error handling
+  // Renamed from assignModel to checkModel with improved error handling
   int checkModel(Parallel &par)
   {
     int error = 0;
@@ -268,10 +280,10 @@ public:
     return 1;
   }
 
-  // [FROM CODE1] Backward-compatible alias
+  // Backward-compatible alias
   inline int assignModel(Parallel &par) { return checkModel(par); }
 
-  // [MERGED] ComputeInfiltrationCapacity
+  // ComputeInfiltrationCapacity
   // CODE2's enhanced version with spatial infiltration support + KOKKOS_CLASS_LAMBDA
   inline void ComputeInfiltrationCapacity(const Domain &dom)
   {
@@ -283,7 +295,7 @@ public:
       switch (model)
       {
       case INF_CONSTANT:
-        // [FROM CODE2] Support raster/NetCDF-based spatial infiltration
+        // Support raster/NetCDF-based spatial infiltration
         if (spatial == spatialNetCDF || spatial == spatialRaster)
         {
           Kokkos::deep_copy(rate, capacity);
@@ -297,7 +309,7 @@ public:
         }
         break;
       case INF_HORTON:
-        // [FROM CODE2] Uses KOKKOS_CLASS_LAMBDA for direct member access
+        // Uses KOKKOS_CLASS_LAMBDA for direct member access
         Kokkos::parallel_for("inf_horton", dom.nCell, KOKKOS_CLASS_LAMBDA(int iGlob) {
               int ii = dom.getIndex(iGlob);
               int id = infLabel(ii);
@@ -311,7 +323,7 @@ public:
 };
 
 // ============================================================
-// [FROM CODE1] Surface water reactive transport source/sink class
+// Surface water reactive transport source/sink class
 // Handles fertilizer application (dissolution model) and other
 // surface solute source/sink terms
 // ============================================================
@@ -320,7 +332,7 @@ class RTSwSS
 {
 public:
   std::string id;
-  int rtsstype; // 3: 面积质量通量注入(撒施) [mg/m2/s]
+  int rtsstype; // 3: areal mass flux application (broadcast fertilisation) [mg/m2/s]
   int ncellsIT = 0;
   intArr icells;
 
@@ -329,7 +341,8 @@ public:
   std::vector<std::string> spec_ssfile;
   std::vector<int> has_ssfile;
   std::vector<TimeSeries> spec_ts;
-  std::vector<realArr> undissolved_mass; // 存储地表未溶解的固体肥料质量[mg/m2]
+  std::vector<realArr> undissolved_mass; // undissolved solid fertilizer mass on the surface [mg/m2]
+  realArr dissolved_mass_accum;          // mass actually dissolved into the surface liquid phase this hydrodynamic step [mg]
 
   MPI_Comm comm;
 
@@ -362,10 +375,10 @@ public:
       foundInSubdom = par.myrank;
 
     int ncells_all;
-    MPI_Allreduce(&ncellsIT, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allreduce(&ncellsIT, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
 
     int *subdoms = (int *)malloc(par.nranks * sizeof(int));
-    MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD));
 #if SERGHEI_DEBUG_BOUNDARY
     if (par.masterproc)
       std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "ncellsIT " << ncells_all << std::endl;
@@ -388,9 +401,9 @@ public:
     free(subdoms);
 
     MPI_Group group, subgroup;
-    MPI_Comm_group(MPI_COMM_WORLD, &group);
-    MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup);
-    MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm);
+    SERGHEI_MPI_CHECK(MPI_Comm_group(MPI_COMM_WORLD, &group));
+    SERGHEI_MPI_CHECK(MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup));
+    SERGHEI_MPI_CHECK(MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm));
 
     if (ncells_all > 0)
     {
@@ -401,6 +414,8 @@ public:
         undissolved_mass[i] = realArr("undissolved_mass", ncellsIT);
         Kokkos::deep_copy(undissolved_mass[i], 0.0);
       }
+      dissolved_mass_accum = realArr("dissolved_mass_accum", spec_sstype.size());
+      Kokkos::deep_copy(dissolved_mass_accum, 0.0);
 #ifdef __NVCC__
       cudaMemcpyAsync(icells.data(), tmpicells.data(), ncellsIT * sizeof(int), cudaMemcpyHostToDevice);
       cudaDeviceSynchronize();
@@ -419,12 +434,12 @@ public:
 
   // Forward declaration of core computation function (implemented after SourceSink class)
   template <typename RTStateSWType>
-  static void ComputeRTSWSourceSink(RTStateSWType &rtsw, const State &state, const Domain &dom, const class SourceSinkData &ss, int iSpec);
+  static void ComputeRTSWSourceSink(RTStateSWType &rtsw, const State &state, const Domain &dom, const class SourceSinkData &ss, int iSpec, int step_part);
 };
 #endif // SERGHEI_SURFACE_TRANSPORT
 
 // ============================================================
-// [MERGED] SourceSinkData class
+// SourceSinkData class
 // CODE2's enhanced infrastructure (initializeSW, wind, NetCDF, polygon rain, granular timer)
 // + CODE1's surface reactive transport source/sink (RTSwSS) integration
 // + CODE1's custom evaporation computation
@@ -432,20 +447,28 @@ public:
 class SourceSinkData
 {
 public:
-// [FROM CODE2] NetCDF atmospheric forcing support
+// NetCDF atmospheric forcing support
 #if SERGHEI_NETCDF_FORCING
   AtmosphericForcing aforcing;
   realArr rainAccum;
 #endif
 
-  TimeSeries rain, evap, wind; // [FROM CODE2] added wind
+  TimeSeries rain, evap, wind; // added wind
+  // Surface ET partition forcing. In crop-coupled runs, ET0 is combined
+  // with the current WOFOST LAI; evap remains the static-LAI fallback.
+  TimeSeries et0;
+  real etExtinctionCoefficient = 0.5;
+  bool hasEtPartitionForcing = false;
+#if CROP_GROWTH_MODEL
+  bool invalidDynamicLaiWarningIssued = false;
+#endif
   InfiltrationModel inf;
-  realArr rainRate, evapRate, windspd, winddir; // [FROM CODE2] added wind arrays
+  realArr rainRate, evapRate, windspd, winddir; // added wind arrays
 
-  // [FROM CODE1] Actual surface water evaporation volume for SW-GW coupling
+  // Actual surface water evaporation volume for SW-GW coupling
   real evapFluxActual;
 
-  // [FROM CODE2] Rainfall polygon support
+  // Rainfall polygon support
   intArr rainPol;
 
 #if SERGHEI_RAINFALL_POLYGONS
@@ -460,12 +483,12 @@ public:
   realArr rainvalue;
 #endif
 
-  // [FROM CODE1] Surface reactive transport source/sink
+  // Surface reactive transport source/sink
 #if SERGHEI_SURFACE_TRANSPORT
   std::vector<RTSwSS> rtswss;
 #endif
 
-  // [MERGED] Initialization function
+  // Initialization function
   // CODE2's comprehensive initializeSW with NetCDF, polygon, wind support
   void initializeSW(Domain const &dom, State const &state, Parallel const &par)
   {
@@ -520,7 +543,7 @@ public:
     }
   }
 
-  // [FROM CODE1] Backward-compatible alias
+  // Backward-compatible alias
   void allocateSW(Domain const &dom)
   {
     if (dom.isRain)
@@ -537,7 +560,7 @@ public:
     }
   }
 
-// [FROM CODE2] Rainfall polygon cell finding
+// Rainfall polygon cell finding
 #if SERGHEI_RAINFALL_POLYGONS
   inline int find_raincells(Domain const &dom, State const &state, Parallel const &par, TimeSeries &rain, int pp)
   {
@@ -601,7 +624,7 @@ public:
   }
 #endif // SERGHEI_RAINFALL_POLYGONS
 
-  // [MERGED] ComputeRain - CODE2's version with CODE1's alternative indexing comment
+  // ComputeRain - CODE2's version with CODE1's alternative indexing comment
   inline void ComputeRain(const Domain &dom)
   {
     if (dom.isRain)
@@ -626,13 +649,13 @@ public:
         real rainValue = interpolatePiecewise(rrain, dom.etime, rain_glob);
         rr_p(ii) = rainValue;
 #if SERGHEI_DEBUG_RAINFALL
-        Kokkos::printf("%s[DEBUG] %s%s _x: %lf _y: %lf ix: %d iy: %d, ~> rainfall: %lf \train_glob: $lf\n", GRAY, __PRETTY_FUNCTION__, RESET, _x, _y, ix, iy, rr_p(iGlob), rain_glob);
+        Kokkos::printf("%s[DEBUG] %s%s _x: %lf _y: %lf ix: %d iy: %d, ~> rainfall: %lf \train_glob: %lf\n", GRAY, __PRETTY_FUNCTION__, RESET, _x, _y, ix, iy, rr_p(iGlob), rain_glob);
 #endif
       });
     }
   }
 
-  // [MERGED] ComputeEvap
+  // ComputeEvap
   // Uses CODE2's spatial interpolation (interpolatePiecewise) as default
   // CODE1's uniform linear interpolation available as alternative (commented)
   inline void ComputeEvap(const Domain &dom)
@@ -642,7 +665,7 @@ public:
       realArr &rr_e = evapRate;
       findTimeBlock(evap, dom.etime);
       TimeSeries revap = evap;
-      // [FROM CODE2] Spatially varying evaporation via piecewise interpolation
+      // Spatially varying evaporation via piecewise interpolation
       Kokkos::parallel_for("evap_interpolation", dom.nCell, KOKKOS_LAMBDA(int iGlob) {
               int ix;
               int iy;
@@ -651,24 +674,63 @@ public:
               int evap_glob = 0;
               real evapValue = interpolatePiecewise(revap, dom.etime, evap_glob);
               rr_e(ii) = evapValue; });
-
-      // [FROM CODE1 - ALTERNATIVE] Uniform linear interpolation for evap
-      // Uncomment below and comment above if evap data should use linear interpolation uniformly
-      /*
-      {
-        real evapValue = interpolateLinear(evap, dom.etime);
-        Kokkos::parallel_for("evap_interpolation", dom.nCell, KOKKOS_LAMBDA(int iGlob) {
-          int ix, iy;
-          dom.unpackIndices(iGlob, iy, ix);
-          int ii = dom.getHaloExtension(ix, iy);
-          rr_e(ii) = evapValue;
-        });
-      }
-      */
     }
   }
 
-  // [FROM CODE2] Wind computation
+#if CROP_GROWTH_MODEL
+  // Compute potential surface-water evaporation from ET0 and the current
+  // spatial WOFOST LAI. The actual water-limited flux is still imposed by
+  // TimeIntegrator::evaporation().
+  inline void ComputeEvap(const Domain &dom, const realArr &dynamicLai)
+  {
+    if (!dom.isEvap)
+      return;
+
+    // Preserve the legacy/static forcing path when this run has no ET
+    // partition data supplied by et.input, or when the crop field cannot be
+    // mapped one-to-one to the local physical surface cells. The extent check
+    // prevents an out-of-bounds device access if crop initialization failed.
+    if (!hasEtPartitionForcing || et0.np <= 0)
+    {
+      ComputeEvap(dom);
+      return;
+    }
+    if (dynamicLai.data() == nullptr || dynamicLai.extent(0) != dom.nCell)
+    {
+      if (!invalidDynamicLaiWarningIssued)
+      {
+        std::cerr << RERROR
+                  << "Surface evaporation cannot use dynamic WOFOST LAI: "
+                  << "expected " << dom.nCell << " cells, received "
+                  << dynamicLai.extent(0)
+                  << ". Falling back to the static-LAI et.input series."
+                  << std::endl;
+        invalidDynamicLaiWarningIssued = true;
+      }
+      ComputeEvap(dom);
+      return;
+    }
+
+    real currentEt0 = interpolateLinear(et0, dom.etime);
+    real extinctionCoefficient = etExtinctionCoefficient;
+    realArr &rr_e = evapRate;
+
+    Kokkos::parallel_for("evap_dynamic_wofost_lai", dom.nCell,
+      KOKKOS_LAMBDA(int iGlob) {
+        int ix, iy;
+        dom.unpackIndices(iGlob, iy, ix);
+        int ii = dom.getHaloExtension(ix, iy);
+        real lai = dynamicLai(iGlob);
+        // The negated comparison also catches NaN without relying on a
+        // backend-specific isfinite implementation.
+        if (!(lai >= 0.0))
+          lai = 0.0;
+        rr_e(ii) = currentEt0 * exp(-extinctionCoefficient * lai);
+      });
+  }
+#endif
+
+  // Wind computation
   inline void ComputeWind(const Domain &dom)
   {
     if (dom.isWind)
@@ -688,18 +750,18 @@ public:
     }
   }
 
-  // [MERGED] ComputeSWSourceSink
+  // ComputeSWSourceSink
   // CODE2's structure: Kokkos::fence(), granular timer, polygon/NetCDF rain, wind
   // CODE1's timer approach integrated into CODE2's granular timer structure
   inline void ComputeSWSourceSink(const State &state, const Domain &dom)
   {
-    Kokkos::fence(); // [FROM CODE2] Ensure previous GPU operations complete
+    Kokkos::fence(); // Ensure previous GPU operations complete
     Kokkos::Timer timer;
 #if SERGHEI_DEBUG_WORKFLOW
     std::cerr << GGD << __PRETTY_FUNCTION__ << std::endl;
 #endif
 
-// [FROM CODE2] Multiple rainfall computation paths
+// Multiple rainfall computation paths
 #if SERGHEI_RAINFALL_POLYGONS
     ComputeRainByPolygons(state, dom);
 #elif SERGHEI_NETCDF_FORCING
@@ -708,18 +770,44 @@ public:
     ComputeRain(dom);
 #endif
     ComputeEvap(dom);
-    ComputeWind(dom); // [FROM CODE2] Wind computation
+    ComputeWind(dom); // Wind computation
     inf.ComputeInfiltrationCapacity(dom);
 
-    Kokkos::fence(); // [FROM CODE2] Ensure all GPU operations complete before timing
-    //[FROM CODE2] Granular timer: uses swe.ss.raininf for detailed timing breakdown
+    Kokkos::fence(); // Ensure all GPU operations complete before timing
+    // Granular timer: uses swe.ss.raininf for detailed timing breakdown
     dom.timers.swe.ss.raininf += timer.seconds();
   }
+
+#if CROP_GROWTH_MODEL
+  inline void ComputeSWSourceSink(const State &state, const Domain &dom,
+                                  const realArr &dynamicLai)
+  {
+    Kokkos::fence();
+    Kokkos::Timer timer;
+#if SERGHEI_DEBUG_WORKFLOW
+    std::cerr << GGD << __PRETTY_FUNCTION__ << std::endl;
+#endif
+
+#if SERGHEI_RAINFALL_POLYGONS
+    ComputeRainByPolygons(state, dom);
+#elif SERGHEI_NETCDF_FORCING
+    aforcing.computeRain(dom, state, rainRate);
+#else
+    ComputeRain(dom);
+#endif
+    ComputeEvap(dom, dynamicLai);
+    ComputeWind(dom);
+    inf.ComputeInfiltrationCapacity(dom);
+
+    Kokkos::fence();
+    dom.timers.swe.ss.raininf += timer.seconds();
+  }
+#endif
 
 }; // end class SourceSinkData
 
 // ============================================================
-// [MERGED] Subsurface source/sink class (GwSS)
+// Subsurface source/sink class (GwSS)
 // #if SERGHEI_RE_MODEL (renamed from CODE1's SERGHEI_SUBSURFACE_MODEL)
 //
 // CODE2's base structure + CODE1's advanced features:
@@ -727,7 +815,7 @@ public:
 //   - Beer's Law ET partitioning (potential transpiration/evaporation)
 //   - Feddes water stress function
 //   - Dynamic root density distribution (Vogeland model with numerical integration)
-//   - Tile drainage (暗管排水)
+//   - Tile drainage
 //   - SW-GW evaporation-transpiration coupling
 //   - Root zone cell finding and allocation
 //   - ET0 / LAI / RD time series
@@ -748,46 +836,46 @@ public:
   //  0 : Evapotranspiration (from PM equation)
   //  1 : Flux (constant or time series)
   //  2 : Head for drainage (constant or time series)
-  //  3 : Tile drainage (暗管排水) [FROM CODE1]
+  //  3 : Tile drainage
 
-  std::string id; // [FROM CODE1] identifier string
+  std::string id; // identifier string
   int sstype;
   int direction;
   int ndepth;
   int ncellsIT = 0;
 
-  //[FROM CODE1] Root zone cells
+  // Root zone cells
   int ncel_ROOT = 0; // number of root zone cells
   int k_max_root;    // maximum root depth layer index
 
   intArr icells;
-  intArr root_icells; // [FROM CODE1] array of indexes of root zone cells
-  real wc_root_zone;  // [FROM CODE1] average water content in root zone
+  intArr root_icells; // array of indexes of root zone cells
+  real wc_root_zone;  // average water content in root zone
   realArr ssvals, ssdata;
 
   real Qinflow, Qoutflow;
-  // [FROM CODE1] Detailed outflow breakdown
+  // Detailed outflow breakdown
   real Qoutflow_SoilEvap, Qoutflow_RootTransp, Qoutflow_TileDrainage;
   real Cpipe;
 
   TimeSeries ts;
-  // [FROM CODE1] ET-related time series
+  // ET-related time series
   TimeSeries et0_series, evap, tran;
   TimeSeries lai_series, rd_series;
 
-  // [FROM CODE1] Water stress and root distribution parameters
+  // Water stress and root distribution parameters
   real f;              // extinction coefficient for Beer's Law
   real h1, h2, h3, h4; // Feddes water stress thresholds
   real px, py, pz, xs, ys, zs, xm, ym;
   realArr coef_wat, coef_root;
-  realArr wc_root; //[FROM CODE1] root zone water content array
+  realArr wc_root; // root zone water content array
 
-  // [FROM CODE1] Tile drain (暗管) parameters
+  // Tile drain parameters
   real drain_de;         // effective diameter [L]
   real drain_red_factor; // reduction factor [-]
   real drain_Cd = 1.0;   // dimensionless correction factor [-]
 
-  // [FROM CODE1] WOFOST coupling parameters
+  // WOFOST coupling parameters
   bool use_realtime_data = false;
   realArr wofost_lai; // WOFOST LAI per cell
   realArr wofost_rd;  // WOFOST root depth per cell
@@ -796,8 +884,13 @@ public:
   {
     if (use_realtime_data)
     {
-      wofost_lai = realArr("wofost_lai_ss", nCells);
-      wofost_rd = realArr("wofost_rd_ss", nCells);
+      // WOFOST initialization may already have allocated halo-sized arrays.
+      // Preserve that layout; only allocate the compact physical-cell form
+      // when no coupling storage exists yet.
+      if (wofost_lai.data() == nullptr)
+        wofost_lai = realArr("wofost_lai_ss", nCells);
+      if (wofost_rd.data() == nullptr)
+        wofost_rd = realArr("wofost_rd_ss", nCells);
       Kokkos::deep_copy(wofost_lai, 0.0);
       Kokkos::deep_copy(wofost_rd, 0.0);
     }
@@ -819,7 +912,7 @@ public:
     }
   }
 
-  //[FROM CODE1] Allocate root zone coefficient arrays
+  // Allocate root zone coefficient arrays
   void allocateRootCoef(GwDomain const &gdom)
   {
     if (sstype == 0)
@@ -828,7 +921,7 @@ public:
     }
   }
 
-  // [FROM CODE1] Find root zone internal cells
+  // Find root zone internal cells
   inline int find_root_icells(GwState &gw, std::string &id, GwDomain &gdom, Parallel &par, real zm)
   {
     int foundInSubdom;
@@ -868,10 +961,10 @@ public:
       foundInSubdom = par.myrank;
 
     int ncel_ROOT_all;
-    MPI_Allreduce(&ncel_ROOT, &ncel_ROOT_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allreduce(&ncel_ROOT, &ncel_ROOT_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
 
     int *subdoms = (int *)malloc(par.nranks * sizeof(int));
-    MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD));
     for (int i = 0; i < par.nranks; i++)
     {
       if (subdoms[i] >= 0)
@@ -880,9 +973,9 @@ public:
     free(subdoms);
 
     MPI_Group group, subgroup;
-    MPI_Comm_group(MPI_COMM_WORLD, &group);
-    MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup);
-    MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm);
+    SERGHEI_MPI_CHECK(MPI_Comm_group(MPI_COMM_WORLD, &group));
+    SERGHEI_MPI_CHECK(MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup));
+    SERGHEI_MPI_CHECK(MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm));
 
     if (ncel_ROOT_all > 0)
     {
@@ -905,7 +998,7 @@ public:
     return 1;
   }
 
-  // [FROM CODE1] Find maximum root depth layer index
+  // Find maximum root depth layer index
   inline int find_max_root_depth_layer(GwDomain &gdom, real zm)
   {
     int k_max_root = -1;
@@ -929,7 +1022,7 @@ public:
     return k_max_root;
   }
 
-  //[MERGED] Find internal cells for applying source/sink conditions
+  // Find internal cells for applying source/sink conditions
   // CODE2's structure with CODE1's depth-based z coordinate calculation
   inline int find_icells(GwState &gw, std::string &id, GwDomain &gdom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly, realArr &zPoly)
   {
@@ -948,7 +1041,7 @@ public:
           foundInSubdom = -1;
           real xCoord = gdom.xll + (par.i_beg + ii + 0.5) * gdom.dx;
           real yCoord = gdom.yll + gdom.ny_glob * gdom.dx - (par.j_beg + jj + 0.5) * gdom.dx;
-          // [FROM CODE1] Use depth-based z coordinate (positive downward, negated)
+          // Use depth-based z coordinate (positive downward, negated)
           real zCoord = -gdom.depth(iGlob);
           if (geometry::isInsidePoly3D(nPoly, xPoly, yPoly, zPoly, xCoord, yCoord, zCoord))
           {
@@ -979,11 +1072,11 @@ public:
       foundInSubdom = par.myrank;
 
     int ncells_all;
-    MPI_Allreduce(&ncellsIT, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allreduce(&ncellsIT, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
 
     int *subdoms;
     subdoms = (int *)malloc(par.nranks * sizeof(int));
-    MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD));
     for (int i = 0; i < par.nranks; i++)
     {
       if (subdoms[i] >= 0)
@@ -993,9 +1086,9 @@ public:
     }
     free(subdoms);
     MPI_Group group, subgroup;
-    MPI_Comm_group(MPI_COMM_WORLD, &group);
-    MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup);
-    MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm);
+    SERGHEI_MPI_CHECK(MPI_Comm_group(MPI_COMM_WORLD, &group));
+    SERGHEI_MPI_CHECK(MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup));
+    SERGHEI_MPI_CHECK(MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm));
     if (ncells_all > 0)
     {
       icells = intArr("icells", ncellsIT);
@@ -1018,8 +1111,9 @@ public:
   }
 
   // =========================================================================
-  // 新增：专门处理 8 顶点 (顶面 4 个，底面 4 个) 圈定三维内部网格块的函数
-  // 适用于暗管排水、深层局部注入等“位于研究区域中间部分”的网格提取
+  // Extracts the 3D interior cell block delimited by 8 vertices (4 top, 4 bottom).
+  // Used for tile drains, deep local injection and other selections located in
+  // the interior of the study area
   // =========================================================================
   inline int find_icells_tile_drainage(GwState &gw, std::string &id, GwDomain &gdom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly, realArr &zPoly)
   {
@@ -1071,7 +1165,7 @@ public:
             double z_top = 0.0, z_bottom = 0.0;
             int exact_match_top = 0, exact_match_bot = 0;
 
-            // 1. 计算 Top 面高程 (顶点 0-3)
+            // 1. Top face elevation (vertices 0-3)
             for (int i = 0; i < 4; i++)
             {
               double dx = xCoord - xPoly(i);
@@ -1090,7 +1184,7 @@ public:
             if (!exact_match_top)
               z_top = sum_z_top / sum_w_top;
 
-            // 2. 计算 Bottom 面高程 (顶点 4-7)
+            // 2. Bottom face elevation (vertices 4-7)
             for (int i = 4; i < 8; i++)
             {
               double dx = xCoord - xPoly(i);
@@ -1109,7 +1203,7 @@ public:
             if (!exact_match_bot)
               z_bottom = sum_z_bot / sum_w_bot;
 
-            // 确保 Z 轴排序 (通常深层更小，如 -0.3 < -0.1，因此 z_top 应该大于 z_bottom)
+            // Ensure the Z ordering (deeper elevations are smaller, e.g. -0.3 < -0.1, so z_top should exceed z_bottom)
             if (z_bottom > z_top)
             {
               double temp = z_top;
@@ -1117,7 +1211,7 @@ public:
               z_bottom = temp;
             }
 
-            // 第三步：3D 空间高程判断，当前网格 Z 需要同时介于 Top 和 Bottom 之间
+            // Step 3: 3D elevation test: the cell Z must lie between Top and Bottom
             if (zCoord <= z_top && zCoord >= z_bottom)
             {
               tmpicells.push_back(iGlob);
@@ -1141,10 +1235,10 @@ public:
       foundInSubdom = par.myrank;
 
     int ncells_all;
-    MPI_Allreduce(&ncellsIT, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allreduce(&ncellsIT, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
 
     int *subdoms = (int *)malloc(par.nranks * sizeof(int));
-    MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD));
     for (int i = 0; i < par.nranks; i++)
     {
       if (subdoms[i] >= 0)
@@ -1153,9 +1247,9 @@ public:
     free(subdoms);
 
     MPI_Group group, subgroup;
-    MPI_Comm_group(MPI_COMM_WORLD, &group);
-    MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup);
-    MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm);
+    SERGHEI_MPI_CHECK(MPI_Comm_group(MPI_COMM_WORLD, &group));
+    SERGHEI_MPI_CHECK(MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup));
+    SERGHEI_MPI_CHECK(MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm));
 
     if (ncells_all > 0)
     {
@@ -1176,26 +1270,8 @@ public:
     return 1;
   }
 
-  // [FROM CODE2 - KEPT FOR BACKWARD COMPATIBILITY] Original root coefficient computation
-  // void rootCoef(const GwState &gw, const GwDomain &gdom)
-  // {
-  //   Kokkos::parallel_for("root", ncellsIT, KOKKOS_CLASS_LAMBDA(int idx) {
-  //       real c_wat = 1.0, c_root = 1.0, expo, z;
-  //       int iGlob = icells[idx];
-  //       real h = gw.h(iGlob,1);
-  //       if (h <= h1 && h > h2)  {c_wat = (h - h1) / (h2 - h1);}
-  //       else if (h <= h3 && h > h4)  {c_wat = (h - h4) / (h3 - h4);}
-  //       else if (h > h1 || h <= h4)  {c_wat = 0.0;}
-  //       z = gdom.depth(iGlob);
-  //       expo = pz/(zm*myfabs(zs-z));
-  //       c_root = (1.0-z/zm)*exp(-expo);
-  //       if (c_root < 0.0)   {c_root = 0.0;}
-  //       coef_wat(idx) = c_wat;
-  //       coef_root(idx) = c_root; });
-  // }
-
   // ================================================================
-  // [FROM CODE1] Beer's Law ET partitioning
+  // Beer's Law ET partitioning
   // Splits ET0 into potential transpiration and potential soil evaporation
   // ================================================================
   KOKKOS_INLINE_FUNCTION
@@ -1207,7 +1283,7 @@ public:
     pot_evap = et0 * fraction;
   }
 
-  // [FROM CODE1] Numerical integration of root distribution function (trapezoidal rule)
+  // Numerical integration of root distribution function (trapezoidal rule)
   KOKKOS_INLINE_FUNCTION
   double integrateCRoot(double zs, double zm, double pz) const
   {
@@ -1228,9 +1304,10 @@ public:
     return integral;
   }
 
-  // [FROM CODE1] Dynamic root density distribution (normalized)
+  // Raw root density shape. The final allocation is normalized per column
+  // using each layer's actual overlap with the root zone.
   KOKKOS_INLINE_FUNCTION
-  real compute_root_density(real z_depth, real root_depth, GwDomain const &gdom) const
+  real compute_root_density_raw(real z_depth, real root_depth) const
   {
     real zs = 0.2 * root_depth; // 20% of root depth
     real pz = 1.0;
@@ -1238,12 +1315,9 @@ public:
       return 0.0;
     else if (z_depth <= root_depth)
     {
-      real c_root_integral = integrateCRoot(zs, root_depth, pz);
-      if (c_root_integral < 1e-10)
-        return 0.0;
       real expo = (pz / root_depth) * myfabs(zs - z_depth);
       real c_root = (1.0 - z_depth / root_depth) * exp(-expo);
-      return c_root / c_root_integral * (gdom.thickH / gdom.nz_glob);
+      return fmax(0.0, c_root);
     }
     else
     {
@@ -1251,7 +1325,45 @@ public:
     }
   }
 
-  //[FROM CODE1] Feddes water stress reduction function
+  // Dimensionless fraction of a column's root uptake assigned to one layer.
+  // This remains normalized for nonuniform dz and arbitrary vertical grids.
+  KOKKOS_INLINE_FUNCTION
+  real compute_column_root_fraction(int ii, int jj, int kk, real root_depth,
+                                    GwDomain const &gdom) const
+  {
+    if (root_depth <= 1e-6)
+      return 0.0;
+
+    real denominator = 0.0;
+    real numerator = 0.0;
+    for (int kk_col = gdom.hc; kk_col < gdom.nz + gdom.hc; ++kk_col)
+    {
+      const int iGlob_col = kk_col * gdom.nxhc * gdom.nyhc +
+                            jj * gdom.nxhc + ii;
+      const real dz = gdom.dz(iGlob_col);
+      const real center = gdom.depth(iGlob_col);
+      const real top = center - 0.5 * dz;
+      const real bottom = center + 0.5 * dz;
+      const real overlap = fmin(root_depth, bottom) - fmax(0.0, top);
+      if (overlap <= 0.0)
+      {
+        if (top >= root_depth)
+          break;
+        continue;
+      }
+
+      const real weight = compute_root_density_raw(center, root_depth) * overlap;
+      denominator += weight;
+      if (kk_col == kk)
+        numerator = weight;
+    }
+
+    if (denominator <= 1e-30)
+      return 0.0;
+    return numerator / denominator;
+  }
+
+  // Feddes water stress reduction function
   KOKKOS_INLINE_FUNCTION
   real compute_root_water_uptake_declining(real h_val) const
   {
@@ -1268,7 +1380,7 @@ public:
     return alpha_w;
   }
 
-  // [FROM CODE1] Helper for potential ET from LAI
+  // Helper for potential ET from LAI
   KOKKOS_INLINE_FUNCTION
   void compute_potential_et_from_lai(real lai, real et0, real &pot_transp, real &pot_evap, real k_ext = 0.5) const
   {
@@ -1278,7 +1390,7 @@ public:
   }
 
   // ================================================================
-  // [MERGED] applyMatSS - Matrix assembly for source/sink
+  // applyMatSS - Matrix assembly for source/sink
   // CODE1's advanced ET computation (Beer's Law, Feddes, root density, WOFOST coupling)
   // + CODE2's sstype==1 and sstype==2 handling with gdom.hc
   // ================================================================
@@ -1293,7 +1405,7 @@ public:
       // ET (Penman-Monteith)
       if (sstype == 0)
       {
-        // [FROM CODE1] Advanced ET computation with ET0, LAI, RD time series
+        // Advanced ET computation with ET0, LAI, RD time series
         real current_et0 = interpolateLinear(et0_series, gdom.etime);
         real ts_lai = 0.0, ts_rd = 0.0;
 #if CROP_GROWTH_MODEL
@@ -1304,7 +1416,7 @@ public:
           ts_rd = interpolateLinear(rd_series, gdom.etime);
         }
 #endif
-        // [FROM CODE1] Capture member variables for lambda
+        // Capture member variables for lambda
         real f_local = f;
         real h1_local = h1, h2_local = h2, h3_local = h3, h4_local = h4;
 
@@ -1335,17 +1447,12 @@ public:
             // Beer's Law: split ET0 into T_pot and E_pot
             real T_pot, E_pot;
             compute_potential_fluxes(current_et0, local_lai, f_local, T_pot, E_pot);
-            //!临时验证Case 2: Variable Precipitation and ET Conditions案例用
-            // T_pot = current_et0;
-            // E_pot = 0.0;
-
             // Feddes water stress coefficient
-            real z_depth = gdom.depth(iGlob);
             real h_val   = gw.h(iGlob, 1);
             real alpha_w = compute_root_water_uptake_declining(h_val);
 
             // Root density distribution
-            real beta = compute_root_density(z_depth, local_rd, gdom);
+            real beta = compute_column_root_fraction(ii, jj, kk, local_rd, gdom);
 
             // Transpiration sink term
             real transp_sink = 1.0 * T_pot * alpha_w * beta;
@@ -1355,10 +1462,10 @@ public:
             gw.transpGW(iGlob) = transp_sink;
 
             // Soil evaporation (top layer only)
-            if (kk == 1)
+            if (kk == gdom.hc)
             {
 #if SW_GW_EVAPORATION_TRANSPIRATION_MODEL
-              // [FROM CODE1] Coupled SW-GW evaporation model
+              // Coupled SW-GW evaporation model
               real qeTotalRate = E_pot;
               real swEvapRate = gw.surfaceWaterEvapActual(iGlobSW_Halo);
               real qeSoilWaterActual = qeTotalRate - swEvapRate;
@@ -1444,7 +1551,7 @@ public:
                   gw.coef(ip,2) = 0.0;  gw.coef(im,1) = 0.0; });
         }
       }
-      // [FROM CODE1] Tile Drains: implicit source/sink assembly
+      // Tile Drains: implicit source/sink assembly
       else if (sstype == 3)
       {
         Kokkos::parallel_for("gw_ss_drain_mat", ncellsIT, KOKKOS_CLASS_LAMBDA(int idx) {
@@ -1463,7 +1570,7 @@ public:
   }
 
   // ================================================================
-  // [MERGED] applyWCSS - Water content update for source/sink
+  // applyWCSS - Water content update for source/sink
   // CODE1's advanced ET computation with detailed outflow tracking
   // + CODE2's sstype==1 and sstype==2 handling
   // ================================================================
@@ -1476,7 +1583,7 @@ public:
     if (ncellsIT > 0)
     {
       Qoutflow = 0.0;
-      // [FROM CODE1] Detailed outflow breakdown
+      // Detailed outflow breakdown
       Qoutflow_SoilEvap = 0.0;
       Qoutflow_RootTransp = 0.0;
       Qoutflow_TileDrainage = 0.0;
@@ -1485,7 +1592,7 @@ public:
       // ET (Penman-Monteith)
       if (sstype == 0)
       {
-        // [FROM CODE1] ET0 from time series
+        // ET0 from time series
         real current_et0 = interpolateLinear(et0_series, gdom.etime);
         real ts_lai = 0.0, ts_rd = 0.0;
 #if CROP_GROWTH_MODEL
@@ -1496,10 +1603,10 @@ public:
           ts_rd = interpolateLinear(rd_series, gdom.etime);
         }
 #endif
-        // [FROM CODE1] Capture for lambda
+        // Capture for lambda
         real f_local = f;
 
-        // [FROM CODE1] parallel_reduce with dual accumulation (transpiration + soil evap)
+        // parallel_reduce with dual accumulation (transpiration + soil evap)
         Kokkos::parallel_reduce("gw_et_wcss", ncellsIT, KOKKOS_CLASS_LAMBDA(int idx, real &tmp, real &tmp_qe) {
                 int ii, jj, kk;
                 int iGlob = icells[idx];
@@ -1529,16 +1636,15 @@ public:
                 // T_pot = current_et0;
                 // E_pot = 0.0;
 
-                real z_depth = gdom.depth(iGlob);
                 real h_val = gw.h(iGlob, 1);
                 real alpha_w = compute_root_water_uptake_declining(h_val);
-                real beta = compute_root_density(z_depth, local_rd, gdom);
+                real beta = compute_column_root_fraction(ii, jj, kk, local_rd, gdom);
 
                 real transp_sink = 1.0 * T_pot * alpha_w * beta;
                 gw.wc(iGlob, 1) += gdom.dt * transp_sink / gdom.dz(iGlob);
                 tmp += transp_sink * gdom.dx * gdom.dy;
 
-                if (kk == 1){
+                if (kk == gdom.hc){
 #if SW_GW_EVAPORATION_TRANSPIRATION_MODEL
                   real qeTotalRate = E_pot;
                   real swEvapRate = gw.surfaceWaterEvapActual(iGlobSW_Halo);
@@ -1557,6 +1663,40 @@ public:
                     gw.h(iGlob, 1) = -1000;
                   }
                 } }, Kokkos::Sum<real>(Qoutflow_RootTransp), Kokkos::Sum<real>(Qoutflow_SoilEvap));
+
+#if CROP_GROWTH_MODEL
+        if (wofost.ets.GW_TPOT_ACC.extent(0) > 0 && wofost.ets.GW_TACT_ACC.extent(0) > 0)
+        {
+          auto gw_tpot_acc = wofost.ets.GW_TPOT_ACC;
+          auto gw_tact_acc = wofost.ets.GW_TACT_ACC;
+          Kokkos::parallel_for("gw_wofost_feedback_accumulate", ncellsIT,
+                               KOKKOS_CLASS_LAMBDA(int idx) {
+            int ii, jj, kk;
+            int iGlob = icells[idx];
+            gdom.unpackIndicesHalo(iGlob, kk, jj, ii);
+            if (ii < gdom.hc || ii >= gdom.nx + gdom.hc ||
+                jj < gdom.hc || jj >= gdom.ny + gdom.hc)
+              return;
+
+            int iSurf = (jj - gdom.hc) * gdom.nx + (ii - gdom.hc);
+            real lai = wofost_lai(iSurf);
+            real rd = wofost_rd(iSurf) * 0.01;
+            real T_pot_local, E_pot_local;
+            compute_potential_fluxes(current_et0, lai, f_local, T_pot_local, E_pot_local);
+
+            real beta_local = compute_column_root_fraction(ii, jj, kk, rd, gdom);
+            if (beta_local <= 0.0)
+              return;
+
+            real alpha_local = compute_root_water_uptake_declining(gw.h(iGlob, 1));
+            real cell_area = gdom.dx * gdom.dy;
+            real dt = gdom.dt;
+            Kokkos::atomic_add(&gw_tpot_acc(iSurf), Kokkos::fabs(T_pot_local * beta_local) * cell_area * dt);
+            Kokkos::atomic_add(&gw_tact_acc(iSurf), Kokkos::fabs(T_pot_local * alpha_local * beta_local) * cell_area * dt);
+          });
+          Kokkos::fence();
+        }
+#endif
       }
       // Flux Source/Sink
       else if (sstype == 1)
@@ -1636,7 +1776,7 @@ public:
         }
         Qoutflow = -flux;
       }
-      // Tile Drains: 暗管排水含水率更新与流量统计 [FROM CODE1]
+      // Tile drains: water content update and outflow statistics
       else if (sstype == 3)
       {
         real flux = 0.0;
@@ -1661,26 +1801,27 @@ public:
 #endif // SERGHEI_RE_MODEL
 
 // ==========================================
-// 地下水溶质运移源汇项类 RTGwSS
+// Groundwater reactive transport source/sink class RTGwSS
 // ==========================================
 #if SERGHEI_RE_MODEL
-#define DEFAULT_TSCF 0.8 // 根系吸水浓缩因子 (0.0=纯水蒸腾, 1.0=完全吸收)
+#define DEFAULT_TSCF 0.8 // transpiration stream concentration factor (0.0 = pure-water transpiration, 1.0 = full solute uptake)
 
-class SourceSink; // 前向声明，用于后续的计算函数
+class SourceSink; // forward declaration, used by the computation functions below
 #if SERGHEI_SUBSURFACE_TRANSPORT
 class RTGwSS
 {
 public:
   std::string id;
-  // 1: 体积质量通量注入 [M/L3/T]
-  // 2: 搭配水流的点源指定浓度注入 [M/L3]
-  // 3: 面积质量通量注入(撒施施肥) [M/L2/T]，代码会自动根据垂向网格厚度分配
+  // 1: volumetric mass flux injection [M/L3/T]
+  // 2: point-source concentration injection carried by the flow [M/L3]
+  // 3: areal mass flux application (broadcast fertilisation) [M/L2/T],
+  //    automatically distributed over the vertical grid thickness
   int rtsstype;
   int ncellsIT = 0;
   intArr icells;
-  realArr col_depth; // 用于存储选中区域每个柱面的垂向总厚度 (H_col)
+  realArr col_depth; // total vertical thickness of each selected water column (H_col)
 
-  std::vector<int> spec_sstype; // 0: 常量, 1: 线性插值时间序列, 2: 阶跃常数时间序列(用于瞬时施肥)
+  std::vector<int> spec_sstype; // 0: constant, 1: linearly interpolated time series, 2: step-constant time series (instantaneous fertilisation)
   std::vector<real> spec_ssval_const;
   std::vector<std::string> spec_ssfile;
   std::vector<int> has_ssfile;
@@ -1689,21 +1830,21 @@ public:
 
   MPI_Comm comm;
 
-  // 查找区域内部网格并预计算垂向厚度
+  // Find the interior cells of the region and precompute the vertical thickness
   inline int find_icells(GwState &gw, std::string &id_in, GwDomain &gdom, Parallel &par, int nPoly, realArr &xPoly, realArr &yPoly, realArr &zPoly)
   {
     int foundInSubdom = -1;
     std::vector<int> tmpicells;
     std::vector<int> subdomains;
 
-    // 只遍历内部网格区域（不包括halo层）
+    // Traverse the interior cells only (excluding halo layers)
     for (int kk = 0; kk < gdom.nz; kk++)
     {
       for (int jj = 0; jj < gdom.ny; jj++)
       {
         for (int ii = 0; ii < gdom.nx; ii++)
         {
-          // 计算全局索引时使用正确的层数偏移
+          // Use the correct layer offset when computing the global index
           int iGlob = (gdom.hc + kk) * gdom.nxhc * gdom.nyhc + (gdom.hc + jj) * gdom.nxhc + ii + gdom.hc;
           real xCoord = gdom.xll + (par.i_beg + ii + 0.5) * gdom.dx;
           real yCoord = gdom.yll + gdom.ny_glob * gdom.dx - (par.j_beg + jj + 0.5) * gdom.dx;
@@ -1721,10 +1862,10 @@ public:
       foundInSubdom = par.myrank;
 
     int ncells_all;
-    MPI_Allreduce(&ncellsIT, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allreduce(&ncellsIT, &ncells_all, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
 
     int *subdoms = (int *)malloc(par.nranks * sizeof(int));
-    MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allgather(&foundInSubdom, 1, MPI_INT, subdoms, 1, MPI_INT, MPI_COMM_WORLD));
     for (int i = 0; i < par.nranks; i++)
     {
       if (subdoms[i] >= 0)
@@ -1733,9 +1874,9 @@ public:
     free(subdoms);
 
     MPI_Group group, subgroup;
-    MPI_Comm_group(MPI_COMM_WORLD, &group);
-    MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup);
-    MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm);
+    SERGHEI_MPI_CHECK(MPI_Comm_group(MPI_COMM_WORLD, &group));
+    SERGHEI_MPI_CHECK(MPI_Group_incl(group, subdomains.size(), subdomains.data(), &subgroup));
+    SERGHEI_MPI_CHECK(MPI_Comm_create(MPI_COMM_WORLD, subgroup, &comm));
 
     if (ncells_all > 0)
     {
@@ -1749,7 +1890,8 @@ public:
       Kokkos::deep_copy(icells, icells_host);
 
       // ========================================================
-      // [质量守恒核心] 预计算多边形选中网格在其二维水柱上的总厚度 H_col
+      // Mass-conservation core: precompute H_col, the total thickness of the
+      // 2D water column over which the polygon-selected cells are distributed
       // ========================================================
       col_depth = realArr("col_depth", gdom.nCellSwMem);
       Kokkos::deep_copy(col_depth, 0.0);
@@ -1794,7 +1936,7 @@ public:
 #endif
 
 // ============================================================
-// [MERGED] SourceSink class
+// SourceSink class
 // Merges CODE2 structure with CODE1's solute transport vectors
 // ============================================================
 class SourceSink
@@ -1812,14 +1954,16 @@ public:
 };
 
 // ==========================================
-// 实现 RTGwSS 核心计算函数 (必须在 SourceSink 声明之后)
+// Implementation of the RTGwSS core computation functions (must follow the SourceSink declaration)
 // ==========================================
 #if SERGHEI_SUBSURFACE_TRANSPORT
 template <typename RTStateGWType>
 inline void RTGwSS::ComputeRTGWSourceSink(RTStateGWType &rtgw, const GwState &gw, const GwDomain &gdom, const SourceSink &ss, int iSpec)
 {
-  real tscf = DEFAULT_TSCF;
-  // 1. 处理蒸腾作用 (Root Uptake) & 土壤蒸发
+  // Read the species-specific TSCF coefficient from the species state object
+  real tscf = rtgw.tscf(iSpec);
+
+  // 1. Transpiration (root uptake) & soil evaporation
   Kokkos::parallel_for("GW_RT_Transpiration", gdom.nCell, KOKKOS_LAMBDA(int idom) {
         int ii, jj, kk, iGlob;
         gdom.unpackIndices(idom, kk, jj, ii);
@@ -1829,26 +1973,34 @@ inline void RTGwSS::ComputeRTGWSourceSink(RTStateGWType &rtgw, const GwState &gw
         real evap_rate = gw.evapGW(iGlob);
         real C_curr = rtgw.c(iSpec, iGlob, 0); 
         
-        // 1.1 根系吸水 (带走一定比例盐分/肥料)
-        if (transp_rate < 0.0) {
-            real removed_mass_transp = -1 * transp_rate * C_curr * tscf * rtgw.dt;
-            rtgw.RTcoef(idom, 7) -= removed_mass_transp; 
+        // 1.1 Root uptake. RTcoef stores the volumetric storage equation
+        // wc*C, while transp_rate is an areal water flux [m/s]. Divide by
+        // the cell thickness to convert the sink to a volumetric increment,
+        // matching the groundwater water-balance discretisation.
+        if (transp_rate < 0.0 && tscf > 0.0) {
+            const real dz = gdom.dz(iGlob);
+            if (dz > 0.0) {
+                const real removed_storage_transp =
+                    (-transp_rate) * C_curr * tscf * rtgw.dt / dz;
+                rtgw.RTcoef(idom, 7) -= removed_storage_transp;
+            }
         }
 
-        // 1.2 土壤蒸发 (通常假定纯水蒸发，盐分全留土壤，因此浓缩效应自动产生)
+        // 1.2 Soil evaporation (assumed pure-water evaporation: salts stay in
+        // the soil, so the concentration effect arises automatically)
         if (evap_rate < 0.0) {
             real removed_mass_evap = -1 * evap_rate * C_curr * 0.0 * rtgw.dt;
             rtgw.RTcoef(idom, 7) -= removed_mass_evap;
         } });
 
-  // 2. 处理纯溶质网格源/汇项 (撒施施肥、深层注肥等)
+  // 2. Pure solute cell source/sink terms (broadcast fertilisation, deep injection, etc.)
   for (size_t k = 0; k < ss.rtgwss.size(); k++)
   {
     const RTGwSS &rt_ss_obj = ss.rtgwss[k];
     if (rt_ss_obj.ncellsIT <= 0)
       continue;
 
-    // 获取当前时间点的注入浓度或质量通量率
+    // Obtain the injection concentration or mass flux rate at the current time
     real C_inject = 0.0;
     if (rt_ss_obj.spec_sstype[iSpec] == 0)
     {
@@ -1909,11 +2061,11 @@ inline void RTGwSS::ComputeRTGWSourceSink(RTStateGWType &rtgw, const GwState &gw
 #endif
 
 // ==========================================
-// 实现 RTSwSS 核心计算函数
+// Implementation of the RTSwSS core computation functions
 // ==========================================
 #if SERGHEI_SURFACE_TRANSPORT
 template <typename RTStateSWType>
-inline void RTSwSS::ComputeRTSWSourceSink(RTStateSWType &rtsw, const State &state, const Domain &dom, const SourceSinkData &ss, int iSpec)
+inline void RTSwSS::ComputeRTSWSourceSink(RTStateSWType &rtsw, const State &state, const Domain &dom, const SourceSinkData &ss, int iSpec, int step_part)
 {
   for (size_t k = 0; k < ss.rtswss.size(); k++)
   {
@@ -1921,7 +2073,7 @@ inline void RTSwSS::ComputeRTSWSourceSink(RTStateSWType &rtsw, const State &stat
     if (sw_ss_obj.ncellsIT <= 0)
       continue;
 
-    // 1. 提取当前时刻外部源项输入的质量流率 [mg/m2/s]
+    // 1. Extract the external source mass flux rate at the current time [mg/m2/s]
     real C_inject = 0.0;
     if (sw_ss_obj.spec_sstype[iSpec] == 0)
     {
@@ -1949,61 +2101,73 @@ inline void RTSwSS::ComputeRTSWSourceSink(RTStateSWType &rtsw, const State &stat
       }
     }
 
-    // 2. 并行处理溶解逻辑
+    // 2. Dissolution logic in parallel
     int rtsstype = sw_ss_obj.rtsstype;
     intArr icells_local = sw_ss_obj.icells;
     auto undissolved_local = sw_ss_obj.undissolved_mass[iSpec];
+    auto dissolved_mass_accum_local = sw_ss_obj.dissolved_mass_accum;
     int ncells = sw_ss_obj.ncellsIT;
     real dt_local = rtsw.dt;
+    real cell_area = dom.cellArea();
 
-    // --- 核心物理参数配置 ---
-    const real k_diss = 1.0e-6;         // 溶解速率常数 (1/s)
-    const real h_min_dissolve = 1.0e-3; // 最小溶解水深 1mm
-    // 溶解度极限 [mg/L]：
-    // 虽然尿素溶解度很高，但为了数值稳定性且符合农田常见上限，
-    // 将饱和度设为 500mg/L。这能防止浓度产生无法计算的巨峰。
-    const real Solubility_Limit = 500.0;
+    // --- Core physical parameters ---
+    const real k_diss = 1.0e-3;         // dissolution rate constant [1/s]
+    const real h_min_dissolve = 1.0e-3; // minimum water depth for dissolution: 1 mm
+    // Solubility limit [mg/L]:
+    // Although urea is highly soluble, the saturation concentration is capped
+    // at 500 mg/L for numerical stability and as a common field-application
+    // upper bound. This prevents unbounded concentration spikes.
+    const real Solubility_Limit = 500000.0;
 
     Kokkos::parallel_for("SW_RT_Safe_Dissolution", ncells, KOKKOS_LAMBDA(int idx) {
-        int iGlob = icells_local(idx);
-        real h = state.h4rtsw(iGlob, 1);
+        int hydro_idx = icells_local(idx);
+        int iGlob = rtsw.hydroToRtIndex(hydro_idx, dom.hc);
+        real h_old = state.h4rtsw(hydro_idx, 1);
+        // Match transport(): state.h contains the current-step SW-GW exchange,
+        // while h4rtsw(..., 0) is the pre-exchange hydrodynamic snapshot.
+        real h_new = state.h(hydro_idx);
+        real h = (step_part == 1) ? 0.5 * (h_old + h_new) : h_new;
 
         if (rtsstype == 3) { 
-            // A. 质量守恒：先将所有新增肥料质量存入固体池 [mg/m2]
+            // A. Mass conservation: first add all new fertilizer mass to the solid pool [mg/m2]
             undissolved_local(idx) += C_inject * dt_local;
 
             real M_solid = undissolved_local(idx);
 
-            // B. 溶解条件判定：水深足够且有固体肥料
+            // B. Dissolution condition: sufficient water depth and solid fertilizer present
             if (h > h_min_dissolve && M_solid > 1.0e-8) {
                 real C_curr = rtsw.c(iSpec, iGlob, 1);
                 
-                // 如果当前浓度已经达到或超过溶解度上限，停止溶解
+                // Stop dissolving once the concentration reaches the solubility limit
                 if (C_curr < Solubility_Limit) {
                     
-                    // 1. 基于动力学计算“想溶解”多少 [mg/m2]
+                    // 1. Kinetics-limited amount the solid wants to dissolve [mg/m2]
                     real M_kin = M_solid * (1.0 - exp(-k_diss * dt_local));
 
-                    // 2. 基于溶解度极限计算“能容纳”多少 [mg/m2]
-                    // 容纳能力 = (饱和浓度 - 当前浓度) * 水深 * 1000
+                    // 2. Solubility-limited amount the water column can host [mg/m2]
+                    // capacity = (saturation concentration - current concentration) * depth * 1000
                     real M_sat = (Solubility_Limit - C_curr) * h * 1000.0;
                     if (M_sat < 0.0) M_sat = 0.0;
 
-                    // 3. 取最小值，作为本步实际溶解量
+                    // 3. The actual mass dissolved this step is the minimum of the two
                     real M_to_dissolve = fmin(M_kin, M_sat);
                     
-                    // C. 更新液相浓度与质量
+                    // C. Update the liquid-phase concentration and mass
                     real delta_C = M_to_dissolve / (h * 1000.0);
                     rtsw.c(iSpec, iGlob, 1) += delta_C;
                     
-                    // 重要：同步同步质量变量，供 transport 半步使用
+                    // Important: keep the mass variable in sync for the transport half-step
                     rtsw.solute_mass(iSpec, iGlob, 1) = rtsw.c(iSpec, iGlob, 1) * h;
                     
-                    // D. 更新固体池：扣除已溶解质量
+                    // D. Update the solid pool: subtract the dissolved mass
                     undissolved_local(idx) -= M_to_dissolve;
+
+                    // Mass-conservation bookkeeping counts only mass actually dissolved into the liquid phase
+                    Kokkos::atomic_add(&dissolved_mass_accum_local(iSpec),
+                                       M_to_dissolve * cell_area);
                 }
             }
-            // 如果水深不足 (h < 1mm)，M_to_dissolve = 0，质量全部留在固体池
+            // If the water depth is insufficient (h < 1 mm), M_to_dissolve = 0 and all mass stays in the solid pool
         } });
   }
 }

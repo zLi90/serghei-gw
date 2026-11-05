@@ -23,8 +23,8 @@
  * @see CropInit.h for table parsing from input files.
  */
 
-#ifndef _AFGEN_H_
-#define _AFGEN_H_
+#ifndef AFGEN_H
+#define AFGEN_H
 
 #include "../define.h"
 
@@ -76,4 +76,4 @@ public:
     }
 };
 
-#endif /* _AFGEN_H_ */
+#endif /* AFGEN_H */

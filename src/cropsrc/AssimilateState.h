@@ -27,8 +27,8 @@
  * @see ../define.h    for the realArr typedef (Kokkos View<real*>)
  */
 
-#ifndef _ASSIMILATE_STATE_H_
-#define _ASSIMILATE_STATE_H_
+#ifndef ASSIMILATE_STATE_H
+#define ASSIMILATE_STATE_H
 
 #include "../define.h"
 
@@ -145,4 +145,4 @@ struct AstroVars {
     real ANGOT;   ///< Angot extraterrestrial radiation [J m^-2 d^-1]
 };
 
-#endif
+#endif /* ASSIMILATE_STATE_H */

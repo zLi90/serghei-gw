@@ -24,8 +24,8 @@
  * interfaces may convert to [m].
  ******************************************************************************/
 
-#ifndef _ROOT_DYNAMICS_STATE_H_
-#define _ROOT_DYNAMICS_STATE_H_
+#ifndef ROOT_DYNAMICS_STATE_H
+#define ROOT_DYNAMICS_STATE_H
 
 #include "../define.h"
 
@@ -120,4 +120,4 @@ public:
     }
 };
 
-#endif
+#endif /* ROOT_DYNAMICS_STATE_H */

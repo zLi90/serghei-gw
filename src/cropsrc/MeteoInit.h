@@ -41,8 +41,8 @@
  * @see     MeteoState.h  for the state container that stores all meteorological arrays
  ******************************************************************************/
 
-#ifndef _METEO_INIT_H_
-#define _METEO_INIT_H_
+#ifndef METEO_INIT_H
+#define METEO_INIT_H
 
 #include "../define.h"
 #include "../Parallel.h"
@@ -345,14 +345,18 @@ public:
             calculateET(date_tm, ms.lat, ms.elev, TMIN, TMAX, IRRAD, VAP, WIND,
                         ms.angstA, ms.angstB, e0, es0, et0);
 
-            /* Convert from mm/day to cm/day and store directly on device views. */
-            ms.e0(i) = e0 * 0.1;    /* Open water evaporation [cm/day] */
-            ms.es0(i) = es0 * 0.1;  /* Bare soil evaporation [cm/day] */
-            ms.et0(i) = et0 * 0.1;  /* Reference crop evapotranspiration [cm/day] */
+            /* Convert from mm/day to cm/day and fill the host mirrors. The
+             * device views are transferred once after the loop via
+             * Kokkos::deep_copy: writing device views directly from a host
+             * loop is illegal on CUDA-class backends (it only appears to
+             * work on Serial, where mirrors alias the device memory). */
+            h_e0(i) = e0 * 0.1;    /* Open water evaporation [cm/day] */
+            h_es0(i) = es0 * 0.1;  /* Bare soil evaporation [cm/day] */
+            h_et0(i) = et0 * 0.1;  /* Reference crop evapotranspiration [cm/day] */
 
 #if DEBUG_CROP_GROWTH_MODEL
             printf("MeteoInit: i=%zu, DOY=%d, E0=%.6f cm/day, ES0=%.6f cm/day, ET0=%.6f cm/day\n",
-                   i, date_tm.tm_mday, h_e0(i), h_es0(i), ms.et0(i));
+                   i, date_tm.tm_mday, h_e0(i), h_es0(i), h_et0(i));
 #endif
         }
 
@@ -364,6 +368,9 @@ public:
         Kokkos::deep_copy(ms.vap, h_vap);
         Kokkos::deep_copy(ms.wind, h_wind);
         Kokkos::deep_copy(ms.rain, h_rain);
+        Kokkos::deep_copy(ms.e0, h_e0);
+        Kokkos::deep_copy(ms.es0, h_es0);
+        Kokkos::deep_copy(ms.et0, h_et0);
 
 #if DEBUG_CROP_GROWTH_MODEL
         /* Debug: Copy irradiation back to host and print all values. */
@@ -510,8 +517,10 @@ private:
                 }
             }
         }
+        #if DEBUG_CROP_GROWTH_MODEL 
         printf("MeteoInit: Parsed Location Info - Lat=%.2f, Lon=%.2f, Elev=%.1f, AngstromA=%.3f, AngstromB=%.3f\n",
                ms.lat, ms.lon, ms.elev, ms.angstA, ms.angstB);
+        #endif
     }
 
     /* ======================================================================= *
@@ -535,6 +544,11 @@ private:
      */
     real Celsius2Kelvin(real celsius) const
     {
+        /* Kelvin offset 273.16 per FAO-56 Eq. 39 (long-wave radiation terms).
+         * The 273.0 offsets elsewhere in this file are equally intentional:
+         * classic Penman (1948)/WOFOST and the FAO-56 Eq. 6 aerodynamic term
+         * both use 273. Do not "unify" these constants — each reproduces the
+         * published equation it belongs to. */
         return celsius + 273.16;
     }
 
@@ -791,7 +805,8 @@ private:
          * Larger diurnal range -> more turbulent mixing -> higher wind function. */
         real BU = 0.54 + 0.35 * limit(0.0, 1.0, (TDIF - 12.0) / 4.0);
 
-        /* Barometric pressure [mbar], adjusted for altitude via the hypsometric equation. */
+        /* Barometric pressure [mbar], adjusted for altitude via the hypsometric equation.
+         * Kelvin offset 273 as in the classic WOFOST Penman formulation. */
         real PBAR = 1013.0 * exp(-0.034 * ELEV / (TMPA + 273.0));
 
         /* Psychrometric constant [mbar/deg C]. */
@@ -814,7 +829,8 @@ private:
         real RELSSD = limit(0.0, 1.0, (r.ATMTR - abs(ANGSTA)) / abs(ANGSTB));
 
         /* --- Net outgoing long-wave radiation [J/m^2/d] ---
-         * Depends on temperature, humidity, and cloudiness (via relative sunshine duration). */
+         * Depends on temperature, humidity, and cloudiness (via relative sunshine duration).
+         * Kelvin offset 273 as in the classic WOFOST Penman formulation. */
         real RB = STBC * pow(TMPA + 273.0, 4) * (0.56 - 0.079 * sqrt(VAP)) * (0.1 + 0.9 * RELSSD);
 
         /* --- Net absorbed radiation converted to evaporative equivalent [mm/day] ---
@@ -955,7 +971,8 @@ private:
 
             /* Aerodynamic evaporation term [mm/day].
              * Combines the vapour pressure deficit with wind speed and
-             * a temperature-dependent scaling factor (900/(T+273)). */
+             * a temperature-dependent scaling factor (900/(T+273)) with the
+             * Kelvin offset 273 exactly as in FAO-56 Eq. 6. */
             real EA = ((900.0 / (TMPA + 273.0)) * WIND2 * (SVAP - VAP_kPa));
 
             /* Modified psychrometric constant [kPa/deg C].
@@ -1015,4 +1032,4 @@ private:
     }
 };
 
-#endif
+#endif /* METEO_INIT_H */

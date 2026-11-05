@@ -83,7 +83,11 @@ private:
        calculate_residual
        -----------------------------------------------------------------------
        Computes the implicit residual vector for the 5-species nitrogen cycle
-       reaction system using the trapezoidal (Crank-Nicolson) rule:
+       reaction system using the trapezoidal (Crank-Nicolson) rule.
+
+       The five concentration fields use mixed mass bases: NH4 and NO3
+       are compound masses, DO is O2 mass, DOC is elemental C mass, and
+       DON is elemental N mass. No input concentration conversion is done.
 
          Resid[k] = C_new[k] - C_old[k] - 0.5 * dt * (dCdt_new[k] + dCdt_old[k])
 
@@ -95,7 +99,8 @@ private:
        @param dt         [in]  Reaction sub-timestep length [s]
        @param Resid      [out] Residual vector R = C_new - C_old - 0.5*dt*(f(C_new)+f(C_old))
        @param rt         [in]  RTStateSW object containing all kinetic and stoichiometric parameters
-       @param Temp_Corr  [in]  Temperature correction factor (theta^(T_opt - T_env))
+       @param Temp_Corr  [in]  Temperature correction factor
+                              (theta^(T_env - T_opt))
     ----------------------------------------------------------------------- */
     KOKKOS_INLINE_FUNCTION
     void calculate_residual(const real C_new[], const real C_old[], real dt, real Resid[],
@@ -103,12 +108,14 @@ private:
     {
         // --- Surface-water physical parameters ---
         const real Ka_sw = rt.Ka_sw;         ///< Surface reaeration rate coefficient [1/s]
-        const real DO_sat = rt.DO_sat;       ///< DO saturation concentration [mg/L]
-        const real DOC_eq_sw = rt.DOC_eq_sw; ///< Surface DOC equilibrium concentration [mg/L]
+        const real DO_sat = rt.DO_sat;       ///< DO saturation concentration [mg O2/L]
+        const real DOC_eq_sw = rt.DOC_eq_sw; ///< Surface DOC equilibrium concentration [mg C/L]
         const real DON_eq_sw = rt.DON_eq_sw; ///< Surface DON equilibrium concentration [mg/L]
         const real K_rel_sw = rt.K_rel_sw;   ///< Surface DOC/DON release rate coefficient [1/s]
 
-        // --- Stoichiometric yield coefficients (mg product / mg reactant) ---
+        // Stoichiometric mass ratios. Base rates use the basis of the
+        // directly consumed species: R_min [mg N/L/s], R_nit [mg NH4/L/s],
+        // and R_denit/R_aer [mg C/L/s].
         // These are derived from molecular weight ratios:
         //   NH4 (18.04 g/mol), NO3 (62.00 g/mol), O2 (32.00 g/mol),
         //   N in NH4 (14.01 g/mol), C in DOC (12.01 g/mol)
@@ -129,32 +136,34 @@ private:
             real DOC = fmax(0.0, C[3]);
             real DON = fmax(0.0, C[4]);
 
-            // --- Reaction 1: Mineralization (DON -> NH4) ---
+            // --- Reaction 1: Mineralization; base rate [mg N/L/s]. ---
             // Ammonification of dissolved organic nitrogen, consuming dissolved oxygen.
             // Rate depends on DON and DO via dual Monod limitation.
             real R_min = rt.Rate_Max_Min * Temp_Corr * (DON / (rt.K_Monod_DON + DON + SMALL_CONC)) * (DO / (rt.K_Monod_DO_Min + DO + SMALL_CONC));
 
-            // --- Reaction 2: Nitrification (NH4 -> NO3) ---
+            // --- Reaction 2: Nitrification; base rate [mg NH4/L/s]. ---
             // Oxidation of ammonium to nitrate, consuming dissolved oxygen.
             real R_nit = rt.Rate_Max_Nit * Temp_Corr * (NH4 / (rt.K_Monod_NH4 + NH4 + SMALL_CONC)) * (DO / (rt.K_Monod_DO + DO + SMALL_CONC));
 
-            // --- Reaction 3: Denitrification (NO3 -> N2) ---
+            // --- Reaction 3: Denitrification; base rate [mg C/L/s]. ---
             // Reduction of nitrate under anoxic conditions, consuming DOC.
             // Inhibited by dissolved oxygen via a non-competitive inhibition term.
             real R_denit = rt.Rate_Max_Denit * Temp_Corr * (NO3 / (rt.K_Monod_NO3 + NO3 + SMALL_CONC)) * (DOC / (rt.K_Monod_DOC + DOC + SMALL_CONC)) * (rt.Ki_Inhib_DO / (rt.Ki_Inhib_DO + DO + SMALL_CONC));
 
-            // --- Reaction 4: Aerobic respiration (DOC consumption) ---
+            // --- Reaction 4: Aerobic respiration; base rate [mg C/L/s]. ---
             // Heterotrophic consumption of dissolved organic carbon, consuming DO.
             real R_aer = rt.Rate_Max_Hetero * Temp_Corr * (DOC / (rt.K_Monod_DOC_Aerobic + DOC + SMALL_CONC)) * (DO / (rt.K_Monod_DO_Aerobic + DO + SMALL_CONC));
 
-            // --- Reaction 5: Surface-water specific source terms ---
+            // --- Reaction 5: Surface-water source terms. R_air is
+            // [mg O2/L/s]; DOC and DON release rates are [mg C/L/s]
+            // and [mg N/L/s], respectively. ---
             // Note: Unlike the subsurface module, the surface module does not multiply
             // reaeration by a moisture/saturation factor (always water-covered).
             real R_air = Ka_sw * fmax(0.0, DO_sat - DO);            ///< Atmospheric reaeration of DO
             real R_rel_DOC = K_rel_sw * fmax(0.0, DOC_eq_sw - DOC); ///< DOC release from sediments
             real R_rel_DON = K_rel_sw * fmax(0.0, DON_eq_sw - DON); ///< DON release from sediments
 
-            // --- Assemble species rate equations (mass balance) ---
+            // Assemble species rate equations on their respective mass bases.
             dCdt[0] = Y_NH4_DON * R_min - R_nit;                                      ///< NH4: gains from mineralization, loses to nitrification
             dCdt[1] = Y_NO3_NH4 * R_nit - Y_NO3_DOC * R_denit;                        ///< NO3: gains from nitrification, loses to denitrification
             dCdt[2] = R_air - Y_O2_DON * R_min - Y_O2_NH4 * R_nit - Y_O2_DOC * R_aer; ///< DO: reaeration, consumed by mineralization, nitrification, respiration
@@ -351,6 +360,69 @@ private:
         }
     }
 
+    /* -----------------------------------------------------------------------
+       tvd_flux  (V1 performance refactor)
+       -----------------------------------------------------------------------
+       Inlined three-point TVD interface reconstruction.  Algebraically and
+       bit-for-bit identical to reconstruct_TVD_concentration() (kept below as
+       the reference implementation): the expression order of every floating
+       point operation is replicated exactly.  The difference is that the
+       caller passes already-cached stencil concentrations, so each value is
+       read from global memory at most once per species per cell instead of
+       being re-read by every face.
+
+         (c0, c1, c2) = (upwind-of-upwind, upwind, downwind)
+
+       @param scheme  [in] Advection scheme: 1 = first-order upwind,
+                             2 = TVD Van Leer limiter, 3 = TVD Superbee limiter
+       @param c0      [in] Upwind-of-upwind cell concentration
+       @param c1      [in] Upwind cell concentration
+       @param c2      [in] Downwind cell concentration
+       @return             Reconstructed concentration at the cell interface
+    ----------------------------------------------------------------------- */
+    KOKKOS_INLINE_FUNCTION
+    real tvd_flux(int scheme, real c0, real c1, real c2) const
+    {
+        // First-order upwind: simply return the upwind cell concentration
+        if (scheme == 1)
+        {
+            return c1;
+        }
+
+        // Compute the upwind ratio r = (C_upwind - C_up-upwind) / (C_downwind - C_upwind)
+        real r = 0.0;
+        if (fabs(c2 - c1) > 1e-12)
+        {
+            r = (c1 - c0) / (c2 - c1);
+        }
+
+        real phi = 0.0;
+
+        if (scheme == 2)
+        {
+            // --- TVD Van Leer limiter ---
+            // phi(r) = 2r / (1 + r) for r > 0, else 0
+            if (r > 0.0)
+            {
+                phi = 2.0 * r / (1.0 + r);
+            }
+            phi = fmin(phi, 2.0);
+        }
+        else if (scheme == 3)
+        {
+            // --- TVD Superbee limiter ---
+            // phi(r) = max(min(2r,1), min(r,2))
+            real r1 = (2.0 * r < 1.0) ? 2.0 * r : 1.0;
+            real r2 = (r < 2.0) ? r : 2.0;
+            phi = (r1 > r2) ? r1 : r2;
+            if (r <= 0.0)
+                phi = 0.0;
+        }
+
+        // Reconstructed interface concentration: C_face = C_upwind + 0.5 * phi * (C_downwind - C_upwind)
+        return c1 + 0.5 * phi * (c2 - c1);
+    }
+
 public:
     /* -----------------------------------------------------------------------
        initializeExchange
@@ -382,12 +454,22 @@ public:
        @param dom   [in]      Computational domain
        @param par   [in]      Parallel decomposition information
     ----------------------------------------------------------------------- */
-    void exchangeMPI(RTStateSW &rtsw, Domain &dom, Parallel &par)
+    void exchangeMPI(RTStateSW &rtsw, Domain &dom, Parallel &par, bool refresh_csw4gw = false)
     {
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
         std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering exchangeMPI()" << std::endl;
 #endif
+        rtexch.exchangeMPI(rtsw, dom, par, 0);
         rtexch.exchangeMPI(rtsw, dom, par, 1);
+        if (refresh_csw4gw)
+        {
+            Kokkos::parallel_for("refresh_csw4gw_init", dom.nCell, KOKKOS_LAMBDA(const int idom) {
+                    const int hydro_idx = dom.getIndex(idom);
+                    const int rt_idx = rtsw.getIndex(idom);
+                    for (int s = 0; s < rtsw.n_mass; ++s)
+                        rtsw.csw4gw(s, hydro_idx) = rtsw.c(s, rt_idx, 1); });
+            Kokkos::fence();
+        }
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
         std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> exchangeMPI() completed OK" << std::endl;
 #endif
@@ -459,100 +541,229 @@ public:
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
         std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering transport() step_part=" << step_part << " n_mass=" << rtsw.n_mass << " dt=" << rtsw.dt << std::endl;
 #endif
+        // --- Kernel-invariant quantities (computed once per half-step on the host;
+        //     the original kernel recomputed several of these per cell or per species) ---
         const real dx = dom.dx();
         const real dy = dom.dx();
         const real dt = rtsw.dt;
         const real hmin = state.hmin;
+        const real areaConversion = dom.cellArea() * 1000.0;
+        const int nSpec = rtsw.n_mass;
+        const int scheme = rtsw.Advection_Scheme;
+        const bool firstHalf = (step_part == 1);
+        const bool isRain = dom.isRain;
+        const real MIN_PHYSICAL_MASS = TOL15; ///< Truncation threshold for mass floor
+        const int nx = dom.nx;
+        const int hydro_hc = dom.hc;
+        const int hydro_nxhc = dom.nx + 2 * dom.hc;
+        const int rt_hc = RTStateSW::rt_hc;
+        const int rt_nxhc = rtsw.rt_nxhc;
 
         // --- Fused transport kernel ---
         // All species are processed per cell to reuse hydrodynamic data (h, Q, etc.)
         // from cache rather than re-reading from global memory for each species.
-        Kokkos::parallel_for("Fused_SW_Transport", dom.nCellMem, KOKKOS_LAMBDA(const int iGlob) {
-            int i, j, nxhc, nyhc;
-            nxhc = dom.nx + 2 * dom.hc;
-            nyhc = dom.ny + 2 * dom.hc;
-            unpackIndicesUniformGrid(iGlob, nyhc, nxhc, j, i);
+        //
+        // Structure (V1 performance refactor, bit-for-bit identical arithmetic):
+        //   A. Load hydrodynamic state once per cell                  (species-independent)
+        //   B. Compute face geometry once per cell and face           (species-independent):
+        //      h_face, face velocities, |v| and the dispersion active flag
+        //   C. Species loop over a cached 5-point concentration stencil plus
+        //      flow-direction-dependent second-ring loads; TVD reconstruction and
+        //      dispersion reuse the cached values and the precomputed geometry.
+        Kokkos::parallel_for("Fused_SW_Transport", dom.nCell, KOKKOS_LAMBDA(const int idom) {
+            // A single div/mod pair derives both index systems.  These formulas
+            // replicate dom.getIndex() and rtsw.getIndex() exactly
+            // (verified against Indexing.h and Domain.h::getHaloExtension).
+            const int i = idom % nx;
+            const int j = idom / nx;
+            const int hydro_idx = (hydro_hc + j) * hydro_nxhc + hydro_hc + i; // == dom.getIndex(idom)
+            const int rt_idx = (rt_hc + j) * rt_nxhc + rt_hc + i;             // == rtsw.getIndex(idom)
+            const int rt_east = rt_idx + 1;
+            const int rt_west = rt_idx - 1;
+            const int rt_south = rt_idx + rt_nxhc;
+            const int rt_north = rt_idx - rt_nxhc;
 
-            // --- Step 1: Pre-read hydrodynamic data shared by all species ---
+            // --- Step 1/A: Pre-read hydrodynamic data shared by all species ---
             // Time slot 1 = previous state, time slot 0 = current state
-            real h_old = state.h4rtsw(iGlob, 1);
-            real h_new = state.h4rtsw(iGlob, 0);
-            // Interpolate water depth at start and end of this transport sub-step
-            // based on the Strang splitting position (step_part 1 or 2)
-            real h_start = (step_part == 1) ? h_old : 0.5 * (h_old + h_new);
-            real h_end   = (step_part == 1) ? 0.5 * (h_old + h_new) : h_new;
+            real h_old = state.h4rtsw(hydro_idx, 1);
+            // state.h already includes the current-step surface-groundwater
+            // water exchange applied by computeGwExchange().  The RT water
+            // depth endpoints must use that same state as the time-series
+            // inventory; otherwise qss changes the reported storage while the
+            // solute transport sees an endpoint that excludes qss.
+            real h_new = state.h(hydro_idx);
 
-            // Compute neighbor cell indices (or -1 at domain boundaries)
-            int east  = (i < nxhc - 1) ? iGlob + 1 : -1;
-            int west  = (i > 0)        ? iGlob - 1 : -1;
-            int south = (j < nyhc - 1) ? iGlob + nxhc : -1;
-            int north = (j > 0)        ? iGlob - nxhc : -1;
+            // Interpolate water depth at start and end of this transport sub-step
+            // based on the Strang splitting position (step_part 1 or 2).
+            real h_start = firstHalf ? h_old : 0.5 * (h_old + h_new);
+            real h_end = firstHalf ? 0.5 * (h_old + h_new) : h_new;
+
+            // Compute neighbor cell indices
+            const int east = hydro_idx + 1;
+            const int west = hydro_idx - 1;
+            const int south = hydro_idx + hydro_nxhc;
+            const int north = hydro_idx - hydro_nxhc;
 
             // Pre-read Riemann water fluxes at the four cell interfaces
-            real Q_E = (east != -1) ? state.InterfaceFlux_x(iGlob) : 0.0;   ///< East face flux (positive = eastward)
-            real Q_W = (west != -1) ? state.InterfaceFlux_x(west)  : 0.0;   ///< West face flux (positive = eastward)
-            real Q_S = (south != -1) ? state.InterfaceFlux_y(iGlob) : 0.0;  ///< South face flux (positive = southward)
-            real Q_N = (north != -1) ? state.InterfaceFlux_y(north) : 0.0;  ///< North face flux (positive = southward)
+            real Q_E = state.InterfaceFlux_x(hydro_idx);
+            real Q_W = state.InterfaceFlux_x(west);
+            real Q_S = state.InterfaceFlux_y(hydro_idx);
+            real Q_N = state.InterfaceFlux_y(north);
 
             // Determine flow direction at each interface for upwinding
-            bool flow_E = (Q_E >= 0.0);
-            bool flow_W = (Q_W >= 0.0);
-            bool flow_S = (Q_S >= 0.0);
-            bool flow_N = (Q_N >= 0.0);
+            const bool flow_E = (Q_E >= 0.0);
+            const bool flow_W = (Q_W >= 0.0);
+            const bool flow_S = (Q_S >= 0.0);
+            const bool flow_N = (Q_N >= 0.0);
 
-            // Pre-read neighbor water depths (for dispersion face-averaging)
-            real h_E = (east != -1) ? state.h4rtsw(east, 1) : 0.0;
-            real h_W = (west != -1) ? state.h4rtsw(west, 1) : 0.0;
-            real h_S = (south != -1) ? state.h4rtsw(south, 1) : 0.0;
-            real h_N = (north != -1) ? state.h4rtsw(north, 1) : 0.0;
+            // Use the post-coupling water depth for neighboring cells as well.
+            // This keeps interface wet/dry checks and dispersion face
+            // averaging on the same hydrodynamic time level as h_new.
+            real h_E = state.h(east);
+            real h_W = state.h(west);
+            real h_S = state.h(south);
+            real h_N = state.h(north);
 
-            // --- Step 2: Loop over all species within this cell ---
-            // This inner loop maximizes cache reuse for the hydrodynamic data read above.
-            for (int iSpec = 0; iSpec < rtsw.n_mass; iSpec++) {
+            // Transverse velocity components for the dispersion tensor, read once
+            // per cell (X faces need hv of both adjacent cells, Y faces need hu).
+            const real hvC = state.hv4rtsw(hydro_idx, 1);
+            const real huC = state.hu4rtsw(hydro_idx, 1);
+
+            // Species-independent source data
+            const real q_vol = state.qss(idom);
+            const real rainRate = isRain ? ss.rainRate(idom) : 0.0;
+
+            // --- Step 1/B: Face geometry, computed once per cell (was: once per
+            // species, i.e. 4 x nSpec sqrt/div evaluations per cell).  h_face, the
+            // face velocities and |v| are pure functions of the hydrodynamic
+            // state, so every species reuses them. ---
+            real hfE = fmin(h_old, h_E);
+            real hfW = fmin(h_W, h_old);
+            real hfS = fmin(h_old, h_S);
+            real hfN = fmin(h_N, h_old);
+            const bool wetE = (hfE > hmin);
+            const bool wetW = (hfW > hmin);
+            const bool wetS = (hfS > hmin);
+            const bool wetN = (hfN > hmin);
+
+            real uE = 0.0, vE = 0.0, velE = 0.0;
+            real uW = 0.0, vW = 0.0, velW = 0.0;
+            real uS = 0.0, vS = 0.0, velS = 0.0;
+            real uN = 0.0, vN = 0.0, velN = 0.0;
+            bool dispE = false, dispW = false, dispS = false, dispN = false;
+
+            if (wetE) {
+                uE = Q_E / hfE;
+                vE = 0.5 * (hvC + state.hv4rtsw(east, 1)) / hfE;
+                velE = sqrt(uE * uE + vE * vE);
+                dispE = (velE > TOL6);
+            }
+            if (wetW) {
+                uW = Q_W / hfW;
+                vW = 0.5 * (state.hv4rtsw(west, 1) + hvC) / hfW;
+                velW = sqrt(uW * uW + vW * vW);
+                dispW = (velW > TOL6);
+            }
+            if (wetS) {
+                vS = Q_S / hfS;
+                uS = 0.5 * (huC + state.hu4rtsw(south, 1)) / hfS;
+                velS = sqrt(uS * uS + vS * vS);
+                dispS = (velS > TOL6);
+            }
+            if (wetN) {
+                vN = Q_N / hfN;
+                uN = 0.5 * (state.hu4rtsw(north, 1) + huC) / hfN;
+                velN = sqrt(uN * uN + vN * vN);
+                dispN = (velN > TOL6);
+            }
+
+            // --- Step 2/C: Loop over all species within this cell ---
+            // This inner loop maximizes cache reuse for the hydrodynamic data and
+            // face geometry computed above, and re-reads each concentration value
+            // from global memory at most once via the local stencil cache.
+            for (int iSpec = 0; iSpec < nSpec; iSpec++) {
+
+                // These per-half-step audit fields are populated from the
+                // same mass update used by the solver.  The groundwater side
+                // keeps its own independent exchange calculation.
+                rtsw.exchange_mass_step(iSpec, rt_idx) = 0.0;
+                rtsw.dry_loss_mass_step(iSpec, rt_idx) = 0.0;
+                rtsw.rain_mass_step(iSpec, rt_idx) = 0.0;
+
+                // 5-point concentration stencil, loaded once per species and shared
+                // by the TVD reconstruction and the dispersion flux of all faces.
+                const real Cc = rtsw.c(iSpec, rt_idx, 0);
+                const real Ce = rtsw.c(iSpec, rt_east, 0);
+                const real Cw = rtsw.c(iSpec, rt_west, 0);
+                const real Cs = rtsw.c(iSpec, rt_south, 0);
+                const real Cn = rtsw.c(iSpec, rt_north, 0);
+
+                // Second-ring (upwind-of-upwind) concentrations: only one candidate
+                // per face is ever needed, selected by the flow direction.  These
+                // are the exact addresses the original reconstruct_TVD_concentration
+                // calls computed; rt_hc = 2 guarantees they are in-bounds (the RT
+                // halo is two cells wide).
+                const real Cee = (!flow_E) ? rtsw.c(iSpec, rt_east + 1, 0) : 0.0;
+                const real Cww = (flow_W) ? rtsw.c(iSpec, rt_west - 1, 0) : 0.0;
+                const real Css = (!flow_S) ? rtsw.c(iSpec, rt_south + rt_nxhc, 0) : 0.0;
+                const real Cnn = (flow_N) ? rtsw.c(iSpec, rt_north - rt_nxhc, 0) : 0.0;
 
                 // Initialize solute mass from start-of-step concentration and water depth
                 real mass = 0.0;
                 if (h_start > hmin) {
-                    mass = h_start * rtsw.c(iSpec, iGlob, 0);
+                    mass = h_start * Cc;
                 }
+
+                // Surface-side exchange is applied directly to the local
+                // liquid mass.  For GW -> SW, ConQss is the groundwater-side
+                // concentration flux.  For SW -> GW, use the surface
+                // concentration and qss so that the surface equation removes
+                // exactly the mass leaving this control volume.
+                real exchange_flux_areal = 0.0; // [mg/(m2 s)]
+                if (q_vol > 0.0) {
+                    exchange_flux_areal = rtsw.ConQss(iSpec, idom);
+                }
+                else if (q_vol < 0.0 && h_start > hmin) {
+                    exchange_flux_areal = q_vol * Cc;
+                }
+                mass += exchange_flux_areal * dt;
+                rtsw.exchange_mass_step(iSpec, rt_idx) =
+                    exchange_flux_areal * dt * areaConversion;
 
                 // ================== X-direction fluxes ==================
 
                 // East face flux (from current cell iGlob to east neighbor)
-                if (east != -1 && (h_old > hmin || h_E > hmin)) {
-                    // TVD reconstruction of concentration at the east face
-                    real C_face = reconstruct_TVD_concentration(rtsw, iSpec, iGlob, east, flow_E, dom, i, j, 1);
+                if (h_old > hmin || h_E > hmin) {
+                    // TVD reconstruction of concentration at the east face.
+                    // Stencil (upwind-of-upwind, upwind, downwind):
+                    //   flow to East:  (W,  C, E);  flow to West:  (EE, E, C)
+                    real C_face = flow_E ? tvd_flux(scheme, Cw, Cc, Ce)
+                                         : tvd_flux(scheme, Cee, Ce, Cc);
                     real adv_flux = Q_E * C_face;
-                    // Dispersion flux: D * h * dC/dx (only if face has water)
+                    // Dispersion flux: D * h * dC/dx (only if face has water);
+                    // face geometry (h_face, velocities, |v|) precomputed above
                     real diff_flux = 0.0;
-                    real h_face = 0.5 * (h_old + h_E);
-                    if (h_face > hmin) {
-                        // Compute face velocity components for dispersion tensor
-                        real u_f = Q_E / h_face;
-                        real v_f = 0.5 * (state.hv4rtsw(iGlob,1) + state.hv4rtsw(east,1)) / h_face;
-                        real vel = sqrt(u_f*u_f + v_f*v_f);
+                    if (wetE) {
                         // Dispersion tensor: D = D_mol + alpha_T * |v| + (alpha_L - alpha_T) * u^2 / |v|
                         real Dxx = rtsw.diffusion_molecular(iSpec);
-                        if (vel > TOL6) Dxx += rtsw.alpha_T(iSpec) * vel + (rtsw.alpha_L(iSpec) - rtsw.alpha_T(iSpec)) * u_f * u_f / vel;
-                        diff_flux = - h_face * Dxx * (rtsw.c(iSpec, east, 0) - rtsw.c(iSpec, iGlob, 0)) / dx;
+                        if (dispE) Dxx += rtsw.alpha_T(iSpec) * velE + (rtsw.alpha_L(iSpec) - rtsw.alpha_T(iSpec)) * uE * uE / velE;
+                        diff_flux = - hfE * Dxx * (Ce - Cc) / dx;
                     }
                     mass -= (adv_flux + diff_flux) * dt / dx; // Outflux from this cell
                 }
 
                 // West face flux (from west neighbor into current cell)
-                if (west != -1 && (h_W > hmin || h_old > hmin)) {
-                    // TVD reconstruction at the west face (west->iGlob interface)
-                    real C_face = reconstruct_TVD_concentration(rtsw, iSpec, west, iGlob, flow_W, dom, i-1, j, 1);
+                if (h_W > hmin || h_old > hmin) {
+                    // TVD reconstruction at the west face (west->iGlob interface).
+                    // Stencil:  flow to East:  (WW, W, C);  flow to West:  (E, C, W)
+                    real C_face = flow_W ? tvd_flux(scheme, Cww, Cw, Cc)
+                                         : tvd_flux(scheme, Ce, Cc, Cw);
                     real adv_flux = Q_W * C_face;
                     real diff_flux = 0.0;
-                    real h_face = 0.5 * (h_W + h_old);
-                    if (h_face > hmin) {
-                        real u_f = Q_W / h_face;
-                        real v_f = 0.5 * (state.hv4rtsw(west,1) + state.hv4rtsw(iGlob,1)) / h_face;
-                        real vel = sqrt(u_f*u_f + v_f*v_f);
+                    if (wetW) {
                         real Dxx = rtsw.diffusion_molecular(iSpec);
-                        if (vel > TOL6) Dxx += rtsw.alpha_T(iSpec) * vel + (rtsw.alpha_L(iSpec) - rtsw.alpha_T(iSpec)) * u_f * u_f / vel;
-                        diff_flux = - h_face * Dxx * (rtsw.c(iSpec, iGlob, 0) - rtsw.c(iSpec, west, 0)) / dx;
+                        if (dispW) Dxx += rtsw.alpha_T(iSpec) * velW + (rtsw.alpha_L(iSpec) - rtsw.alpha_T(iSpec)) * uW * uW / velW;
+                        diff_flux = - hfW * Dxx * (Cc - Cw) / dx;
                     }
                     mass += (adv_flux + diff_flux) * dt / dx; // Influx to this cell
                 }
@@ -560,64 +771,70 @@ public:
                 // ================== Y-direction fluxes ==================
 
                 // South face flux (from current cell to south neighbor)
-                if (south != -1 && (h_old > hmin || h_S > hmin)) {
-                    real C_face = reconstruct_TVD_concentration(rtsw, iSpec, iGlob, south, flow_S, dom, i, j, 2);
+                if (h_old > hmin || h_S > hmin) {
+                    // TVD stencil:  flow to South:  (N, C, S);  flow to North:  (SS, S, C)
+                    real C_face = flow_S ? tvd_flux(scheme, Cn, Cc, Cs)
+                                         : tvd_flux(scheme, Css, Cs, Cc);
                     real adv_flux = Q_S * C_face;
                     real diff_flux = 0.0;
-                    real h_face = 0.5 * (h_old + h_S);
-                    if (h_face > hmin) {
-                        real v_f = Q_S / h_face;
-                        real u_f = 0.5 * (state.hu4rtsw(iGlob,1) + state.hu4rtsw(south,1)) / h_face;
-                        real vel = sqrt(u_f*u_f + v_f*v_f);
+                    if (wetS) {
                         // Dispersion tensor in Y: use v_f for longitudinal component
                         real Dyy = rtsw.diffusion_molecular(iSpec);
-                        if (vel > TOL6) Dyy += rtsw.alpha_T(iSpec) * vel + (rtsw.alpha_L(iSpec) - rtsw.alpha_T(iSpec)) * v_f * v_f / vel;
-                        diff_flux = - h_face * Dyy * (rtsw.c(iSpec, south, 0) - rtsw.c(iSpec, iGlob, 0)) / dy;
+                        if (dispS) Dyy += rtsw.alpha_T(iSpec) * velS + (rtsw.alpha_L(iSpec) - rtsw.alpha_T(iSpec)) * vS * vS / velS;
+                        diff_flux = - hfS * Dyy * (Cs - Cc) / dy;
                     }
                     mass -= (adv_flux + diff_flux) * dt / dy;
                 }
 
                 // North face flux (from north neighbor into current cell)
-                if (north != -1 && (h_N > hmin || h_old > hmin)) {
-                    real C_face = reconstruct_TVD_concentration(rtsw, iSpec, north, iGlob, flow_N, dom, i, j-1, 2);
+                if (h_N > hmin || h_old > hmin) {
+                    // TVD stencil:  flow to South:  (NN, N, C);  flow to North:  (S, C, N)
+                    real C_face = flow_N ? tvd_flux(scheme, Cnn, Cn, Cc)
+                                         : tvd_flux(scheme, Cs, Cc, Cn);
                     real adv_flux = Q_N * C_face;
                     real diff_flux = 0.0;
-                    real h_face = 0.5 * (h_N + h_old);
-                    if (h_face > hmin) {
-                        real v_f = Q_N / h_face;
-                        real u_f = 0.5 * (state.hu4rtsw(north,1) + state.hu4rtsw(iGlob,1)) / h_face;
-                        real vel = sqrt(u_f*u_f + v_f*v_f);
+                    if (wetN) {
                         real Dyy = rtsw.diffusion_molecular(iSpec);
-                        if (vel > TOL6) Dyy += rtsw.alpha_T(iSpec) * vel + (rtsw.alpha_L(iSpec) - rtsw.alpha_T(iSpec)) * v_f * v_f / vel;
-                        diff_flux = - h_face * Dyy * (rtsw.c(iSpec, iGlob, 0) - rtsw.c(iSpec, north, 0)) / dy;
+                        if (dispN) Dyy += rtsw.alpha_T(iSpec) * velN + (rtsw.alpha_L(iSpec) - rtsw.alpha_T(iSpec)) * vN * vN / velN;
+                        diff_flux = - hfN * Dyy * (Cc - Cn) / dy;
                     }
                     mass += (adv_flux + diff_flux) * dt / dy;
                 }
 
                 // ================== Source/sink: rainfall ==================
-                // Rain adds solute mass at the rain concentration for the given species
-                if (dom.isRain && h_end > hmin) {
-                    mass += ss.rainRate(iGlob) * rtsw.RainCon_arr(iSpec) * dt;
+                // Rain enters this liquid-phase equation only when the cell
+                // is wet at the end of the transport half-step. Record the
+                // exact applied mass so the audit uses the same wet/dry mask.
+                if (isRain && h_end > hmin) {
+                    const real rain_flux_areal =
+                        rainRate * rtsw.RainCon_arr(iSpec);
+                    mass += rain_flux_areal * dt;
+                    rtsw.rain_mass_step(iSpec, rt_idx) =
+                        rain_flux_areal * dt * areaConversion;
                 }
 
-                const real MIN_PHYSICAL_MASS = TOL15; ///< Truncation threshold for mass floor
-
                 // --- Update concentration from computed mass ---
-                if (h_end > state.hmin) {
+                if (h_end > hmin) {
                     if (mass < MIN_PHYSICAL_MASS) {
                         // Mass is effectively zero; set concentration to zero
-                        rtsw.c(iSpec, iGlob, 1) = 0.0;
-                        rtsw.solute_mass(iSpec, iGlob, 1) = 0.0;
+                        rtsw.c(iSpec, rt_idx, 1) = 0.0;
+                        rtsw.solute_mass(iSpec, rt_idx, 1) = 0.0;
                     } else {
                         real calculated_c = mass / h_end;
-                        rtsw.c(iSpec, iGlob, 1) = calculated_c;
+                        rtsw.c(iSpec, rt_idx, 1) = calculated_c;
                         // Back-calculate mass from concentration to ensure strict conservation
-                        rtsw.solute_mass(iSpec, iGlob, 1) = calculated_c * h_end;
+                        rtsw.solute_mass(iSpec, rt_idx, 1) = calculated_c * h_end;
                     }
                 } else {
-                    // Water depth below threshold: no solute in this dry cell
-                    rtsw.c(iSpec, iGlob, 1) = 0.0;
-                    rtsw.solute_mass(iSpec, iGlob, 1) = 0.0;
+                    // Water depth below threshold: remove the remaining liquid
+                    // mass explicitly so it appears in the budget as a dry-cell
+                    // loss instead of an untracked disappearance.
+                    if (mass > 0.0) {
+                        rtsw.dry_loss_mass_step(iSpec, rt_idx) =
+                            mass * areaConversion;
+                    }
+                    rtsw.c(iSpec, rt_idx, 1) = 0.0;
+                    rtsw.solute_mass(iSpec, rt_idx, 1) = 0.0;
                 }
             } });
         Kokkos::fence();
@@ -629,7 +846,7 @@ public:
         // Processed per-species; includes boundary inflows, point sources, etc.
         for (int iSpec = 0; iSpec < rtsw.n_mass; iSpec++)
         {
-            RTSwSS::ComputeRTSWSourceSink(rtsw, state, dom, ss, iSpec);
+            RTSwSS::ComputeRTSWSourceSink(rtsw, state, dom, ss, iSpec, step_part);
         }
         Kokkos::fence();
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
@@ -637,8 +854,18 @@ public:
 #endif
 
         // --- Apply reactive transport boundary conditions ---
+        // Sync the triggered-BC runtime on/off state from the paired hydrodynamic
+        // boundary before applying: rtbc[k] is a static copy made at init and does
+        // not share extbc[k]'s irrigationActive/drainageActive. extbc[k].apply()
+        // runs on every rank each hydro step and the trigger decision is reduced
+        // over MPI_COMM_WORLD, so the copied flag is rank-consistent.
         for (int k = 0; k < ebc.rtbc.size(); k++)
         {
+            if (k < (int)ebc.extbc.size())
+                ebc.rtbc[k].hydroTriggerActive =
+                    (ebc.extbc[k].bctype == SWE_BC_TRIGGERED_IRRIGATION) ? ebc.extbc[k].irrigationActive
+                  : (ebc.extbc[k].bctype == SWE_BC_TRIGGERED_DRAINAGE) ? ebc.extbc[k].drainageActive
+                  : 0;
             ebc.rtbc[k].applyrtbc(rtsw, dom, state);
         }
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
@@ -647,11 +874,19 @@ public:
 
         // --- Synchronize time slots: copy slot 1 (new) to slot 0 (current) ---
         // This prepares the state for the next sub-step or the reaction solver.
-        Kokkos::parallel_for("update_state", dom.nCellMem, KOKKOS_LAMBDA(const int iGlob) {
+        //
+        // V2 traffic reduction (results bit-for-bit identical):
+        //  - solute_mass slot 0 is no longer copied: no code reads it.  The only
+        //    solute_mass readers are the boundary condition (BC.h) and the
+        //    source/sink dissolution (SourceSink.h), and both operate on slot 1.
+        //  - csw4gw is no longer refreshed here: its single consumer
+        //    (serghei.h: Kokkos::deep_copy(rtgw.csw, rtsw.csw4gw)) runs once per
+        //    outer hydrodynamic step, so rt_solve_sw() now publishes it once at
+        //    the end of the Strang cycle instead of once per transport half-step.
+        Kokkos::parallel_for("update_state", dom.nCell, KOKKOS_LAMBDA(const int idom) {
+            const int rt_idx = rtsw.getIndex(idom);
             for (int iSpec = 0; iSpec < rtsw.n_mass; iSpec++) {
-                rtsw.c(iSpec, iGlob, 0) = rtsw.c(iSpec, iGlob, 1);
-                rtsw.solute_mass(iSpec, iGlob, 0) = rtsw.solute_mass(iSpec, iGlob, 1);
-                rtsw.csw4gw(iSpec, iGlob) = rtsw.c(iSpec, iGlob, 1); ///< Also update concentration visible to groundwater coupling
+                rtsw.c(iSpec, rt_idx, 0) = rtsw.c(iSpec, rt_idx, 1);
             } });
         Kokkos::fence();
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
@@ -687,6 +922,7 @@ public:
 #endif
         Kokkos::parallel_for(dom.nCell, KOKKOS_LAMBDA(int idom) {
             int ii = dom.getIndex(idom);
+            int rt_ii = rtsw.getIndex(idom);
             real q_vol = state.qss(idom); ///< Volumetric water exchange flux [m/s] (positive = GW -> SW)
             real h = state.h4rtsw(ii, 0);
             // Compute mid-step water depth for the exchange calculation
@@ -701,15 +937,15 @@ public:
 
                 if (q_vol > 0.0) // Groundwater inflow to surface water
                 {
-                    real C_old = rtsw.c(iSpec, ii, 0);
+                    real C_old = rtsw.c(iSpec, rt_ii, 0);
                     if (h_mid < h_min) {
                         // Dry surface cell: concentration is set by the GW inflow
-                        rtsw.c(iSpec, ii, 0) = flux_mass / q_vol;
+                        rtsw.c(iSpec, rt_ii, 0) = flux_mass / q_vol;
                     } else {
                         // Wet surface cell: implicit mixing update
                         real numerator = C_old + (rtsw.dt * flux_mass / h_mid);
                         real denominator = 1.0 + (rtsw.dt * q_vol / h_mid);
-                        rtsw.c(iSpec, ii, 0) = numerator / denominator;
+                        rtsw.c(iSpec, rt_ii, 0) = numerator / denominator;
                     }
                 }
                 else if (q_vol < 0.0)
@@ -718,20 +954,20 @@ public:
                 }
 
                 // Safety: clamp to non-negative and guard against NaN
-                if (rtsw.c(iSpec, ii, 0) < 0.0) rtsw.c(iSpec, ii, 0) = 0.0;
-                if (isnan(rtsw.c(iSpec, ii, 0))) rtsw.c(iSpec, ii, 0) = 0.0;
+                if (rtsw.c(iSpec, rt_ii, 0) < 0.0) rtsw.c(iSpec, rt_ii, 0) = 0.0;
+                if (isnan(rtsw.c(iSpec, rt_ii, 0))) rtsw.c(iSpec, rt_ii, 0) = 0.0;
 
                 // Synchronize both time slots after the exchange
-                rtsw.c(iSpec, ii, 1) = rtsw.c(iSpec, ii, 0);
+                rtsw.c(iSpec, rt_ii, 1) = rtsw.c(iSpec, rt_ii, 0);
 
                 // Immediately recalculate solute_mass from the updated concentration
                 // to maintain consistency for the subsequent second transport half-step.
                 if (h_mid > h_min) {
-                    rtsw.solute_mass(iSpec, ii, 0) = h_mid * rtsw.c(iSpec, ii, 0);
-                    rtsw.solute_mass(iSpec, ii, 1) = rtsw.solute_mass(iSpec, ii, 0);
+                    rtsw.solute_mass(iSpec, rt_ii, 0) = h_mid * rtsw.c(iSpec, rt_ii, 0);
+                    rtsw.solute_mass(iSpec, rt_ii, 1) = rtsw.solute_mass(iSpec, rt_ii, 0);
                 } else {
-                    rtsw.solute_mass(iSpec, ii, 0) = 0.0;
-                    rtsw.solute_mass(iSpec, ii, 1) = 0.0;
+                    rtsw.solute_mass(iSpec, rt_ii, 0) = 0.0;
+                    rtsw.solute_mass(iSpec, rt_ii, 1) = 0.0;
                 }
             } });
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
@@ -769,19 +1005,21 @@ public:
         std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering reaction_integration_kernel() n_mass=" << rtsw.n_mass << " NCS=" << rtsw.Nitrogen_Cycle_Simulation << std::endl;
 #endif
 
-        Kokkos::parallel_for("SW_Reaction", dom.nCellMem, KOKKOS_LAMBDA(int iGlob) {
+        Kokkos::parallel_for("SW_Reaction", dom.nCell, KOKKOS_LAMBDA(int idom) {
+            const int iGlob = rtsw.getIndex(idom);
+            const int hydro_idx = dom.getIndex(idom);
 
-            real h = state.h4rtsw(iGlob, 0);
+            real h = state.h4rtsw(hydro_idx, 0);
             // Compute mid-step water depth for mass consistency in Strang splitting
-            real h_old = state.h4rtsw(iGlob, 1);
-            real h_new = state.h4rtsw(iGlob, 0);
+            real h_old = state.h4rtsw(hydro_idx, 1);
+            real h_new = state.h4rtsw(hydro_idx, 0);
             real h_mid = 0.5 * (h_old + h_new); // Mid-point depth from the Strang splitting
             // Skip dry cells
             if (h_mid < state.hmin) return;
 
             real dt = rtsw.dt;
-            real T_env = 20.0;  // Reference environmental temperature [deg C]
-            // Temperature correction factor: theta^(T_opt - T_env)
+            real T_env = 20.0;  // Fixed environmental temperature [deg C]
+            // Temperature correction factor: theta^(T_env - T_opt).
             real Temp_Corr = pow(rtsw.Temp_Coeff_Theta, T_env - rtsw.Opt_Temp);
 
             const int n_spec = rtsw.n_mass;
@@ -920,7 +1158,9 @@ public:
         timer.reset();
         rtexch.exchangeMPI(rtsw, dom, par, 0);
         rtexch.exchangeMPI(rtsw, dom, par, 1);
+#if !SERGHEI_RT_REDUCE_FENCES
         Kokkos::fence();
+#endif
         dom.timers.rtsw.comm += timer.seconds();
 
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
@@ -928,52 +1168,86 @@ public:
 #endif
         timer.reset();
         transport(rtsw, state, dom, ebc, ss, 1); // step_part = 1
+        const double transportLaunchTime1 = timer.seconds();
+        dom.timers.rtsw.transportLaunch += transportLaunchTime1;
+        dom.timers.rtsw.transportKernel += transportLaunchTime1;
+        timer.reset();
         Kokkos::fence();
-        dom.timers.rtsw.transport += timer.seconds();
+        const double transportFenceTime1 = timer.seconds();
+        dom.timers.rtsw.transportFence += transportFenceTime1;
+        dom.timers.rtsw.transportKernel += transportFenceTime1;
+        timer.reset();
+        rtintsw.accumulateAppliedTransportMass(rtsw, dom);
+        Kokkos::fence();
+        const double transportAuditTime1 = timer.seconds();
+        dom.timers.rtsw.transportAudit += transportAuditTime1;
+        dom.timers.rtsw.transportKernel += transportAuditTime1;
+
+        timer.reset();
+        rtintsw.accumulateBalanceBoundaryMass(ebc, rtsw.dt);
+        Kokkos::fence();
+        dom.timers.rtsw.boundaryAudit += timer.seconds();
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
         std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> [Strang Step 1] transport() half-step 1 completed" << std::endl;
 #endif
 
-        // Post-transport halo exchange: ensure reaction solver reads up-to-date concentrations
+        // Post-transport halo exchange: required by the conservative default
+        // path.  The reduced path is available only as an explicit experiment:
+        // reaction_integration_kernel is cell-local and must not read ghosts.
+#if !SERGHEI_RT_REDUCED_EXCHANGE
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
         std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> [Strang Step 1] Post-transport MPI exchange" << std::endl;
 #endif
         timer.reset();
         rtexch.exchangeMPI(rtsw, dom, par, 0);
         rtexch.exchangeMPI(rtsw, dom, par, 1);
+#if !SERGHEI_RT_REDUCE_FENCES
         Kokkos::fence();
+#endif
         dom.timers.rtsw.comm += timer.seconds();
+#endif
 
         // --- Strang Step 2: Full reaction step (dt) ---
         // Only executed if the nitrogen cycle simulation flag is enabled
-        if (rtsw.Nitrogen_Cycle_Simulation == 1)
+        if (rtintsw.hasReaction())
         {
             rtsw.dt = dt_global; // Full timestep for the reaction solver
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
             std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> [Strang Step 2] Entering reaction_integration_kernel()" << std::endl;
 #endif
             // Record pre-reaction mass for flux bookkeeping
+            timer.reset();
             rtintsw.recordMassBefore(rtsw, state, dom);
+            Kokkos::fence();
+            dom.timers.rtsw.reactAudit += timer.seconds();
 
             timer.reset();
             reaction_integration_kernel(rtsw, state, dom);
             Kokkos::fence();
-            dom.timers.rtsw.react += timer.seconds();
+            dom.timers.rtsw.reactKernel += timer.seconds();
             // Compute the reaction-induced flux from pre/post mass difference
+            timer.reset();
             rtintsw.finalizeReactionFlux(rtsw, state, dom, dt_global);
+            Kokkos::fence();
+            dom.timers.rtsw.reactAudit += timer.seconds();
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
             std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> [Strang Step 2] reaction_integration_kernel() completed" << std::endl;
 #endif
 
-            // Post-reaction halo exchange
+            // Post-reaction halo exchange.  Reaction is local; this exchange
+            // is skipped by the reduced-exchange experiment.
+#if !SERGHEI_RT_REDUCED_EXCHANGE
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
             std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> [Strang Step 2] Post-reaction MPI exchange" << std::endl;
 #endif
             timer.reset();
             rtexch.exchangeMPI(rtsw, dom, par, 0);
             rtexch.exchangeMPI(rtsw, dom, par, 1);
+#if !SERGHEI_RT_REDUCE_FENCES
             Kokkos::fence();
+#endif
             dom.timers.rtsw.comm += timer.seconds();
+#endif
         }
 
         // --- Strang Step 3: Second transport half-step (dt/2) ---
@@ -984,8 +1258,25 @@ public:
 #endif
         timer.reset();
         transport(rtsw, state, dom, ebc, ss, 2); // step_part = 2
+        const double transportLaunchTime2 = timer.seconds();
+        dom.timers.rtsw.transportLaunch += transportLaunchTime2;
+        dom.timers.rtsw.transportKernel += transportLaunchTime2;
+        timer.reset();
         Kokkos::fence();
-        dom.timers.rtsw.transport += timer.seconds();
+        const double transportFenceTime2 = timer.seconds();
+        dom.timers.rtsw.transportFence += transportFenceTime2;
+        dom.timers.rtsw.transportKernel += transportFenceTime2;
+        timer.reset();
+        rtintsw.accumulateAppliedTransportMass(rtsw, dom);
+        Kokkos::fence();
+        const double transportAuditTime2 = timer.seconds();
+        dom.timers.rtsw.transportAudit += transportAuditTime2;
+        dom.timers.rtsw.transportKernel += transportAuditTime2;
+
+        timer.reset();
+        rtintsw.accumulateBalanceBoundaryMass(ebc, rtsw.dt);
+        Kokkos::fence();
+        dom.timers.rtsw.boundaryAudit += timer.seconds();
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
         std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> [Strang Step 3] transport() half-step 2 completed" << std::endl;
 #endif
@@ -997,17 +1288,30 @@ public:
         timer.reset();
         rtexch.exchangeMPI(rtsw, dom, par, 0);
         rtexch.exchangeMPI(rtsw, dom, par, 1);
+#if !SERGHEI_RT_REDUCE_FENCES
         Kokkos::fence();
+#endif
         dom.timers.rtsw.comm += timer.seconds();
+
+        // --- Publish final concentrations to the SW-GW coupling buffer (V2) ---
+        // csw4gw was previously refreshed by update_state in every transport
+        // half-step, but only the value after the second half-step is ever
+        // consumed: the groundwater module reads it once per outer hydrodynamic
+        // step via deep_copy in serghei.h, and nothing between the end of
+        // transport half-step 2 and here modifies the physical-cell
+        // concentrations (the audits read separate arrays and the halo exchange
+        // only touches ghost cells).  A single refresh therefore publishes
+        // bit-for-bit identical data with half the write traffic.
+        Kokkos::parallel_for("publish_csw4gw", dom.nCell, KOKKOS_LAMBDA(const int idom) {
+            const int hydro_idx = dom.getIndex(idom);
+            const int rt_idx = rtsw.getIndex(idom);
+            for (int iSpec = 0; iSpec < rtsw.n_mass; iSpec++) {
+                rtsw.csw4gw(iSpec, hydro_idx) = rtsw.c(iSpec, rt_idx, 1);
+            } });
+        Kokkos::fence();
 
         // Restore full timestep
         rtsw.dt = dt_global;
-
-        // Integrator hook (currently unused but reserved for future extensions)
-        timer.reset();
-        // rtintsw.integrate(rtsw, state, dom, ss, ebc);
-        Kokkos::fence();
-        dom.timers.rtsw.integrate += timer.seconds();
 
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
         std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rt_solve_sw() completed OK" << std::endl;
@@ -1093,6 +1397,12 @@ public:
     // =========================================================================
     //  reconstruct_TVD_concentration
     //
+    //  NOTE (V1 performance refactor): the transport kernel no longer calls
+    //  this function; it uses the inlined tvd_flux() with cached stencil
+    //  values (bit-for-bit identical arithmetic).  This function is kept as
+    //  the reference implementation and for any future callers that do not
+    //  have a cached stencil.
+    //
     //  Reconstructs the concentration at a cell interface using the TVD scheme
     //  specified by rtsw.Advection_Scheme.  This function identifies the
     //  three-cell stencil (upwind-of-upwind, upwind, downwind) based on the
@@ -1114,10 +1424,10 @@ public:
     //  @return                      Reconstructed concentration at the cell interface
     // =========================================================================
     KOKKOS_INLINE_FUNCTION
-    real reconstruct_TVD_concentration(const RTStateSW &rtsw, int iSpec, int left_id, int right_id, bool flow_positive, const Domain &dom, int i, int j, int dir)
+    real reconstruct_TVD_concentration(const RTStateSW &rtsw, int iSpec, int left_id, int right_id, bool flow_positive, int dir)
     {
         int upwind_id, downwind_id, up_upwind_id = -1;
-        int nxhc = dom.nx + 2 * dom.hc;
+        const int nxhc = rtsw.rt_nxhc;
 
         // Identify the three-cell stencil based on flow direction
         if (flow_positive)
@@ -1126,10 +1436,7 @@ public:
             upwind_id = left_id;
             downwind_id = right_id;
             // Upwind-of-upwind is one cell further upwind
-            if (dir == 1 && i > 0)
-                up_upwind_id = left_id - 1; // X-direction: one cell to the west
-            if (dir == 2 && j > 0)
-                up_upwind_id = left_id - nxhc; // Y-direction: one cell to the north
+            up_upwind_id = (dir == 1) ? left_id - 1 : left_id - nxhc;
         }
         else
         {
@@ -1137,10 +1444,7 @@ public:
             upwind_id = right_id;
             downwind_id = left_id;
             // Upwind-of-upwind is one cell further upwind
-            if (dir == 1 && i < nxhc - 2)
-                up_upwind_id = right_id + 1; // X-direction: one cell to the east
-            if (dir == 2 && j < dom.ny + 2 * dom.hc - 2)
-                up_upwind_id = right_id + nxhc; // Y-direction: one cell to the south
+            up_upwind_id = (dir == 1) ? right_id + 1 : right_id + nxhc;
         }
 
         // Read concentrations from the three-cell stencil

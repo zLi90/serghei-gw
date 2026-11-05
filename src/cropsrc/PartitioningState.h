@@ -18,8 +18,8 @@
  * interpolated from crop-specific AFGEN tables at each time step.
  ******************************************************************************/
 
-#ifndef _PARTITIONING_STATE_H_
-#define _PARTITIONING_STATE_H_
+#ifndef PARTITIONING_STATE_H
+#define PARTITIONING_STATE_H
 
 #include "../define.h"
 
@@ -80,4 +80,4 @@ public:
     }
 };
 
-#endif
+#endif /* PARTITIONING_STATE_H */

@@ -32,8 +32,8 @@
  * Reference: WOFOST 7.1 User Guide, Chapter 7 -- Storage Organ Dynamics
  ******************************************************************************/
 
-#ifndef _STORAGE_ORGAN_DYNAMICS_H_
-#define _STORAGE_ORGAN_DYNAMICS_H_
+#ifndef STORAGE_ORGAN_DYNAMICS_H
+#define STORAGE_ORGAN_DYNAMICS_H
 
 #include "../define.h"
 #include "CropState.h"                  // Static crop parameters (TDWI, SPA)
@@ -203,4 +203,4 @@ public:
     }
 };
 
-#endif
+#endif /* STORAGE_ORGAN_DYNAMICS_H */

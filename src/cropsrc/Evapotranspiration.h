@@ -43,8 +43,8 @@
  * @see MeteoState.h             for meteorological forcing (E0, ES0, ET0)
  */
 
-#ifndef _EVAPOTRANSPIRATION_H_
-#define _EVAPOTRANSPIRATION_H_
+#ifndef EVAPOTRANSPIRATION_H
+#define EVAPOTRANSPIRATION_H
 
 #include "../define.h"
 #include "CropState.h"               // Static crop parameters
@@ -233,34 +233,33 @@ public:
             //   SM <= SMW  : RFWS = 0.0 (severe water stress, transpiration ceases)
             //   SMW < SM < SMCR : RFWS = (SM - SMW) / (SMCR - SMW) (linear interpolation)
             real RFWS = (SM - SMW) / (SMCR - SMW);
-            if (RFWS < 0.0) RFWS = 0.0;  // Cannot be negative
-            if (RFWS > 1.0) RFWS = 1.0;  // Cannot exceed 1.0
+            if (RFWS < 0.0) RFWS = 0.0;
+            if (RFWS > 1.0) RFWS = 1.0;
+            ets.RFWS(i) = RFWS;
 
             /* ---- Step 8: Oxygen stress reduction factor (RFOS) ---- */
             // Oxygen stress occurs in waterlogged soils when the air-filled pore
             // space drops below a critical threshold (CRAIRC), depriving roots of
             // oxygen for respiration. Only computed when the oxygen stress flag is
             // enabled (IOX = 1).
-            real RFOS = 1.0; // Default: no oxygen stress
-            if (p.p.IOX == 1) {
-                // SM0: saturated soil moisture content [cm^3 cm^-3].
-                //   The maximum water-holding capacity of the soil. All pores are filled.
-                //   Typical range: 0.35-0.55 depending on soil texture.
-                // CRAIRC: critical air content for root aeration [cm^3 cm^-3].
-                //   The minimum air-filled pore space needed for root respiration.
-                //   Typical range: 0.03-0.10.
-                real SM0 = p.p.SM0;
-                real CRAIRC = p.p.CRAIRC;
-
-                // RFOSMX: ratio of actual air content to critical air content [-].
-                //   Air content = SM0 - SM (porosity minus actual water content).
-                //   When SM approaches SM0 (saturation), air content approaches 0
-                //   and RFOS approaches 0 (complete oxygen stress, transpiration stops).
-                //   When SM <= SM0 - CRAIRC, air content exceeds the critical threshold
-                //   and RFOS = 1.0 (no oxygen stress).
-                real RFOSMX = (SM0 - SM) / CRAIRC;
-                RFOS = std::max(0.0, std::min(1.0, RFOSMX)); // Clamp to [0, 1]
+            real RFOS = 1.0;
+            int DSOS = ets.DSOS(i);
+            if (p.p.IAIRDU == 0 && p.p.IOX == 1) {
+                real SMAIR = p.p.SM0 - p.p.CRAIRC;
+                if (SM >= SMAIR) {
+                    DSOS = std::min(DSOS + 1, 4);
+                } else {
+                    DSOS = 0;
+                }
+                real RFOSMX = (p.p.SM0 - SM) / p.p.CRAIRC;
+                if (RFOSMX < 0.0) RFOSMX = 0.0;
+                if (RFOSMX > 1.0) RFOSMX = 1.0;
+                RFOS = RFOSMX + (1.0 - std::min(DSOS, 4) / 4.0) * (1.0 - RFOSMX);
             }
+            ets.RFOS(i) = RFOS;
+            if (RFWS < 1.0) ets.IDWST(i) += 1;
+            if (RFOS < 1.0) ets.IDOST(i) += 1;
+            ets.DSOS(i) = DSOS;
 
             /* ---- Step 9: Combined transpiration reduction factor ---- */
             // The total reduction factor is the product of water stress and oxygen stress.
@@ -279,4 +278,4 @@ public:
     }
 };
 
-#endif
+#endif /* EVAPOTRANSPIRATION_H */

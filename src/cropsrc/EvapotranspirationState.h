@@ -28,8 +28,8 @@
  * @see ../define.h           for the realArr typedef (Kokkos View<real*>)
  */
 
-#ifndef _EVAPOTRANSPIRATION_STATE_H_
-#define _EVAPOTRANSPIRATION_STATE_H_
+#ifndef EVAPOTRANSPIRATION_STATE_H
+#define EVAPOTRANSPIRATION_STATE_H
 
 #include "../define.h"
 
@@ -132,6 +132,21 @@ public:
      * under water-limited conditions.
      */
     realArr RFTRA;
+    realArr RFWS;
+    realArr RFOS;
+
+    /** SERGHEI accumulated potential transpiration over the coupling interval. */
+    realArr GW_TPOT_ACC;
+
+    /** SERGHEI accumulated actual root uptake over the coupling interval. */
+    realArr GW_TACT_ACC;
+
+    /** Actual/potential transpiration ratio supplied by SERGHEI. */
+    realArr GW_RFTRA;
+
+    intArr IDWST;
+    intArr IDOST;
+    intArr DSOS;
 
     /*==================================================================*
      *  SOIL MOISTURE STATE                                              *
@@ -172,8 +187,25 @@ public:
         ES0   = realArr("ES0", n);    // Potential bare soil evaporation [cm d^-1]
         ET0   = realArr("ET0", n);    // Potential reference crop ET [cm d^-1]
         RFTRA = realArr("RFTRA", n);  // Transpiration reduction factor [-]
+        RFWS  = realArr("RFWS", n);
+        RFOS  = realArr("RFOS", n);
+        GW_TPOT_ACC = realArr("GW_TPOT_ACC", n);
+        GW_TACT_ACC = realArr("GW_TACT_ACC", n);
+        GW_RFTRA    = realArr("GW_RFTRA", n);
+        IDWST = intArr("IDWST", n);
+        IDOST = intArr("IDOST", n);
+        DSOS = intArr("DSOS", n);
         RZSM  = realArr("RZSM", n);   // Root-zone soil moisture [cm^3 cm^-3]
+
+        Kokkos::deep_copy(GW_TPOT_ACC, 0.0);
+        Kokkos::deep_copy(GW_TACT_ACC, 0.0);
+        Kokkos::deep_copy(GW_RFTRA, 1.0);
+        Kokkos::deep_copy(RFWS, 1.0);
+        Kokkos::deep_copy(RFOS, 1.0);
+        Kokkos::deep_copy(IDWST, 0);
+        Kokkos::deep_copy(IDOST, 0);
+        Kokkos::deep_copy(DSOS, 0);
     }
 };
 
-#endif
+#endif /* EVAPOTRANSPIRATION_STATE_H */

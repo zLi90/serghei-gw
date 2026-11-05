@@ -173,23 +173,23 @@ public:
 		if (dom.nsubdom > 1)
 		{
 			timer.reset();
-			MPI_Allreduce(&surfaceVolume, &surfaceVolumeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-			MPI_Allreduce(&rainFlux, &rainFluxG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-			MPI_Allreduce(&rainAccum, &rainAccumG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-			MPI_Allreduce(&infFlux, &infFluxG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-			MPI_Allreduce(&infAccum, &infAccumG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-			MPI_Allreduce(&evapFlux, &evapFluxG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-			MPI_Allreduce(&evapAccum, &evapAccumG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&surfaceVolume, &surfaceVolumeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&rainFlux, &rainFluxG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&rainAccum, &rainAccumG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&infFlux, &infFluxG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&infAccum, &infAccumG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&evapFlux, &evapFluxG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&evapAccum, &evapAccumG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
 
 #if SERGHEI_SUSPENDED_SEDIMENT
 			surfaceSolidVolumeG = 0.0;
 			BedExchangeSolidG = 0.0;
 			BedExchangeVolG = 0.0;
-			MPI_Allreduce(&surfaceSolidVolume, &surfaceSolidVolumeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-			MPI_Allreduce(&BedExchangeSolid, &BedExchangeSolidG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-			MPI_Allreduce(&BedExchangeVol, &BedExchangeVolG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&surfaceSolidVolume, &surfaceSolidVolumeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&BedExchangeSolid, &BedExchangeSolidG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&BedExchangeVol, &BedExchangeVolG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
 #endif
-			MPI_Barrier(MPI_COMM_WORLD);
+			SERGHEI_MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 			dom.timers.swe.integrate.mpi += timer.seconds();
 		}
 		dom.timers.swe.integrate.total += timerFull.seconds();
@@ -254,8 +254,8 @@ public:
 			if (dom.nsubdom > 1)
 			{
 				timer.reset();
-				MPI_Allreduce(&adjustedVolume, &adjustedVolumeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-				MPI_Barrier(MPI_COMM_WORLD);
+				SERGHEI_MPI_CHECK(MPI_Allreduce(&adjustedVolume, &adjustedVolumeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+				SERGHEI_MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 				dom.timers.swe.integrate.mpi += timer.seconds();
 			}
 		}
@@ -283,12 +283,12 @@ public:
 				if (dom.nsubdom > 1)
 				{
 					timer.reset();
-					MPI_Allreduce(&(extbc[i].ncellsBC), &_ncellsBC, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+					SERGHEI_MPI_CHECK(MPI_Allreduce(&(extbc[i].ncellsBC), &_ncellsBC, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
 					dom.timers.swe.integrate.mpi += timer.seconds();
 				}
 				else
 				{
-					_ncellsBC = extbc[i].ncellsBC; // <== 补上单核时的赋值
+					_ncellsBC = extbc[i].ncellsBC; // single-rank run: no reduction needed, assign directly
 				}
 				ncellsBC += _ncellsBC;
 				inflowDischarge += extbc[i].inflowDischarge;
@@ -326,23 +326,23 @@ public:
 			if (dom.nsubdom > 1)
 			{
 				timer.reset();
-				MPI_Allreduce(&inflowDischarge, &inflowDischargeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-				MPI_Allreduce(&outflowDischarge, &outflowDischargeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-				MPI_Allreduce(&inflowAccumulated, &inflowAccumulatedG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-				MPI_Allreduce(&outflowAccumulated, &outflowAccumulatedG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
+				SERGHEI_MPI_CHECK(MPI_Allreduce(&inflowDischarge, &inflowDischargeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+				SERGHEI_MPI_CHECK(MPI_Allreduce(&outflowDischarge, &outflowDischargeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+				SERGHEI_MPI_CHECK(MPI_Allreduce(&inflowAccumulated, &inflowAccumulatedG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+				SERGHEI_MPI_CHECK(MPI_Allreduce(&outflowAccumulated, &outflowAccumulatedG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
 
 #if SERGHEI_SUSPENDED_SEDIMENT
 				inflowSolidDischargeG = 0.0;
 				outflowSolidDischargeG = 0.0;
 				inflowSolidAccumulatedG = 0.0;
 				outflowSolidAccumulatedG = 0.0;
-				MPI_Allreduce(&inflowSolidDischarge, &inflowSolidDischargeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-				MPI_Allreduce(&outflowSolidDischarge, &outflowSolidDischargeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-				MPI_Allreduce(&inflowSolidAccumulated, &inflowSolidAccumulatedG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-				MPI_Allreduce(&outflowSolidAccumulated, &outflowSolidAccumulatedG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
+				SERGHEI_MPI_CHECK(MPI_Allreduce(&inflowSolidDischarge, &inflowSolidDischargeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+				SERGHEI_MPI_CHECK(MPI_Allreduce(&outflowSolidDischarge, &outflowSolidDischargeG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+				SERGHEI_MPI_CHECK(MPI_Allreduce(&inflowSolidAccumulated, &inflowSolidAccumulatedG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+				SERGHEI_MPI_CHECK(MPI_Allreduce(&outflowSolidAccumulated, &outflowSolidAccumulatedG, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
 #endif
 
-				MPI_Barrier(MPI_COMM_WORLD);
+				SERGHEI_MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 				dom.timers.swe.integrate.mpi += timer.seconds();
 			}
 		}

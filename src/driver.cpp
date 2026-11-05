@@ -30,7 +30,7 @@ int main(int argc, char **argv)
 	} // scope guard required to ensure serghei destructor is called
 
 	Kokkos::finalize();
-	MPI_Finalize();
+	SERGHEI_MPI_CHECK(MPI_Finalize());
 
 	return 0; // success should return zero
 }

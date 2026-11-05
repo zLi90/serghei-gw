@@ -18,7 +18,7 @@ namespace geometry
 {
 	typedef SArray<real, N_SPATIAL_DIM> point;
 
-	typedef SArray<real, 3> point3D; // ParticleTracking // [FROM CODE2] needed for particle tracking
+	typedef SArray<real, 3> point3D; // ParticleTracking // needed for particle tracking
 
 	KOKKOS_INLINE_FUNCTION real distance(const point &p, const point &q)
 	{
@@ -87,7 +87,7 @@ namespace geometry
 		}
 	}
 
-	// [FROM CODE1 - MERGED] Improved isInsidePoly3D with inverse distance weighting for z_bottom
+	// Improved isInsidePoly3D with inverse distance weighting for z_bottom
 	// This version uses a proper ray-casting algorithm for XY projection,
 	// then uses inverse distance weighting (IDW) to compute the bottom elevation z_bottom,
 	// instead of the simple min/max comparison in the original code2 version.

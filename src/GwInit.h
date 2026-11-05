@@ -83,6 +83,14 @@ public:
         gdom.ny = dom.ny;
         gdom.nx_glob = dom.nx_glob;
         gdom.ny_glob = dom.ny_glob;
+        // The groundwater object derives from Domain but its horizontal
+        // partition bounds are not populated by readGwFile().  Keep them
+        // identical to the already-established surface-water decomposition;
+        // SW/GW coupling and collective layout checks rely on these offsets.
+        gdom.i_beg = dom.i_beg;
+        gdom.j_beg = dom.j_beg;
+        gdom.i_end = dom.i_end;
+        gdom.j_end = dom.j_end;
         gdom.nz = gdom.nz_glob;
         gdom.nxhc = gdom.nx + 2 * gdom.hc;
         gdom.nyhc = gdom.ny + 2 * gdom.hc;
@@ -722,10 +730,6 @@ public:
             ii2 = kk * gdom.nx_glob * gdom.ny_glob + (par.j_beg + jj) * (gdom.nx_glob) + par.i_beg + ii;
             gw.soilID(iGlob) = tmpVar(ii2);
         }
-        // halo cells
-        // for (idx = 0; idx < gdom.nhalo; idx++)  {
-        //     gw.soilID(gdom.hpair(idx,0)) = gw.soilID(gdom.hpair(idx,1));
-        // }
         if (par.masterproc)
         {
             std::cerr << GOK "Soil ID  set\n";
@@ -1251,12 +1255,12 @@ public:
                         {
                             if (!strcmp("diameter", drain_pline.key.c_str()))
                             {
-                                // 排水管直径，单位 [L]
+                                // Drain diameter [L]
                                 drain_pline.value >> ss.gwss[k].drain_de;
                             }
                             else if (!strcmp("scale_factor", drain_pline.key.c_str()))
                             {
-                                //  缩放/折减系数[-]
+                                // Scale/reduction factor [-]
                                 drain_pline.value >> ss.gwss[k].drain_red_factor;
                             }
 
@@ -1265,13 +1269,13 @@ public:
                     }
                     fdrain.close();
 
-                    // 根据 HYDRUS 公式计算阻力修正系数 Cd
-                    real D_size = gdom.dx; // 包围排水节点的网格尺寸，单位 [L]
+                    // Resistance correction coefficient Cd after the HYDRUS formula
+                    real D_size = gdom.dx; // grid cell size surrounding the drain node [L]
                     real rho_d = D_size / ss.gwss[k].drain_de;
                     real A = (1.0 + 0.405 * pow(rho_d, -4)) / (1.0 - 0.405 * pow(rho_d, -4));
                     real B = (1.0 + 0.163 * pow(rho_d, -8)) / (1.0 - 0.163 * pow(rho_d, -8));
                     real C = (1.0 + 0.067 * pow(rho_d, -12)) / (1.0 - 0.067 * pow(rho_d, -12));
-                    // 校正因子 C_d
+                    // Correction factor C_d
                     real Cd_raw = 376.7 / (138.0 * log10(rho_d) + 6.48 - 2.34 * A - 0.48 * B - 0.12 * C);
 
                     ss.gwss[k].drain_Cd = Cd_raw / ss.gwss[k].drain_red_factor;
@@ -1312,22 +1316,19 @@ public:
                         }
                     }
                 }
-                // if (!ss.gwss[k].find_icells(gw, ss.id[k], gdom, par, nPoly, xPoly, yPoly, zPoly))
-                //     return 0;
-                // 根据 NPOINTS 数量判断使用哪套定位算法
+                // Choose the cell-location algorithm based on NPOINTS
                 if (nPoly == 8)
                 {
-                    // 采用 8 顶点三维长方体 (上下表面) 算法
+                    // 8-vertex 3D box (top and bottom faces) algorithm
                     if (!ss.gwss[k].find_icells_tile_drainage(gw, ss.id[k], gdom, par, nPoly, xPoly, yPoly, zPoly))
                         return 0;
                 }
                 else
                 {
-                    // 回退到 4 顶点的原生地表到该底面深度的算法
+                    // Fall back to the native 4-vertex algorithm (surface down to the bottom depth)
                     if (!ss.gwss[k].find_icells(gw, ss.id[k], gdom, par, nPoly, xPoly, yPoly, zPoly))
                         return 0;
                 }
-                // [修改内容结束]
                 // allocate ss data array
                 ss.gwss[k].allocateGW(gdom);
             }
@@ -1353,7 +1354,7 @@ public:
                 if (readts)
                 {
                     // ------------------------------------------------------------
-                    // 关键修改：无论是否耦合，都读取 et.input 以获取 ET0
+                    // Read et.input to obtain ET0 regardless of crop coupling
                     // ------------------------------------------------------------
                     if (fts.is_open())
                     {
@@ -1362,7 +1363,7 @@ public:
                         real h1, h2, h3, h4;
                         real xs, ys, zs, px, py, pz;
 
-                        // 读取头部参数 (ndata, f, h1-h4, 根系分布参数)
+                        // Read header parameters (ndata, f, h1-h4, root distribution parameters)
                         fts.ignore(256, ' ');
                         fts >> ndatat;
                         fts.ignore(256, ' ');
@@ -1386,75 +1387,94 @@ public:
                         ss.gwss[k].px = px;
                         ss.gwss[k].py = py;
                         ss.gwss[k].pz = pz;
+#if SERGHEI_SWE_MODEL
+                        // Surface evaporation is a domain-wide forcing. If
+                        // more than one groundwater ET source is configured,
+                        // publish the first one only instead of repeatedly
+                        // reallocating and overwriting the surface series.
+                        const bool publishSurfaceEtForcing =
+                            !ss.swss.hasEtPartitionForcing;
+#endif
                         if (ndatat > 0)
                         {
-                            // 初始化时间序列容器
+                            // Initialise the time series containers
                             ss.gwss[k].ts.initialise(ndatat);
                             ss.gwss[k].evap.initialise(ndatat);
                             ss.gwss[k].tran.initialise(ndatat);
-                            ss.gwss[k].et0_series.initialise(ndatat); // 用于存储 ET0
-                            ss.gwss[k].lai_series.initialise(ndatat); // 非耦合时用
-                            ss.gwss[k].rd_series.initialise(ndatat);  // 非耦合时用
+                            ss.gwss[k].et0_series.initialise(ndatat); // stores ET0
+                            ss.gwss[k].lai_series.initialise(ndatat); // used in uncoupled mode
+                            ss.gwss[k].rd_series.initialise(ndatat);  // used in uncoupled mode
 
 #if SERGHEI_SWE_MODEL
-                            ss.swss.evap.initialise(ndatat);
+                            if (publishSurfaceEtForcing)
+                            {
+                                ss.swss.evap.initialise(ndatat);
+                                ss.swss.et0.initialise(ndatat);
+                                ss.swss.etExtinctionCoefficient = f;
+                                ss.swss.hasEtPartitionForcing = true;
+                            }
 #endif
                         }
 
-                        // 读取每一行数据
+                        // Read each data row
                         for (int i = 0; i < ndatat; i++)
                         {
                             if (!fts.fail() && !fts.eof())
                             {
-                                // 文件格式：Time, ET0, LAI, RD(zm)
+                                // File format: Time, ET0, LAI, RD(zm)
                                 fts >> ss.gwss[k].ts.time(i) >> ss.gwss[k].ts.value(i) >> ss.gwss[k].ts.LAI_value(i) >> ss.gwss[k].ts.zm_value(i);
 
-                                // 填充 ET0 系列 (始终使用)
+                                // Fill the ET0 series (always used)
                                 ss.gwss[k].et0_series.time(i) = ss.gwss[k].ts.time(i);
                                 ss.gwss[k].et0_series.value(i) = ss.gwss[k].ts.value(i);
-                                // printf("ET0 time: %.2f, value: %.4e\n", ss.gwss[k].et0_series.time(i), ss.gwss[k].et0_series.value(i));
 
-                                // 填充 LAI 和 RD 系列 (仅在非耦合模式下使用，但读进来无妨)
+                                // Fill the LAI and RD series (used only in uncoupled mode, but harmless to read)
                                 ss.gwss[k].lai_series.time(i) = ss.gwss[k].ts.time(i);
                                 ss.gwss[k].lai_series.value(i) = ss.gwss[k].ts.LAI_value(i);
 
                                 ss.gwss[k].rd_series.time(i) = ss.gwss[k].ts.time(i);
                                 ss.gwss[k].rd_series.value(i) = ss.gwss[k].ts.zm_value(i);
 
-                                // 为了兼容性保留 evap (潜在蒸发) 计算，但在新逻辑中可能会被 compute_potential_fluxes 覆盖
+                                // Keep the potential-evaporation series for compatibility; compute_potential_fluxes may overwrite it in the coupled logic
                                 ss.gwss[k].evap.time(i) = ss.gwss[k].ts.time(i);
                                 ss.gwss[k].evap.value(i) = ss.gwss[k].ts.value(i) * exp(-(ss.gwss[k].f * ss.gwss[k].ts.LAI_value(i)));
 
-                                //! 临时计算evap和trans
+                                //! Derive the potential transpiration series
                                 ss.gwss[k].tran.time(i) = ss.gwss[k].ts.time(i);
                                 ss.gwss[k].tran.value(i) = ss.gwss[k].ts.value(i) - ss.gwss[k].evap.value(i);
-//! 此处swss.evap计算逻辑错误，如果是作物耦合模型下，则直接复制前一步计算出的叶面积则没有体现与作物模型耦合
-//! 应该在sourcesink.h文件中进行计算更新
 #if SERGHEI_SWE_MODEL
-                                ss.swss.evap.time(i) = ss.gwss[k].evap.time(i);
-                                ss.swss.evap.value(i) = ss.gwss[k].evap.value(i);
+                                if (publishSurfaceEtForcing)
+                                {
+                                    // Non-crop runs use this static-LAI series.
+                                    // Crop-coupled runs repartition swss.et0
+                                    // with the current spatial WOFOST LAI.
+                                    ss.swss.evap.time(i) = ss.gwss[k].evap.time(i);
+                                    ss.swss.evap.value(i) = ss.gwss[k].evap.value(i);
+                                    ss.swss.et0.time(i) = ss.gwss[k].et0_series.time(i);
+                                    ss.swss.et0.value(i) = ss.gwss[k].et0_series.value(i);
+                                }
 #endif
-                                // printf("Time: %.2f, ET0: %.4e, LAI: %.4f, RD: %.4f, Evap: %.4e\n", ss.gwss[k].ts.time(i), ss.gwss[k].et0_series.value(i), ss.gwss[k].lai_series.value(i), ss.gwss[k].rd_series.value(i), ss.gwss[k].evap.value(i));
                             }
                         }
                         fts.close();
 
                         // ------------------------------------------------------------
-                        // 耦合模式下的额外内存分配
+                        // Additional allocation in coupled mode
                         // ------------------------------------------------------------
 #if CROP_GROWTH_MODEL
-                        // 开启耦合标志
+                        // Enable the coupling flag
                         ss.gwss[k].use_realtime_data = true;
 
-                        // 分配空间用于接收 WOFOST 传递过来的快照数据
-                        // 注意：WOFOST 的 LAI 和 RD 数组维度是 dom.nCell = nx * ny（不含 halo cells）
-                        // 所以这里也使用 gdom.nx * gdom.ny（不含 halo cells）
+                        // Allocate storage for the WOFOST snapshot data.
+                        // The WOFOST LAI and RD arrays are dimensioned
+                        // dom.nCell = nx * ny (no halo cells), so the same
+                        // gdom.nx * gdom.ny layout is used here
                         int nCellSwSurface = gdom.nx * gdom.ny;
                         ss.gwss[k].wofost_lai = realArr("wofost_lai", nCellSwSurface);
                         ss.gwss[k].wofost_rd = realArr("wofost_rd", nCellSwSurface);
-                        // 注意：不需要 wofost_et0 了，因为我们决定用文件里的 ET0
+                        // No wofost_et0 array is needed: ET0 is taken from the file
 
-                        // 初始化为0
+                        // Initialise to zero
                         Kokkos::deep_copy(ss.gwss[k].wofost_lai, 0.0);
                         Kokkos::deep_copy(ss.gwss[k].wofost_rd, 0.0);
 

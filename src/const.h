@@ -57,7 +57,7 @@
 
 // model component defaults
 
-// [MERGED] Renamed from Code1's SERGHEI_SWE_GW → SERGHEI_SWE_RE, SERGHEI_SUBSURFACE_MODEL → SERGHEI_RE_MODEL
+// Renamed from Code1's SERGHEI_SWE_GW → SERGHEI_SWE_RE, SERGHEI_SUBSURFACE_MODEL → SERGHEI_RE_MODEL
 // Default set to 1 (ON) to preserve Code1's active functionality
 #ifndef SERGHEI_SWE_RE
 #define SERGHEI_SWE_RE 1
@@ -76,10 +76,10 @@
 #endif
 
 #ifndef SERGHEI_SUBSURFACE_TRANSPORT
-#define SERGHEI_SUBSURFACE_TRANSPORT 1
+#define SERGHEI_SUBSURFACE_TRANSPORT 0
 #endif
 #ifndef SERGHEI_SURFACE_TRANSPORT
-#define SERGHEI_SURFACE_TRANSPORT 1
+#define SERGHEI_SURFACE_TRANSPORT 0
 #endif
 
 #ifndef CROP_GROWTH_MODEL
@@ -90,8 +90,47 @@
 #define SW_GW_EVAPORATION_TRANSPIRATION_MODEL 1
 #endif
 
-#ifndef SERGHEI_KOKKOSKERNELS_SOLVER
-#define SERGHEI_KOKKOSKERNELS_SOLVER 1
+// Reactive-transport linear-solver SpMV backend:
+//   0 : hand-written fused SpMV + Jacobi kernel (default)
+//   1 : KokkosSparse::spmv + separate Jacobi apply.  Different reduction
+//       order (~1 ulp class differences, L2) — A/B benchmark rtgw.linsol
+//       against mode 0 on the target case before keeping mode 1.
+// The mode-1 CrsMatrix wrapper aliases rtA's own views (no copies), so the
+// matrix stays current across every re-assembly.
+#ifndef SERGHEI_RTGW_SPMV_KOKKOS_MODE
+#define SERGHEI_RTGW_SPMV_KOKKOS_MODE 1
+#endif
+
+// Reactive-transport GMRES preconditioner selector:
+//   0 : Jacobi (inverse diagonal) — default, identical trajectory to the
+//       Phase 1/2 baseline (fused P1-5a/b kernels are kept in this mode)
+//   1 : ILU(0) factorised in place on the frozen 19-point CRS pattern
+//       (self-contained Kokkos kernels; see RTSolverGW.h for why the
+//       KokkosKernels spiluk/sptrsv entry points are not used)
+//   2 : block-Jacobi with vertical (z) soil-column blocks, Thomas-factorised
+// L3 change: modes 1/2 alter the GMRES iteration trajectory and the meaning
+// of the absolute preconditioned-residual tolerance.  A/B benchmark
+// rtgw.linsol and GMRES iteration counts, and pass the L3 numerical
+// tolerance suite, before keeping a non-zero mode.
+#ifndef SERGHEI_RTGW_SOLVER_PREC
+#define SERGHEI_RTGW_SOLVER_PREC 0
+#endif
+
+// [P3-4] Reactive-transport GMRES instrumentation switches (default off):
+//   SERGHEI_RTGW_SOLVER_GMRES_DIAG : 1 = per-solve GMRES diagnostics on stderr
+//   SERGHEI_RTGW_SOLVER_PROFILE    : 1 = in-solve phase timers (rtgw.lsv.phases in log.out)
+// Each switch may also be turned on for a single run without recompiling by
+// exporting an environment variable of the same name, e.g.
+//   SERGHEI_RTGW_SOLVER_PROFILE=1 ./serghei <in> <out> <nthreads>
+// Compile-time 1 forces the switch on; the default 0 keeps it runtime-opt-in.
+// Profiled runs carry timer calls inside the solve and must not be used for
+// final performance numbers (the always-on counters are unaffected).
+#ifndef SERGHEI_RTGW_SOLVER_PROFILE
+#define SERGHEI_RTGW_SOLVER_PROFILE 1
+#endif
+
+#ifndef SERGHEI_RTGW_SOLVER_GMRES_DIAG
+#define SERGHEI_RTGW_SOLVER_GMRES_DIAG 0
 #endif
 
 #ifndef DEBUG_CROP_GROWTH_MODEL
@@ -106,7 +145,16 @@
 #define DEBUG_SERGHEI_SUBSURFACE_TRANSPORT 0
 #endif
 
-// 调试输出宏
+// Reactive-transport debug mass-conservation evaluation columns.
+// These columns are emitted only when this macro and the corresponding
+// DEBUG_SERGHEI_*_TRANSPORT macro are enabled. Core inventories, storage
+// change, boundary/source/sink/exchange fluxes, absolute residual, and
+// throughput-relative residual remain available outside debug output.
+#ifndef SERGHEI_OUTPUT_MASS_CONSERVATION_METRICS
+#define SERGHEI_OUTPUT_MASS_CONSERVATION_METRICS 0
+#endif
+
+// Debug output macros
 #if DEBUG_CROP_GROWTH_MODEL
 #define DEBUG_CROP_PRINT(...) printf("[DEBUG_CROP] " __VA_ARGS__)
 #else
@@ -247,7 +295,32 @@
 #define SERGHEI_DEBUG_SEDIMENT 0
 #endif
 #ifndef SERGHEI_SWE_DRY_RUNOFF_START_DT
-#define SERGHEI_SWE_DRY_RUNOFF_START_DT 0
+#define SERGHEI_SWE_DRY_RUNOFF_START_DT 1
+#endif
+
+// Surface-water multi-GPU optimization switches. Keep these in const.h so
+// they can be changed without modifying the build system. The conservative
+// host-MPI path remains the default until each option passes regression tests.
+#ifndef SERGHEI_RT_PINNED_HOST
+#define SERGHEI_RT_PINNED_HOST 1
+#endif
+#ifndef SERGHEI_RT_CUDA_AWARE_MPI
+#define SERGHEI_RT_CUDA_AWARE_MPI 1
+#endif
+
+#ifndef SERGHEI_RT_REDUCED_EXCHANGE
+#define SERGHEI_RT_REDUCED_EXCHANGE 0
+#endif
+#ifndef SERGHEI_RT_REDUCE_FENCES
+#define SERGHEI_RT_REDUCE_FENCES 0
+#endif
+
+// Temporary large-grid debug switch:
+//   0 = normal spatial NetCDF output
+//   1 = suppress every spatial NetCDF output while retaining all time-series,
+//       log and timer files. NetCDF input and forcing are not affected.
+#ifndef SERGHEI_DISABLE_NETCDF_OUTPUT
+#define SERGHEI_DISABLE_NETCDF_OUTPUT 0
 #endif
 
 // colors

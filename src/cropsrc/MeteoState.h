@@ -39,8 +39,8 @@
  * @see ../define.h for the realArr typedef (Kokkos View<real*>)
  */
 
-#ifndef _METEO_STATE_H_
-#define _METEO_STATE_H_
+#ifndef METEO_STATE_H
+#define METEO_STATE_H
 
 #include "../define.h"
 
@@ -214,4 +214,4 @@ public:
     }
 };
 
-#endif
+#endif /* METEO_STATE_H */

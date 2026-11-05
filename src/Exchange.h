@@ -107,16 +107,16 @@ public:
 		{
 			Kokkos::fence(); // ensure no kernels are running, we need everything available in host memory
 			// Pre-post the receives
-			MPI_Irecv(haloRecvBoolW.data(), nHalo, MPI_CXX_BOOL, par.neigh(1, 0), 0, MPI_COMM_WORLD, &rReq[0]);
-			MPI_Irecv(haloRecvBoolE.data(), nHalo, MPI_CXX_BOOL, par.neigh(1, 2), 1, MPI_COMM_WORLD, &rReq[1]);
+			SERGHEI_MPI_CHECK(MPI_Irecv(haloRecvBoolW.data(), nHalo, MPI_CXX_BOOL, par.neigh(1, 0), 0, MPI_COMM_WORLD, &rReq[0]));
+			SERGHEI_MPI_CHECK(MPI_Irecv(haloRecvBoolE.data(), nHalo, MPI_CXX_BOOL, par.neigh(1, 2), 1, MPI_COMM_WORLD, &rReq[1]));
 
 			// Send the data
-			MPI_Isend(haloSendBoolW.data(), nHalo, MPI_CXX_BOOL, par.neigh(1, 0), 1, MPI_COMM_WORLD, &sReq[0]);
-			MPI_Isend(haloSendBoolE.data(), nHalo, MPI_CXX_BOOL, par.neigh(1, 2), 0, MPI_COMM_WORLD, &sReq[1]);
+			SERGHEI_MPI_CHECK(MPI_Isend(haloSendBoolW.data(), nHalo, MPI_CXX_BOOL, par.neigh(1, 0), 1, MPI_COMM_WORLD, &sReq[0]));
+			SERGHEI_MPI_CHECK(MPI_Isend(haloSendBoolE.data(), nHalo, MPI_CXX_BOOL, par.neigh(1, 2), 0, MPI_COMM_WORLD, &sReq[1]));
 
 			// Wait for the sends and receives to finish
-			MPI_Waitall(2, sReq, sStat);
-			MPI_Waitall(2, rReq, rStat);
+			SERGHEI_MPI_CHECK(MPI_Waitall(2, sReq, sStat));
+			SERGHEI_MPI_CHECK(MPI_Waitall(2, rReq, rStat));
 		}
 
 		Kokkos::parallel_for(nHalo, KOKKOS_LAMBDA(int iGlob) {
@@ -159,16 +159,16 @@ public:
 		{
 			Kokkos::fence(); // ensure no kernels are running, we need everything available in host memory
 			// Pre-post the receives
-			MPI_Irecv(haloRecvBoolN.data(), nHalo, MPI_CXX_BOOL, par.neigh(0, 1), 0, MPI_COMM_WORLD, &rReq[0]);
-			MPI_Irecv(haloRecvBoolS.data(), nHalo, MPI_CXX_BOOL, par.neigh(2, 1), 1, MPI_COMM_WORLD, &rReq[1]);
+			SERGHEI_MPI_CHECK(MPI_Irecv(haloRecvBoolN.data(), nHalo, MPI_CXX_BOOL, par.neigh(0, 1), 0, MPI_COMM_WORLD, &rReq[0]));
+			SERGHEI_MPI_CHECK(MPI_Irecv(haloRecvBoolS.data(), nHalo, MPI_CXX_BOOL, par.neigh(2, 1), 1, MPI_COMM_WORLD, &rReq[1]));
 
 			// Send the data
-			MPI_Isend(haloSendBoolN.data(), nHalo, MPI_CXX_BOOL, par.neigh(0, 1), 1, MPI_COMM_WORLD, &sReq[0]);
-			MPI_Isend(haloSendBoolS.data(), nHalo, MPI_CXX_BOOL, par.neigh(2, 1), 0, MPI_COMM_WORLD, &sReq[1]);
+			SERGHEI_MPI_CHECK(MPI_Isend(haloSendBoolN.data(), nHalo, MPI_CXX_BOOL, par.neigh(0, 1), 1, MPI_COMM_WORLD, &sReq[0]));
+			SERGHEI_MPI_CHECK(MPI_Isend(haloSendBoolS.data(), nHalo, MPI_CXX_BOOL, par.neigh(2, 1), 0, MPI_COMM_WORLD, &sReq[1]));
 
 			// Wait for the sends and receives to finish
-			MPI_Waitall(2, sReq, sStat);
-			MPI_Waitall(2, rReq, rStat);
+			SERGHEI_MPI_CHECK(MPI_Waitall(2, sReq, sStat));
+			SERGHEI_MPI_CHECK(MPI_Waitall(2, rReq, rStat));
 		}
 
 		Kokkos::parallel_for(nHalo, KOKKOS_LAMBDA(int iGlob) {
@@ -337,16 +337,16 @@ public:
 			timerMPI.reset();
 
 			// Pre-post the receives
-			ierr = MPI_Irecv(haloRecvBufW.data(), nPack * dom.ny * dom.hc, SERGHEI_MPI_REAL, par.neigh(1, 0), 0, MPI_COMM_WORLD, &rReq[0]);
-			ierr = MPI_Irecv(haloRecvBufE.data(), nPack * dom.ny * dom.hc, SERGHEI_MPI_REAL, par.neigh(1, 2), 1, MPI_COMM_WORLD, &rReq[1]);
+			SERGHEI_MPI_CHECK(MPI_Irecv(haloRecvBufW.data(), nPack * dom.ny * dom.hc, SERGHEI_MPI_REAL, par.neigh(1, 0), 0, MPI_COMM_WORLD, &rReq[0]));
+			SERGHEI_MPI_CHECK(MPI_Irecv(haloRecvBufE.data(), nPack * dom.ny * dom.hc, SERGHEI_MPI_REAL, par.neigh(1, 2), 1, MPI_COMM_WORLD, &rReq[1]));
 
 			// Send the data
-			ierr = MPI_Isend(haloSendBufW.data(), nPack * dom.ny * dom.hc, SERGHEI_MPI_REAL, par.neigh(1, 0), 1, MPI_COMM_WORLD, &sReq[0]);
-			ierr = MPI_Isend(haloSendBufE.data(), nPack * dom.ny * dom.hc, SERGHEI_MPI_REAL, par.neigh(1, 2), 0, MPI_COMM_WORLD, &sReq[1]);
+			SERGHEI_MPI_CHECK(MPI_Isend(haloSendBufW.data(), nPack * dom.ny * dom.hc, SERGHEI_MPI_REAL, par.neigh(1, 0), 1, MPI_COMM_WORLD, &sReq[0]));
+			SERGHEI_MPI_CHECK(MPI_Isend(haloSendBufE.data(), nPack * dom.ny * dom.hc, SERGHEI_MPI_REAL, par.neigh(1, 2), 0, MPI_COMM_WORLD, &sReq[1]));
 
 			// Wait for the sends and receives to finish
-			ierr = MPI_Waitall(2, sReq, sStat);
-			ierr = MPI_Waitall(2, rReq, rStat);
+			SERGHEI_MPI_CHECK(MPI_Waitall(2, sReq, sStat));
+			SERGHEI_MPI_CHECK(MPI_Waitall(2, rReq, rStat));
 			dom.timers.swe.halo.mpi += timerMPI.seconds();
 		}
 
@@ -367,16 +367,16 @@ public:
 			timerMPI.reset();
 
 			// Pre-post the receives
-			ierr = MPI_Irecv(haloRecvBufN.data(), nPack * dom.hc * dom.nx, SERGHEI_MPI_REAL, par.neigh(0, 1), 0, MPI_COMM_WORLD, &rReq[0]);
-			ierr = MPI_Irecv(haloRecvBufS.data(), nPack * dom.hc * dom.nx, SERGHEI_MPI_REAL, par.neigh(2, 1), 1, MPI_COMM_WORLD, &rReq[1]);
+			SERGHEI_MPI_CHECK(MPI_Irecv(haloRecvBufN.data(), nPack * dom.hc * dom.nx, SERGHEI_MPI_REAL, par.neigh(0, 1), 0, MPI_COMM_WORLD, &rReq[0]));
+			SERGHEI_MPI_CHECK(MPI_Irecv(haloRecvBufS.data(), nPack * dom.hc * dom.nx, SERGHEI_MPI_REAL, par.neigh(2, 1), 1, MPI_COMM_WORLD, &rReq[1]));
 
 			// Send the data
-			ierr = MPI_Isend(haloSendBufN.data(), nPack * dom.hc * dom.nx, SERGHEI_MPI_REAL, par.neigh(0, 1), 1, MPI_COMM_WORLD, &sReq[0]);
-			ierr = MPI_Isend(haloSendBufS.data(), nPack * dom.hc * dom.nx, SERGHEI_MPI_REAL, par.neigh(2, 1), 0, MPI_COMM_WORLD, &sReq[1]);
+			SERGHEI_MPI_CHECK(MPI_Isend(haloSendBufN.data(), nPack * dom.hc * dom.nx, SERGHEI_MPI_REAL, par.neigh(0, 1), 1, MPI_COMM_WORLD, &sReq[0]));
+			SERGHEI_MPI_CHECK(MPI_Isend(haloSendBufS.data(), nPack * dom.hc * dom.nx, SERGHEI_MPI_REAL, par.neigh(2, 1), 0, MPI_COMM_WORLD, &sReq[1]));
 
 			// Wait for the sends and receives to finish
-			ierr = MPI_Waitall(2, sReq, sStat);
-			ierr = MPI_Waitall(2, rReq, rStat);
+			SERGHEI_MPI_CHECK(MPI_Waitall(2, sReq, sStat));
+			SERGHEI_MPI_CHECK(MPI_Waitall(2, rReq, rStat));
 
 			dom.timers.swe.halo.mpi += timerMPI.seconds();
 		}

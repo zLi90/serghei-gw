@@ -28,8 +28,8 @@
  * Reference: WOFOST 7.1 User Guide, Chapter 5 -- Stem Dynamics
  ******************************************************************************/
 
-#ifndef _STEM_DYNAMICS_H_
-#define _STEM_DYNAMICS_H_
+#ifndef STEM_DYNAMICS_H
+#define STEM_DYNAMICS_H
 
 #include "../define.h"
 #include "CropState.h"        // Static crop parameters (TDWI, tables: SSATB, RDRSTB)
@@ -209,4 +209,4 @@ public:
     }
 };
 
-#endif
+#endif /* STEM_DYNAMICS_H */

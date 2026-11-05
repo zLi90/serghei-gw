@@ -11,15 +11,15 @@
 // Merge rules:
 //   - Macro renames: SERGHEI_SWE_GW → SERGHEI_SWE_RE,
 //                    SERGHEI_SUBSURFACE_MODEL → SERGHEI_RE_MODEL
-//   - [CODE1] marks code from Code 1 (user's branch)
-//   - [CODE2] marks code from Code 2 (other developer's branch)
-//   - [MERGE] marks fusion/conflict resolution code
+// -  marks code from Code 1 (user's branch)
+// -  marks code from Code 2 (other developer's branch)
+// -  marks fusion/conflict resolution code
 // ============================================================================
 
 #include "stdlib.h"
 #include <iostream>
 #include <string>
-// [CODE2] Code 2 uses io.inFolder / io.outFolder instead of separate members
+// Code 2 uses io.inFolder / io.outFolder instead of separate members
 #include "define.h"
 #include "Domain.h"
 #include "Parallel.h"
@@ -36,19 +36,20 @@
 #include "ParticleTracking.h"
 #include "tools.h"
 
-// [CODE2] Subsurface model uses SERGHEI_RE_MODEL (renamed from SERGHEI_SUBSURFACE_MODEL)
+// Subsurface model uses SERGHEI_RE_MODEL (renamed from SERGHEI_SUBSURFACE_MODEL)
 #if SERGHEI_RE_MODEL
 #include "GwDomain.h"
 #include "GwFunction.h"
 #include "GwInit.h"
 #include "GwMPI.h"
+#include "MPIUtils.h"
 #include "GwMatrix.h"
 #include "GwState.h"
 #include "GwSolver.h"
 #include "GwIntegrator.h"
 #endif
 
-// [CODE1] Subsurface transport module
+// Subsurface transport module
 #if SERGHEI_SUBSURFACE_TRANSPORT
 #include "RTStateGW.h"
 #include "RTInitGW.h"
@@ -59,14 +60,14 @@
 #include "GwMPI.h"
 #endif
 
-// [CODE1] Surface transport module
+// Surface transport module
 #if SERGHEI_SURFACE_TRANSPORT
 #include "RTStateSW.h"
 #include "RTInitSW.h"
 #include "RTFunctionSW.h"
 #endif
 
-// [CODE1] Crop growth model (WOFOST)
+// Crop growth model (WOFOST)
 #if CROP_GROWTH_MODEL
 #include "./cropsrc/Wofost72.h"
 #include "./cropsrc/CropState.h"
@@ -87,12 +88,13 @@ public:
 	State state;
 	Domain dom;
 
-// [CODE2] Subsurface model members (using Kokkos::DefaultExecutionSpace)
+// Subsurface model members (using Kokkos::DefaultExecutionSpace)
 #if SERGHEI_RE_MODEL
 	GwState gw;
 	GwDomain gdom;
 	GwInit ginit;
 	GwMPI gmpi;
+	GwMPI rtgmpi; // Dedicated groundwater reactive-transport halo buffers
 	GwFunction gwf;
 	SubsurfaceBoundaries gbc;
 	GwMatrix A;
@@ -100,7 +102,7 @@ public:
 	GwSolver<Kokkos::DefaultExecutionSpace> gsolver;
 #endif
 
-// [CODE1] Subsurface transport members
+// Subsurface transport members
 #if SERGHEI_SUBSURFACE_TRANSPORT
 	RTStateGW rtgw;
 	RTInitgw rtinitgw;
@@ -111,7 +113,7 @@ public:
 	RTSolverGW<Kokkos::DefaultExecutionSpace> rtsolvergw;
 #endif
 
-// [CODE1] Surface transport members
+// Surface transport members
 #if SERGHEI_SURFACE_TRANSPORT
 	RTStateSW rtsw;
 	RTInitSW rtinitsw;
@@ -123,7 +125,7 @@ public:
 	Exchange exch;
 	ExternalBoundaries ebc;
 
-// [CODE1] Crop growth model members
+// Crop growth model members
 #if CROP_GROWTH_MODEL
 	Wofost72 wofost;
 	CropState cropParam;
@@ -133,7 +135,7 @@ public:
 	EvapotranspirationState ets;
 	WofostInit wofostInit;
 	double time_since_last_crop_step = 0.0;
-	const double CROP_STEP_SIZE = 86400.0; // [CODE1] 1 day in seconds
+	const double CROP_STEP_SIZE = 86400.0; // 1 day in seconds
 	bool wofost_initialized = false;
 #endif
 
@@ -147,26 +149,26 @@ private:
 	Observations obs;
 #endif
 
-// [CODE2] Particle tracking (renamed macro: SERGHEI_PARTICLE_TRACKING → SERGHEI_LPT)
+// Particle tracking (renamed macro: SERGHEI_PARTICLE_TRACKING → SERGHEI_LPT)
 #if SERGHEI_LPT
 	ParticleTracker parTrack;
 #endif
 
 	double oldVolume, newVolume, diffVolume;
-// [CODE2] Suspended sediment tracking
+// Suspended sediment tracking
 #if SERGHEI_SUSPENDED_SEDIMENT
 	real oldSolidVolume, newSolidVolume, diffSolidVolume;
 #endif
 	double accumDt = 0.0;
 
-	// [CODE2] Kokkos objects
+	// Kokkos objects
 	Kokkos::Timer timer;
-	Kokkos::Timer timer_particles; // [CODE2] Separate timer for particles
+	Kokkos::Timer timer_particles; // Separate timer for particles
 	Kokkos::InitializationSettings kokkosSettings;
 
 	////////////// METHODS ///////////////
 public:
-	// [MERGE] start() method: primarily Code 2 structure with Code 1 additions
+	// start() method: primarily Code 2 structure with Code 1 additions
 	int start(int argc, char **argv)
 	{
 #if SERGHEI_DEBUG_WORKFLOW
@@ -175,19 +177,34 @@ public:
 
 		init.initializeMPI(&argc, &argv, par);
 
-// [CODE2] Use KOKKOS_ENABLE_CUDA instead of __NVCC__
+// Use KOKKOS_ENABLE_CUDA instead of __NVCC__
 #ifdef KOKKOS_ENABLE_CUDA
-		kokkosSettings.set_device_id(par.myrank % par.nthreads);
+		// Bind MPI ranks to GPUs using the node-local rank.  par.nthreads is a
+		// CPU-thread setting and must not be used as a GPU count; doing so can
+		// select an invalid/non-visible CUDA device and fail later in cuSPARSE.
+		int cudaDeviceCount = 0;
+		cudaError_t cudaCountStatus = cudaGetDeviceCount(&cudaDeviceCount);
+		int localRank = par.myrank;
+		const char *localRankEnv = std::getenv("SLURM_LOCALID");
+		if (localRankEnv == nullptr)
+			localRankEnv = std::getenv("OMPI_COMM_WORLD_LOCAL_RANK");
+		if (localRankEnv == nullptr)
+			localRankEnv = std::getenv("MPI_LOCALRANKID");
+		if (localRankEnv != nullptr)
+			localRank = std::atoi(localRankEnv);
+		if (cudaCountStatus == cudaSuccess && cudaDeviceCount > 0)
+			kokkosSettings.set_device_id(localRank % cudaDeviceCount);
+		else
+			std::cerr << RERROR << "Unable to query a visible CUDA device before Kokkos initialization: "
+			          << cudaGetErrorString(cudaCountStatus) << std::endl;
 #else
 		if (par.nthreads != 0)
 			kokkosSettings.set_num_threads(par.nthreads);
 #endif
 
 #if SERGHEI_DEBUG_KOKKOS_SETUP
-		printKokkosInitArguments(par);
-#if KOKKOS_ENABLE_CUDA
-		printKokkosCuda(args, par);
-#endif
+        // Device queries are valid only after Kokkos has initialized its
+        // execution space; the diagnostics are emitted immediately below.
 #endif
 
 #if SERGHEI_DEBUG_WORKFLOW
@@ -196,12 +213,19 @@ public:
 
 		Kokkos::initialize(kokkosSettings);
 
+#if SERGHEI_DEBUG_KOKKOS_SETUP
+        printKokkosInitArguments(par);
+#ifdef KOKKOS_ENABLE_CUDA
+        printKokkosCuda(par);
+#endif
+#endif
+
 #if SERGHEI_DEBUG_WORKFLOW
 		std::cerr << GGD "Program instantiated, creating objects - rank " << par.myrank << std::endl;
 #endif
 
-		// [CODE2] Initialize the surface model
-		// [MERGE] Code 2 uses io.inFolder/io.outFolder; Code 1 passed inFolder/outFolder separately
+		// Initialize the surface model
+		// Code 2 uses io.inFolder/io.outFolder; Code 1 passed inFolder/outFolder separately
 		if (!init.initialize(state, ss.swss, ebc, dom, par, tint, sint, bint, parser, exch, io))
 		{
 			if (par.masterproc)
@@ -209,7 +233,7 @@ public:
 			return 0;
 		};
 
-// [CODE2] LPT initialization
+// LPT initialization
 #if SERGHEI_LPT
 		if (!parser.readParticles(io.inFolder, par, &parTrack))
 		{
@@ -235,7 +259,7 @@ public:
 					  << std::endl;
 #endif
 
-// [CODE2] Initialize subsurface model if activated (using SERGHEI_RE_MODEL)
+// Initialize subsurface model if activated (using SERGHEI_RE_MODEL)
 #if SERGHEI_RE_MODEL
 		if (!ginit.initialize_gw(gw, gdom, state, dom, gbc, gmpi, gint, par, io, ss, io.inFolder, io.outFolder))
 		{
@@ -248,18 +272,43 @@ public:
 		{
 			std::cerr << GOK "Subsurface Solver has been initialized! " << std::endl;
 		}
+#if CROP_GROWTH_MODEL
+		// 触发式灌溉的根系层土壤水触发：把 GW 状态/网格一次性接到外部边界
+		// （ExtBC 持指针，先例 GwIntegrator::initialize；根深 RD 由作物链的 apply 重载逐步传入）
+		for (int k = 0; k < ebc.extbc.size(); k++)
+		{
+			ebc.extbc[k].gw = &gw;
+			ebc.extbc[k].gdom = &gdom;
+		}
+#endif
 #endif
 
-// [CODE1] Initialize subsurface transport module
+// Initialize subsurface transport module
 #if SERGHEI_SUBSURFACE_TRANSPORT
 		DEBUG_SUBSURFACE_TRANSPORT_PRINT("Initializing subsurface transport module\n");
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 		if (par.masterproc)
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering rtinitgw.initialize_rt()" << std::endl;
 #endif
-		if (!rtinitgw.initialize_rt(rtgw, gw, gdom, rtgbc, gmpi, par, io, ss, io.inFolder, io.outFolder))
+		if (!rtinitgw.initialize_rt(rtgw, gw, gdom, rtgbc, rtgmpi, par, io, ss, io.inFolder, io.outFolder))
 		{
 			std::cerr << RERROR "Unable to initialize the transport module" << "\n";
+			return 0;
+		}
+		// SW/GW coupling is a one-to-one physical-cell contract.  Check it
+		// collectively before any concentration or crop field is exchanged.
+		int local_layout_ok = (dom.nx == gdom.nx && dom.ny == gdom.ny &&
+		                      dom.nCell == gdom.nCellSw &&
+		                      dom.i_beg == gdom.i_beg && dom.j_beg == gdom.j_beg &&
+		                      dom.i_end == gdom.i_end && dom.j_end == gdom.j_end) ? 1 : 0;
+		int global_layout_ok = 0;
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&local_layout_ok, &global_layout_ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD));
+		if (!global_layout_ok)
+		{
+			std::cerr << RERROR "SW/GW decomposition mismatch on rank " << par.myrank
+			          << ": SW(" << dom.nx << "x" << dom.ny << ", " << dom.i_beg << "," << dom.j_beg
+			          << ") GW(" << gdom.nx << "x" << gdom.ny << ", " << gdom.i_beg << "," << gdom.j_beg << ")" << std::endl;
+			SERGHEI_MPI_CHECK(MPI_Abort(MPI_COMM_WORLD, 2));
 			return 0;
 		}
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
@@ -269,6 +318,7 @@ public:
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering rtA.init(gdom)" << std::endl;
 #endif
 		rtA.init(gdom);
+		rtA.fillGraph(gdom);   // [P1-3] one-time CRS graph + (row, slot) gather map
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 		if (par.masterproc)
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rtA.init(gdom) completed OK" << std::endl;
@@ -290,7 +340,7 @@ public:
 		DEBUG_SUBSURFACE_TRANSPORT_PRINT("Subsurface transport module initialized\n");
 #endif
 
-// [CODE1] Initialize surface transport module
+// Initialize surface transport module
 #if SERGHEI_SURFACE_TRANSPORT
 		DEBUG_SURFACE_TRANSPORT_PRINT("Initializing surface transport module\n");
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
@@ -316,6 +366,9 @@ public:
 			std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering rtfsw.initializeExchange()" << std::endl;
 #endif
 		rtfsw.initializeExchange(rtsw, dom);
+		// Seed both RT time levels and all physical/partition halos before the
+		// first GW/crop coupling read.
+		rtfsw.exchangeMPI(rtsw, dom, par, true);
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
 		if (par.masterproc)
 			std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rtfsw.initializeExchange() completed OK" << std::endl;
@@ -327,7 +380,7 @@ public:
 		DEBUG_SURFACE_TRANSPORT_PRINT("Surface transport module initialized\n");
 #endif
 
-// [CODE1] Initialize WOFOST crop growth model
+// Initialize WOFOST crop growth model
 #if CROP_GROWTH_MODEL
 		DEBUG_CROP_PRINT("Initializing WOFOST crop model\n");
 		if (par.masterproc)
@@ -347,9 +400,10 @@ public:
 		{
 			if (ss.gwss[k].use_realtime_data)
 			{
-				ss.gwss[k].allocateWofostCoupling(dom.nCell);
+				SourceSinkCrop::update_crop_parameters(gdom, ss, wofost.s.LAI, wofost.s.RD, dom.etime);
 			}
 		}
+
 		if (par.masterproc)
 		{
 			std::cout << GOK "WOFOST initialized with " << dom.nCell << " crop cells" << std::endl;
@@ -357,7 +411,7 @@ public:
 		DEBUG_CROP_PRINT("WOFOST crop model initialized\n");
 #endif
 
-// [CODE2] SERGHEI_TOOLS observations
+// SERGHEI_TOOLS observations
 #if SERGHEI_TOOLS
 		if (!obs.readInputFiles(io.inFolder, par))
 			return 0;
@@ -375,7 +429,10 @@ public:
 #if SERGHEI_DEBUG_WORKFLOW
 		for (int k = 0; k < ebc.extbc.size(); k++)
 		{
-			std::cout << GGD << GRAY << __FILE__ << ":" << __LINE__ << RESET << "\tExtBC[" << k << "]: " << ebc.extbc[k].bcvals(0) << ", " << ebc.extbc[k].bcvals(1) << ", " << ebc.extbc[k].bcvals(2) << std::endl;
+			std::cout << GGD << GRAY << __FILE__ << ":" << __LINE__ << RESET << "\tExtBC[" << k << "]:";
+			for (int iv = 0; iv < ebc.extbc[k].bcvals.extent(0); iv++)
+				std::cout << " " << ebc.extbc[k].bcvals(iv);
+			std::cout << std::endl;
 		}
 		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << "Initialisation finished, starting to run main loop" << std::endl;
 		for (int i = 0; i < ebc.extbc.size(); i++)
@@ -390,12 +447,12 @@ public:
 #endif
 #endif
 
-		// [CODE2] Integrator at the beginning of the simulation
+		// Integrator at the beginning of the simulation
 		sint.integrate(state, dom, ss.swss);
-		// [CODE2] Write initial time series data
+		// Write initial time series data
 		io.writeTimeSeriesIni(state, dom, par, ss.swss, sint, bint, ebc.extbc, io.outFolder);
 
-// [CODE1] Surface transport initial time series
+// Surface transport initial time series
 #if SERGHEI_SURFACE_TRANSPORT
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
 		if (par.masterproc)
@@ -415,19 +472,19 @@ public:
 #endif
 #endif
 
-// [CODE2/MERGE] Subsurface initial output (Code 2 signature with gdom first)
+// Subsurface initial output (Code 2 signature with gdom first)
 #if SERGHEI_RE_MODEL
 		io.writeSubTimeSeriesIni(gdom, gint, par, io.outFolder);
 		io.outputSubsurface(gw, gdom, par, io.outFolder);
 #endif
 
-// [CODE1] Subsurface transport initial output
+// Subsurface transport initial output
 #if SERGHEI_SUBSURFACE_TRANSPORT
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 		if (par.masterproc)
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering rtint.integrate() (initial)" << std::endl;
 #endif
-		rtint.integrate(gw, rtgw, gdom, rtgbc.rtgwbc);
+		rtint.integrate(gw, rtgw, gdom, rtgbc.rtgwbc, dom.etime);
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 		if (par.masterproc)
 			std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rtint.integrate() completed OK" << std::endl;
@@ -448,26 +505,30 @@ public:
 #endif
 #endif
 
-// [CODE1] Crop growth initial output
+// Crop growth initial output
 #if CROP_GROWTH_MODEL
 		io.writeRootZoneTimeSeriesIni(dom, par, io.outFolder, ss.gwss);
-		io.outputCrop(wofost, dom, par, io.outFolder);
 #endif
 
-		// [CODE2] Capture initialisation time using granular timer
-		dom.timers.swe.init.total = timer.seconds();
+		// Capture initialisation time using granular timer
+		dom.timers.phase.init = timer.seconds();
+		// The legacy SWE init timer covered initialization of every coupled
+		// module. Keep it out of swe.total and report it only as phase.init.
+		dom.timers.swe.init.total = 0.0;
 
 		if (par.masterproc)
-			std::cout << GOK << "Initialisation complete. Initialisation time: " << dom.timers.swe.init.total << " [s]" << std::endl;
+			std::cout << GOK << "Initialisation complete. Initialisation time: " << dom.timers.phase.init << " [s]" << std::endl;
 		return 1;
 	}
 
 	// ====================================================================
 	// compute() - Main simulation loop
-	// [MERGE] Based on Code 2 structure with Code 1's transport, crop, ET features
+	// Based on Code 2 structure with Code 1's transport, crop, ET features
 	// ====================================================================
 	int compute()
 	{
+		Kokkos::Timer timer_compute_phase;
+		timer_compute_phase.reset();
 #if SERGHEI_DEBUG_WORKFLOW
 		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 #endif
@@ -479,7 +540,7 @@ public:
 			std::cout << BDASH << "End time: " << dom.endTime << std::endl;
 		}
 
-// [CODE2] Initialize timestep
+// Initialize timestep
 #if SERGHEI_RE_MODEL
 		gdom.dt = gdom.dt_init;
 		gdom.dtOld = gdom.dt_init;
@@ -489,7 +550,7 @@ public:
 		tint.computeDt(state, dom, io);
 #endif
 
-// [CODE1] Initialize transport timesteps
+// Initialize transport timesteps
 #if SERGHEI_SUBSURFACE_TRANSPORT
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 		if (par.masterproc)
@@ -497,7 +558,7 @@ public:
 #endif
 		rtgw.dt = gdom.dt_init;
 		rtgw.dtOld = gdom.dt_init;
-// [MERGE] transport dt sync: only set if RE_MODEL is not active
+// transport dt sync: only set if RE_MODEL is not active
 // (when RE_MODEL is active, dt is set in the RE_MODEL block above)
 #if !SERGHEI_RE_MODEL
 		dom.dt = rtgw.dt;
@@ -509,27 +570,31 @@ public:
 		{
 			// previous mass
 			oldVolume = sint.surfaceVolumeG;
-#if SERGHEI_SUSPENDED_SEDIMENT // [CODE2]
+#if SERGHEI_SUSPENDED_SEDIMENT
 			oldSolidVolume = sint.surfaceSolidVolumeG;
 #endif
 
-			// [CODE2] Boundary integration (mode=1: boundary flows)
+			// Boundary integration (mode=1: boundary flows)
 			bint.integrate(ebc.extbc, dom, 1);
 
-// [CODE2] Run surface model
+// Run surface model
 #if SERGHEI_SWE_MODEL
+#if CROP_GROWTH_MODEL
+			tint.stepForward(state, ss.swss, ebc.extbc, dom, exch, par, io, &wofost);
+#else
 			tint.stepForward(state, ss.swss, ebc.extbc, dom, exch, par, io);
+#endif
 #else
 			ss.swss.ComputeSWSourceSink(state, dom);
 #endif
 
 // ============================================================
-// [CODE1] Subsurface model block with transport, crop, ET coupling
-// [CODE2] Uses Kokkos::DefaultExecutionSpace and SERGHEI_RE_MODEL
+// Subsurface model block with transport, crop, ET coupling
+// Uses Kokkos::DefaultExecutionSpace and SERGHEI_RE_MODEL
 // ============================================================
 #if SERGHEI_RE_MODEL
 #if SERGHEI_SWE_MODEL
-			// [CODE2] If both surface and subsurface modules are on
+			// If both surface and subsurface modules are on
 			// Rainfall is first read by the surface module, then copy to the subsurface
 			{
 				Kokkos::Timer timer_coupling;
@@ -539,7 +604,7 @@ public:
 					Kokkos::deep_copy(gdom.rainRate, ss.swss.rainRate);
 				}
 				Kokkos::deep_copy(gw.hs, state.h);
-// [CODE1] Evapotranspiration: copy surface evaporation data to groundwater
+// Evapotranspiration: copy surface evaporation data to groundwater
 #if SW_GW_EVAPORATION_TRANSPIRATION_MODEL
 				Kokkos::deep_copy(gw.surfaceWaterEvapActual, state.surfaceEvaporation);
 #endif
@@ -547,7 +612,7 @@ public:
 			}
 #endif
 
-// [CODE1] WOFOST crop growth model step
+// WOFOST crop growth model step
 #if CROP_GROWTH_MODEL
 			time_since_last_crop_step += dom.dt;
 			if (time_since_last_crop_step >= CROP_STEP_SIZE && wofost_initialized)
@@ -565,7 +630,7 @@ public:
 				Kokkos::Timer timer_crop_total;
 				timer_crop_total.reset();
 
-				// [CODE1] Compute root zone moisture using WOFOST root depth
+				// Compute root zone moisture using WOFOST root depth
 				if (par.masterproc)
 				{
 					std::cout << GOK "About to compute root zone moisture with WOFOST RD" << std::endl;
@@ -574,7 +639,7 @@ public:
 					Kokkos::Timer timer_crop;
 					timer_crop.reset();
 					SourceSinkCrop::compute_root_zone_moisture(gw, gdom, wofost.s.RD, wofost.ets.RZSM);
-					// [MERGE] Accumulate crop timer (Code 2 timers structure)
+					// Accumulate crop timer (Code 2 timers structure)
 					dom.timers.crop.rzm += timer_crop.seconds();
 				}
 
@@ -584,7 +649,7 @@ public:
 					std::cout << GOK "Sample wofost.ets.RZSM[0]=" << wofost.ets.RZSM(0) << std::endl;
 				}
 
-				// [CODE1] WOFOST growth calculation
+				// WOFOST growth calculation
 				if (par.masterproc)
 				{
 					std::cout << GOK "About to run WOFOST calc_rates_and_integrate" << std::endl;
@@ -594,7 +659,7 @@ public:
 					timer_crop.reset();
 					wofost.calc_rates_and_integrate(cropParam, meteo, dom.etime,
 													wofost.ets.RZSM, current_doy, 1.0);
-					// [MERGE] Accumulate crop timer
+					// Accumulate crop timer
 					dom.timers.crop.calc += timer_crop.seconds();
 				}
 
@@ -603,8 +668,6 @@ public:
 					std::cout << GOK "WOFOST calc_rates_and_integrate completed" << std::endl;
 				}
 
-				// [CODE1] Synchronize WOFOST data (LAI, RD) back to source/sink
-				int nCellSwSurface = gdom.nx * gdom.ny;
 				{
 					Kokkos::Timer timer_crop;
 					timer_crop.reset();
@@ -612,17 +675,9 @@ public:
 					{
 						if (ss.gwss[k].use_realtime_data)
 						{
-							auto src_lai = wofost.s.LAI;
-							auto src_rd = wofost.s.RD;
-							auto dst_lai = ss.gwss[k].wofost_lai;
-							auto dst_rd = ss.gwss[k].wofost_rd;
-							Kokkos::parallel_for("copy_wofost_data", nCellSwSurface, KOKKOS_LAMBDA(int i) {
-								dst_lai(i) = src_lai(i);
-								dst_rd(i)  = src_rd(i); });
-							Kokkos::fence();
+							SourceSinkCrop::update_crop_parameters(gdom, ss, wofost.s.LAI, wofost.s.RD, dom.etime);
 						}
 					}
-					// [MERGE] Accumulate crop timer
 					dom.timers.crop.sync += timer_crop.seconds();
 				}
 
@@ -639,14 +694,14 @@ public:
 				}
 				DEBUG_CROP_PRINT("WOFOST step completed. LAI[0]=%f, RD[0]=%f\n", wofost.s.LAI(0), wofost.s.RD(0));
 
-// [CODE1] Output crop data
+// Output crop data
 #if CROP_GROWTH_MODEL
 				io.outputCrop(wofost, dom, par, io.outFolder);
 #endif
 			}
 #endif // CROP_GROWTH_MODEL
 
-// [CODE1] Copy surface transport concentration to subsurface transport
+// Copy surface transport concentration to subsurface transport
 #if SERGHEI_SUBSURFACE_TRANSPORT
 #if SERGHEI_SURFACE_TRANSPORT
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
@@ -658,14 +713,14 @@ public:
 #endif
 #endif
 
-			// [CODE2] Asynchronous coupling for subsurface
+			// Asynchronous coupling for subsurface
 			if (gdom.async)
 			{
 				if (gdom.etime + gdom.dt < dom.etime)
 				{
 					gdom.etime += gdom.dt;
-					// [CODE2] PC scheme / Modified Picard with DefaultExecutionSpace
-					// [CODE1] Pass wofost to solver when CROP_GROWTH_MODEL is active
+					// PC scheme / Modified Picard with DefaultExecutionSpace
+					// Pass wofost to solver when CROP_GROWTH_MODEL is active
 					if (gdom.gw_scheme == 1)
 					{
 #if CROP_GROWTH_MODEL
@@ -682,7 +737,7 @@ public:
 						gwf.picard_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
 #endif
 					}
-// [CODE1] Subsurface transport solve (async)
+// Subsurface transport solve (async)
 #if SERGHEI_SUBSURFACE_TRANSPORT
 					rtgw.dt = gdom.dt;
 					DEBUG_SUBSURFACE_TRANSPORT_PRINT("Calling rt_solve for subsurface transport (async)\n");
@@ -690,7 +745,7 @@ public:
 					if (par.masterproc)
 						std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering rtfgw.rt_solve() [ASYNC] at gdom.etime=" << gdom.etime << " dt=" << gdom.dt << std::endl;
 #endif
-					rtfgw.rt_solve<Kokkos::DefaultExecutionSpace>(rtgw, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtint, rtsolvergw, ss);
+					rtfgw.rt_solve<Kokkos::DefaultExecutionSpace>(rtgw, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, rtgmpi, par, rtint, rtsolvergw, ss);
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 					if (par.masterproc)
 						std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rtfgw.rt_solve() [ASYNC] completed OK" << std::endl;
@@ -717,14 +772,14 @@ public:
 					gwf.picard_solve<Kokkos::DefaultExecutionSpace>(gw, gdom, gbc.gwbc, A, gsolver, ss.gwss, gmpi, gint, par);
 #endif
 				}
-// [CODE1] Subsurface transport solve (sync)
+// Subsurface transport solve (sync)
 #if SERGHEI_SUBSURFACE_TRANSPORT
 				rtgw.dt = gdom.dt;
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 				if (par.masterproc)
 					std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering rtfgw.rt_solve() [SYNC] at dom.etime=" << dom.etime << " dt=" << gdom.dt << std::endl;
 #endif
-				rtfgw.rt_solve<Kokkos::DefaultExecutionSpace>(rtgw, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, par, rtint, rtsolvergw, ss);
+				rtfgw.rt_solve<Kokkos::DefaultExecutionSpace>(rtgw, rtA, gw, gdom, rtgbc.rtgwbc, gmpi, rtgmpi, par, rtint, rtsolvergw, ss);
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 				if (par.masterproc)
 					std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rtfgw.rt_solve() [SYNC] completed OK" << std::endl;
@@ -733,7 +788,7 @@ public:
 			}
 			gdom.cg_iter += A.cg_iter;
 
-// [CODE2] Surface-subsurface exchange
+// Surface-subsurface exchange
 #if SERGHEI_SWE_MODEL
 			{
 				Kokkos::Timer timer_coupling;
@@ -745,7 +800,7 @@ public:
 #endif
 #endif // SERGHEI_RE_MODEL
 
-// [CODE1] Surface transport step (all RTSW operations)
+// Surface transport step (all RTSW operations)
 #if SERGHEI_SURFACE_TRANSPORT
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
 			if (par.masterproc)
@@ -755,32 +810,19 @@ public:
 			timer_rtsw_total.reset();
 
 			rtsw.dt = dom.dt;
-// [CODE1] Copy subsurface solute exchange to surface transport
+// Copy subsurface solute exchange to surface transport
 #if SERGHEI_SUBSURFACE_TRANSPORT
 			DEBUG_SURFACE_TRANSPORT_PRINT("Copying ConQss from subsurface to surface transport\n");
+			Kokkos::Timer timer_rtsw_copy;
+			timer_rtsw_copy.reset();
 			Kokkos::deep_copy(rtsw.ConQss, rtgw.ConQss);
+			Kokkos::fence();
+			dom.timers.rtsw.copyExch += timer_rtsw_copy.seconds();
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
 			if (par.masterproc)
 				std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Copied ConQss from subsurface to surface" << std::endl;
 #endif
 #endif
-			// [CODE1] Compute GW exchange for surface transport (solute exchange)
-			{
-				Kokkos::Timer timer_rtswexch;
-				DEBUG_SURFACE_TRANSPORT_PRINT("Computing GW exchange for surface transport\n");
-#if DEBUG_SERGHEI_SURFACE_TRANSPORT
-				if (par.masterproc)
-					std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering rtfsw.computeGwExchange_For_RT()" << std::endl;
-#endif
-				rtfsw.computeGwExchange_For_RT(state, rtsw, dom);
-				Kokkos::fence();
-#if DEBUG_SERGHEI_SURFACE_TRANSPORT
-				if (par.masterproc)
-					std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rtfsw.computeGwExchange_For_RT() completed OK" << std::endl;
-#endif
-				dom.timers.rtsw.gwExch += timer_rtswexch.seconds();
-			}
-
 			DEBUG_SURFACE_TRANSPORT_PRINT("Running surface transport solver\n");
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
 			if (par.masterproc)
@@ -788,6 +830,11 @@ public:
 #endif
 			rtfsw.rt_solve_sw(rtsw, state, dom, ebc, ss.swss, rtintsw, par);
 			Kokkos::fence();
+			Kokkos::Timer timer_rtsw_audit;
+			timer_rtsw_audit.reset();
+			rtintsw.accumulateTransportFluxes(rtsw, state, dom, ss.swss, ebc, dom.dt);
+			Kokkos::fence();
+			dom.timers.rtsw.fluxAudit += timer_rtsw_audit.seconds();
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
 			if (par.masterproc)
 				std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rtfsw.rt_solve_sw() completed OK" << std::endl;
@@ -796,17 +843,17 @@ public:
 			dom.timers.rtsw.total += timer_rtsw_total.seconds();
 #endif
 
-			// [CODE2] Mass balance bookkeeping
+			// Mass balance bookkeeping
 			oldVolume += (bint.inflowDischargeG - bint.outflowDischargeG) * dom.dt;
 #if SERGHEI_SUSPENDED_SEDIMENT
 			oldSolidVolume += (bint.inflowSolidDischargeG - bint.outflowSolidDischargeG) * dom.dt;
 #endif
 
-			bint.integrate(ebc.extbc, dom, 0); // [CODE2] mode=0: adjusted volume
+			bint.integrate(ebc.extbc, dom, 0); // mode=0: adjusted volume
 			oldVolume += bint.adjustedVolumeG;
 			sint.integrate(state, dom, ss.swss);
 			oldVolume += (sint.rainFluxG - sint.infFluxG) * dom.dt;
-#if SERGHEI_SUSPENDED_SEDIMENT // [CODE2]
+#if SERGHEI_SUSPENDED_SEDIMENT
 			oldVolume += sint.BedExchangeVolG;
 			oldSolidVolume += sint.BedExchangeSolidG;
 #endif
@@ -821,7 +868,7 @@ public:
 			{
 				diffVolume = 0.0;
 			}
-#if SERGHEI_SUSPENDED_SEDIMENT // [CODE2]
+#if SERGHEI_SUSPENDED_SEDIMENT
 			newSolidVolume = sint.surfaceSolidVolumeG;
 			if (fabs(oldSolidVolume) > TOL12)
 			{
@@ -833,19 +880,19 @@ public:
 			}
 #endif
 
-			// [CODE2] Advance time
+			// Advance time
 			dom.etime += dom.dt;
 			dom.nTimeSteps++;
 			dom.countIterDt++;
 			accumDt += dom.dt;
 
-// [CODE2] Particle tracking update
+// Particle tracking update
 #if SERGHEI_LPT
 			parTrack.update(dom, state);
 #endif
 
 			// ============================================================
-			// [CODE2] Screen output and file output section
+			// Screen output and file output section
 			// ============================================================
 			if (dom.nTimeSteps % io.nScreen == 0 || fabs(dom.etime - dom.startTime - io.numOut * io.outFreq) <= TOL12)
 			{
@@ -898,7 +945,7 @@ public:
 #endif
 					}
 
-#if SERGHEI_SUSPENDED_SEDIMENT // [CODE2]
+#if SERGHEI_SUSPENDED_SEDIMENT
 					std::cerr.precision(9);
 					std::cerr << std::scientific;
 					std::cerr << "     Inner Solid Volume: " << newSolidVolume << "\n";
@@ -925,7 +972,7 @@ public:
 				{
 					Kokkos::Timer timer_io;
 					timer_io.reset();
-// [CODE2] File output with LPT support
+// File output with LPT support
 #if SERGHEI_LPT == 0
 #if SERGHEI_SWE_MODEL
 					io.output(state, dom, ss.swss, par);
@@ -937,7 +984,7 @@ public:
 					io.output(state, dom, ss.swss, par, io.outFolder, parTrack);
 #endif
 
-// [CODE1] Surface transport output
+// Surface transport output
 #if SERGHEI_SURFACE_TRANSPORT
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
 					if (par.masterproc)
@@ -950,7 +997,7 @@ public:
 #endif
 #endif
 
-// [CODE1] Subsurface transport output
+// Subsurface transport output
 #if SERGHEI_SUBSURFACE_TRANSPORT
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 					if (par.masterproc)
@@ -965,7 +1012,7 @@ public:
 
 					if (par.masterproc)
 						std::cerr << GIO "File " << io.numOut - 1 << " written" << std::endl;
-					dom.timers.io_loop.output += timer_io.seconds();
+					dom.timers.io_loop.fields += timer_io.seconds();
 				}
 				if (par.masterproc)
 					std::cerr << "-------------------------------------------------\n";
@@ -973,21 +1020,24 @@ public:
 				accumDt = 0.0;
 			}
 
-// [CODE2] Particle tracking (kept for backward compatibility)
+// Particle tracking (kept for backward compatibility)
 #if SERGHEI_PARTICLE_TRACKING
 			parTrack.update(dom, state);
 #endif
 
 			// ============================================================
-			// [MERGE] Time series and observation output section
+			// Time series and observation output section
 			// ============================================================
 			if (dom.etime >= io.numObs * io.obsFreq)
 			{
-#if SERGHEI_TOOLS // [CODE2]
+				Kokkos::Timer timer_timeseries_io;
+				timer_timeseries_io.reset();
+				double timeseries_integration_elapsed = 0.0;
+#if SERGHEI_TOOLS
 				obs.update(state, par, dom);
 #endif
 
-// [CODE1] Surface transport integration for time series
+// Surface transport integration for time series
 #if SERGHEI_SURFACE_TRANSPORT
 				{
 					Kokkos::Timer timer_rtsw_int;
@@ -1001,16 +1051,33 @@ public:
 					if (par.masterproc)
 						std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rtintsw.integrate() completed OK" << std::endl;
 #endif
-					dom.timers.rtsw.integrate += timer_rtsw_int.seconds();
+					const double elapsed = timer_rtsw_int.seconds();
+					dom.timers.rtsw.timeseriesIntegrate += elapsed;
+					timeseries_integration_elapsed += elapsed;
 				}
 #endif
 
-				// [MERGE] writeTimeSeries must be called by all MPI ranks (internal MPI comm)
+				// writeTimeSeries must be called by all MPI ranks (internal MPI comm)
 				io.writeTimeSeries(state, dom, par, sint, bint, ebc.extbc);
+
+				// rtint.integrate() contains MPI_Allreduce calls and therefore must
+				// be entered by every rank.  Keep only the subsequent time-series
+				// file append restricted to the master rank below.
+#if SERGHEI_SUBSURFACE_TRANSPORT
+				{
+					Kokkos::Timer timer_rtgw_integrator;
+					timer_rtgw_integrator.reset();
+					rtint.integrate(gw, rtgw, gdom, rtgbc.rtgwbc, gdom.etime);
+					Kokkos::fence();
+					const double elapsed = timer_rtgw_integrator.seconds();
+					gdom.timers.rtgw.timeseriesIntegrate += elapsed;
+					timeseries_integration_elapsed += elapsed;
+				}
+#endif
 
 				if (par.masterproc)
 				{
-// [CODE1] Surface transport time series
+// Surface transport time series
 #if SERGHEI_SURFACE_TRANSPORT
 #if DEBUG_SERGHEI_SURFACE_TRANSPORT
 					if (par.masterproc)
@@ -1022,56 +1089,44 @@ public:
 						std::cerr << GGD << "[SW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> io.writeRTSurfaceTimeSeries() completed OK" << std::endl;
 #endif
 #endif
-// [CODE2] Subsurface time series (Code 2 signature)
+// Subsurface time series (Code 2 signature)
 #if SERGHEI_RE_MODEL
 					io.writeSubsurfaceTimeSeries(gdom, gint);
 #endif
 
-// [CODE1] Subsurface transport time series
+// Subsurface transport time series
 #if SERGHEI_SUBSURFACE_TRANSPORT
-
-#if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
-					if (par.masterproc)
-						std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering rtint.integrate() at t=" << dom.etime << std::endl;
-#endif
-
-					Kokkos::Timer timer_rtgw_integrator;
-					timer_rtgw_integrator.reset();
-					rtint.integrate(gw, rtgw, gdom, rtgbc.rtgwbc);
-					Kokkos::fence();
-					gdom.timers.rtgw.integrate += timer_rtgw_integrator.seconds();
-
-#if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
-					if (par.masterproc)
-						std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> rtint.integrate() completed OK" << std::endl;
-#endif
-
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 					if (par.masterproc)
 						std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> Entering io.writeRTSubsurfaceTimeSeries() at t=" << dom.etime << std::endl;
 #endif
-					io.writeRTSubsurfaceTimeSeries(dom, rtint);
+					io.writeRTSubsurfaceTimeSeriesAt(gdom.etime, rtint);
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 					if (par.masterproc)
 						std::cerr << GGD << "[GW_TRANSPORT] " << __FILE__ << ":" << __LINE__ << " -> io.writeRTSubsurfaceTimeSeries() completed OK" << std::endl;
 #endif
 #endif
-// [CODE1] Crop root zone water content time series
+// Crop root zone water content time series
 #if CROP_GROWTH_MODEL
 					io.writeRootZoneWaterContentTimeSeries(dom, ss.gwss);
 #endif
+				Kokkos::fence();
+				const double timeseries_section_elapsed = timer_timeseries_io.seconds();
+				dom.timers.io_loop.timeseries +=
+					(timeseries_section_elapsed > timeseries_integration_elapsed)
+					? timeseries_section_elapsed - timeseries_integration_elapsed : 0.0;
 				}
 
 				if (par.masterproc)
 				{
-#if SERGHEI_TOOLS // [CODE2]
+#if SERGHEI_TOOLS
 					obs.write(dom);
 #endif
 				}
 			}
 
 			// ============================================================
-			// [MERGE] Timestep synchronization section
+			// Timestep synchronization section
 			// SERGHEI_SWE_RE replaces SERGHEI_SWE_GW per merge instructions
 			// ============================================================
 #if SERGHEI_SWE_RE
@@ -1092,7 +1147,7 @@ public:
 			{
 				dom.dt = gdom.dt;
 			}
-// [CODE1] Sync transport timestep
+// Sync transport timestep
 #if SERGHEI_SUBSURFACE_TRANSPORT
 			rtgw.dt = gdom.dt;
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
@@ -1110,33 +1165,37 @@ public:
 			return 0;
 #endif
 		} // end of time loop
+		dom.timers.phase.compute += timer_compute_phase.seconds();
 		return 1;
 	}
 
 	// ====================================================================
 	// finalise() - Simulation cleanup and timer reporting
-	// [MERGE] Primarily Code 2 structure with Code 1's transport/crop timers
+	// Primarily Code 2 structure with Code 1's transport/crop timers
 	// ====================================================================
 	int finalise()
 	{
+		Kokkos::Timer timer_finalise_phase;
+		timer_finalise_phase.reset();
 #if SERGHEI_DEBUG_WORKFLOW
 		std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET << std::endl;
 #endif
 
-// [CODE2] LPT final file output
+// LPT final file output
 #if SERGHEI_LPT
 		io.writeParticleFile(dom, parTrack, par, io.outFolder);
 #endif
 
+		dom.timers.phase.finalise += timer_finalise_phase.seconds();
 		dom.timers.total = timer.seconds();
 
-// [CODE2] Gather RE timers from gdom
+// Gather RE timers from gdom
 #if SERGHEI_RE_MODEL
 		dom.timers.re = gdom.timers.re;
 		dom.cg_iter = gdom.cg_iter;
 #endif
 
-// [CODE1] Gather subsurface transport timers (total independently timed in rt_solve)
+// Gather subsurface transport timers (total independently timed in rt_solve)
 #if SERGHEI_SUBSURFACE_TRANSPORT
 #if DEBUG_SERGHEI_SUBSURFACE_TRANSPORT
 		if (par.masterproc)
@@ -1145,11 +1204,11 @@ public:
 		dom.timers.rtgw = gdom.timers.rtgw;
 #endif
 
-// [CODE1] Surface transport timers (total independently timed in compute loop)
+// Surface transport timers (total independently timed in compute loop)
 #if SERGHEI_SURFACE_TRANSPORT
 #endif
 
-// [CODE1] Crop timers already accumulated in dom.timers.crop during compute()
+// Crop timers already accumulated in dom.timers.crop during compute()
 #if CROP_GROWTH_MODEL
 #endif
 
@@ -1159,14 +1218,22 @@ public:
 			std::cerr << GOK "Time elapsed: " << dom.timers.total << std::endl;
 		}
 
-		// [CODE2] Timer closure, gathering, and relative computation
+		// Timer closure, gathering, and relative computation
 		dom.timers.closure();
 		dom.timers.gather(par);
 		dom.relative = dom.timers;
 		dom.relative.computeRelative(dom.timers);
 		dom.relative.gather(par);
 
-		io.writeLogFile(dom, par, io.outFolder);
+		// Always write the regular log, independently of spatial NetCDF output.
+		// Solver statistics are optional and only exist when the corresponding
+		// reactive-transport profiling path is compiled in.
+		std::string rtStatsReport;
+#if SERGHEI_SUBSURFACE_TRANSPORT && SERGHEI_RTGW_SOLVER_PROFILE
+		if (par.masterproc)
+			rtStatsReport = rtsolvergw.solverStatsReport() + rtfgw.picardStatsReport();
+#endif
+		io.writeLogFile(dom, par, io.outFolder, rtStatsReport);
 		io.closeOutputStreams();
 
 #if SERGHEI_TOOLS

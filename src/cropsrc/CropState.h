@@ -22,8 +22,8 @@
 
 /* -*- mode: c++; c-default-style: "linux" -*- */
 
-#ifndef _CROP_STATE_H_
-#define _CROP_STATE_H_
+#ifndef CROP_STATE_H
+#define CROP_STATE_H
 
 #include "../const.h"
 #include "../define.h"
@@ -61,6 +61,7 @@ struct CropParams {
     real TEFFMX;  /**< Maximum effective temperature for emergence [deg.C].
                         Typical range: 20.0 -- 40.0. Above this, the effective
                         temperature for emergence is capped. */
+    real VERNDVS = 0.3; /**< Critical DVS above which vernalisation is forced complete [-]. */
     real TSUMEM;  /**< Temperature sum required for emergence [deg.C.d].
                         Typical range: 50 -- 300. The crop emerges once the
                         accumulated effective temperature reaches this value. */
@@ -172,6 +173,7 @@ struct CropParams {
                         Typical range: 1.0 -- 5.0. */
     real RDMCR;   /**< Maximum rooting depth of the crop [cm].
                         Typical range: 50 -- 200. */
+    real RDMSOL = 150.0; /**< Soil-limited maximum rooting depth [cm]. */
 
     /* ================================================================== */
     /* Soil Physical Characteristics                                      */
@@ -301,4 +303,4 @@ public:
     }
 };
 
-#endif /* _CROP_STATE_H_ */
+#endif /* CROP_STATE_H */

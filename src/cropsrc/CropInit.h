@@ -34,8 +34,8 @@
 
 /* -*- mode: c++; c-default-style: "linux" -*- */
 
-#ifndef _CROP_INIT_H_
-#define _CROP_INIT_H_
+#ifndef CROP_INIT_H
+#define CROP_INIT_H
 
 #include "../define.h"
 #include "../Parallel.h"
@@ -178,6 +178,10 @@ public:
                 else if (!strcmp("TSUMEM", pline.key.c_str()))
                 {
                     pline.value >> cs.p.TSUMEM;
+                }
+                else if (!strcmp("VERNDVS", pline.key.c_str()))
+                {
+                    pline.value >> cs.p.VERNDVS;
                 }
 
                 /* ====================================================== */
@@ -330,6 +334,10 @@ public:
                 else if (!strcmp("RDMCR", pline.key.c_str()))
                 {
                     pline.value >> cs.p.RDMCR;
+                }
+                else if (!strcmp("RDMSOL", pline.key.c_str()))
+                {
+                    pline.value >> cs.p.RDMSOL;
                 }
 
                 /* ====================================================== */
@@ -497,4 +505,4 @@ private:
     }
 };
 
-#endif /* _CROP_INIT_H_ */
+#endif /* CROP_INIT_H */

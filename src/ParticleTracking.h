@@ -616,19 +616,14 @@ class ParticleTracker{
         int kkk,lll;
         int Iglob = dom.getCellForPoint(pos);
         unpackIndicesUniformGrid(Iglob,dom.ny,dom.nx,kkk,lll);
-        
-        /*SW(_X) = i*dx;
-        SW(_Y) = j*dx;*/
-        
+
         SW(_X) = lll*dx+dom.extent[0](_X);
         ps.xmin=SW(_X);
         ps.xmax=ps.xmin+dx;
-        //printf("X:%lf, i:%d, SW(_X):%lf, pos_x:%lf, v_x:%.12e\n",dom.extent[0](_X),lll,SW(_X),pos(_X),ps.v(_X));
 
         SW(_Y) = dom.extent[0](_Y) + dom.ny_glob*dx -(kkk+1)*dx;
         ps.ymin=SW(_Y);
         ps.ymax=ps.ymin+dx;
-        //printf("Y:%lf, j:%d, SW(_Y):%lf, pos_y:%lf, v_y:%.12e\n",dom.extent[0](_Y),kkk,SW(_Y),pos(_Y),ps.v(_Y));
 
         const real LARGE_VALUE = dom.dx()*sqrt(2.0);
 

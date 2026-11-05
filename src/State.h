@@ -39,7 +39,7 @@ public:
   realArr h;
   realArr hu;
   realArr hv;
-  // SW 水面蒸发
+  // SW surface-water evaporation
   realArr surfaceEvaporation;
 #if SERGHEI_LPT
   realArr tparticles;
@@ -70,9 +70,9 @@ public:
   boolArr isnodata; // contains 0 if is a regular cell, 1 if is nodata cell
   intArr isBound;   // positive values for inlet boundaries, negative values for outlet bvoundaries, 0 for inner cells
 
-  // 用于水动力和溶质运移完美耦合的界面水通量 (m^2/s)
-  realArr InterfaceFlux_x; // 记录网格 i 与 i+1 (东侧) 之间的界面水流量
-  realArr InterfaceFlux_y; // 记录网格 j 与 j+1 (南侧) 之间的界面水流量
+  // Interface water fluxes for the tight coupling of hydrodynamics and solute transport [m^2/s]
+  realArr InterfaceFlux_x; // discharge across the face between cells i and i+1 (east)
+  realArr InterfaceFlux_y; // discharge across the face between cells j and j+1 (south)
 
 #if SERGHEI_EROSIVE_SHEAR
   realArr shearAccum; // accumulated shear stress per cell until current time [M*L/T]
@@ -141,8 +141,8 @@ public:
     h4rtsw = realArr2("h4rtsw", dom.nCellMem, 2);   // water depth for RT
     hu4rtsw = realArr2("hu4rtsw", dom.nCellMem, 2); // x-momentum for RT
     hv4rtsw = realArr2("hv4rtsw", dom.nCellMem, 2); // y-momentum for RT
-    InterfaceFlux_x = realArr("InterfaceFlux_x", dom.nCellMem); // 记录网格 i 与 i+1 (东侧) 之间的界面水流量
-    InterfaceFlux_y = realArr("InterfaceFlux_y", dom.nCellMem); // 记录网格 j 与 j+1 (南侧) 之间的界面水流
+    InterfaceFlux_x = realArr("InterfaceFlux_x", dom.nCellMem);
+    InterfaceFlux_y = realArr("InterfaceFlux_y", dom.nCellMem);
     Kokkos::deep_copy(InterfaceFlux_x, 0.0);
     Kokkos::deep_copy(InterfaceFlux_y, 0.0);
 #endif

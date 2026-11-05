@@ -5,6 +5,7 @@
 #include <string>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 #include <sys/types.h>
 #include <errno.h>
 #include <sys/types.h>
@@ -203,11 +204,9 @@ public:
     io.infFile = fNameIn + "infiltration.input";
     ierr[3] = readInfiltrationFile(io, dom, ss.inf, par);
 
-    // std::cout << RED << __PRETTY_FUNCTION__ << ":: " << __LINE__ << RESET << std::endl;
     io.infMapFile = fNameIn + "infiltrationMap.input";
     ierr[4] = readInfiltrationMap(io, dom, ss.inf, par);
 
-    // std::cout << RED << __PRETTY_FUNCTION__ << ":: " << __LINE__ << RESET << std::endl;
 #if SERGHEI_NETCDF_FORCING
     io.aforcingS.fname = fNameIn + "atmforcing.nc";
     if (std::filesystem::exists(io.aforcingS.fname))
@@ -228,7 +227,6 @@ public:
     ierr[5] = readRainfallFile(tempStr, dom, ss.rain, par);
 #endif
 
-    // std::cout << RED << __PRETTY_FUNCTION__ << ":: " << __LINE__ << RESET << std::endl;
 // THIS CODE NEEDS TO BE DEPRECATED
 #ifdef _DEV_RAIN_
     if (par.masterproc)
@@ -966,7 +964,6 @@ public:
           while (std::getline(fInStream, line))
           {
             pline.line = line;
-            // std::cout << pline.line << std::endl;
             pline.lowercase();
             pline.parse();
 
@@ -1059,7 +1056,6 @@ public:
 
     if (par.masterproc)
       std::cout << GOK << "Infiltration model set" << std::endl;
-    // std::cout << RED << __PRETTY_FUNCTION__ << ":: " << __LINE__ << RESET << std::endl;
     return SERGHEI_OK;
   }
 
@@ -1202,7 +1198,6 @@ public:
           {
             fInStream >> rain.value(i + j * rain.np);
             rain.value(i + j * rain.np) *= rfactor;
-            //              std::cout << GGD << " t = " << rain.time(i) << "\tr = " <<  rain.value(i + j*rain.np) << std::endl;
           }
         }
         else
@@ -1465,8 +1460,11 @@ public:
     std::ifstream fInStream(fNameIn);
     std::string dir;
     std::vector<std::string> polygonFile;
-    std::vector<std::string> fullPathPoly;
-    std::vector<std::string> hydrographFile;
+	    std::vector<std::string> fullPathPoly;
+	    std::vector<std::string> triggerPolygonFile;
+	    std::vector<std::string> hydrographFile;
+	    std::vector<std::string> irrigationStrategyFile;
+	    std::vector<std::string> drainageStrategyFile;
 
     std::string file_header;
     std::string line;
@@ -1509,8 +1507,11 @@ public:
             ebc.extbc.resize(bccount);
             ebc.id.resize(bccount);
             polygonFile.resize(bccount);
-            fullPathPoly.resize(bccount);
-            hydrographFile.resize(bccount);
+	            fullPathPoly.resize(bccount);
+	            triggerPolygonFile.resize(bccount);
+	            hydrographFile.resize(bccount);
+	            irrigationStrategyFile.resize(bccount);
+	            drainageStrategyFile.resize(bccount);
             ibc++; // ibc should be set to -1
 #if SERGHEI_DEBUG_BOUNDARY
             std::cout << GGD << GRAY << __PRETTY_FUNCTION__ << RESET;
@@ -1526,12 +1527,20 @@ public:
           else if (!strcmp("bctype", pline.key.c_str()) && ibc >= 0)
           {
             if (bccount > 0)
+            {
               pline.value >> ebc.extbc[ibc].bctype;
+              ebc.extbc[ibc].hydro_bctype = ebc.extbc[ibc].bctype;
+            }
           }
           else if (!strcmp("polygon", pline.key.c_str()) && ibc >= 0)
           {
             if (bccount > 0)
               pline.value >> polygonFile[ibc];
+          }
+          else if (!strcmp("trigger_polygon", pline.key.c_str()) && ibc >= 0)
+          {
+            if (bccount > 0)
+              pline.value >> triggerPolygonFile[ibc];
           }
           else if (!strcmp("direction", pline.key.c_str()) && ibc >= 0)
           {
@@ -1542,14 +1551,37 @@ public:
           {
             if (bccount > 0)
             {
-              ebc.extbc[ibc].bcvals = realArr("bcvals", 3);
-              pline.value >> ebc.extbc[ibc].bcvals(0) >> ebc.extbc[ibc].bcvals(1) >> ebc.extbc[ibc].bcvals(2);
+              std::vector<real> values;
+              real val;
+              while (pline.value >> val)
+                values.push_back(val);
+	              if ((ebc.extbc[ibc].bctype == SWE_BC_TRIGGERED_IRRIGATION ||
+	                   ebc.extbc[ibc].bctype == SWE_BC_TRIGGERED_DRAINAGE) && values.size() != 1)
+	              {
+	                if (par.masterproc)
+	                {
+	                  std::cerr << RERROR << "In extbc.input: triggered irrigation/drainage requires exactly 1 bcval: trigger_mode. Found "
+	                            << values.size() << " values." << std::endl;
+	                }
+	                return 0;
+              }
+              ebc.extbc[ibc].bcvals = realArr("bcvals", values.size());
+              for (int idx = 0; idx < values.size(); idx++)
+                ebc.extbc[ibc].bcvals(idx) = values[idx];
             }
           }
-          else if (!strcmp("hydrograph", pline.key.c_str()) && ibc >= 0)
-          {
-            pline.value >> hydrographFile[ibc];
-          }
+	          else if (!strcmp("hydrograph", pline.key.c_str()) && ibc >= 0)
+	          {
+	            pline.value >> hydrographFile[ibc];
+	          }
+	          else if (!strcmp("irrigation_strategy", pline.key.c_str()) && ibc >= 0)
+	          {
+	            pline.value >> irrigationStrategyFile[ibc];
+	          }
+	          else if (!strcmp("drainage_strategy", pline.key.c_str()) && ibc >= 0)
+	          {
+	            pline.value >> drainageStrategyFile[ibc];
+	          }
           else if (ibc >= 0)
           {
             if (par.masterproc)
@@ -1587,6 +1619,7 @@ public:
       std::cerr << GGD "Boundary type for " << k << "th boundary: " << ebc.BoundaryTypes[ebc.extbc[k].bctype] << " (" << ebc.extbc[k].bctype << ")." << std::endl;
       std::cerr << GGD << "Direction for " << k << "th boundary: (" << ebc.extbc[k].normalx << "," << ebc.extbc[k].normaly << ")" << std::endl;
       std::cerr << GGD << "Polygon file for " << k << "th boundary: " << polygonFile[k] << std::endl;
+      std::cerr << GGD << "Trigger polygon file for " << k << "th boundary: " << triggerPolygonFile[k] << std::endl;
       std::cerr << GGD << "Hydrograph file for " << k << "th boundary: " << hydrographFile[k] << std::endl;
     }
 #endif
@@ -1661,8 +1694,448 @@ public:
       fPoly.close();
     } // end for read in of the kth polygon
 
-    // read hydrograph files
-    for (int k = 0; k < hydrographFile.size(); k++)
+	    // read triggered irrigation/drainage observation polygons
+	    for (int k = 0; k < ebc.extbc.size(); k++)
+	    {
+      if (ebc.extbc[k].bctype != SWE_BC_TRIGGERED_IRRIGATION &&
+          ebc.extbc[k].bctype != SWE_BC_TRIGGERED_DRAINAGE)
+        continue;
+
+      std::string triggerFile = triggerPolygonFile[k];
+      if (triggerFile.empty())
+      {
+        triggerFile = polygonFile[k];
+        if (par.masterproc)
+          std::cerr << YEXC << "Boundary id '" << ebc.id[k] << "' has no trigger_polygon; using boundary polygon as trigger observation region." << std::endl;
+      }
+
+      std::string triggerKey = triggerFile;
+      std::transform(triggerKey.begin(), triggerKey.end(), triggerKey.begin(), [](unsigned char c)
+                     { return std::toupper(c); });
+
+      if (triggerKey == "ALL_DOMAIN")
+      {
+        realArr xPoly;
+        realArr yPoly;
+        if (!ebc.extbc[k].find_trigger_cells(state, ebc.id[k], dom, par, 0, xPoly, yPoly))
+          return 0;
+        continue;
+      }
+
+      std::string fullPathTrigger = dir + triggerFile;
+      std::ifstream fTrigger(fullPathTrigger);
+      if (fTrigger.is_open())
+      {
+        fTrigger.ignore(256, ' ');
+        fTrigger >> nPoly;
+        if (nPoly != 1 && nPoly < 3)
+        {
+          if (par.masterproc)
+            std::cerr << RERROR << "Invalid trigger polygon file for boundary " << k << ": " << fullPathTrigger << ". Use 1 point, >=3 polygon points, or ALL_DOMAIN." << std::endl;
+          return 0;
+        }
+        realArr xPoly = realArr("triggerXPoly", nPoly);
+        realArr yPoly = realArr("triggerYPoly", nPoly);
+        for (int i = 0; i < nPoly; i++)
+        {
+          if (!fTrigger.fail() && !fTrigger.eof())
+          {
+            fTrigger >> xPoly(i) >> yPoly(i);
+          }
+          else
+          {
+            if (par.masterproc)
+              std::cerr << RERROR "Error reading trigger polygon file " << k << ": " << fullPathTrigger << std::endl;
+            return 0;
+          }
+        }
+        if (!ebc.extbc[k].find_trigger_cells(state, ebc.id[k], dom, par, nPoly, xPoly, yPoly))
+          return 0;
+      }
+      else
+      {
+        if (par.masterproc)
+          std::cerr << RERROR "Trigger polygon file " << k << ": " << fullPathTrigger << " not found." << std::endl;
+        return 0;
+      }
+	      fTrigger.close();
+	    }
+
+	    // read triggered-irrigation strategy files
+	    for (int k = 0; k < ebc.extbc.size(); k++)
+	    {
+	      if (ebc.extbc[k].bctype != SWE_BC_TRIGGERED_IRRIGATION)
+	        continue;
+
+	      if (irrigationStrategyFile[k].empty())
+	      {
+	        if (par.masterproc)
+	          std::cerr << RERROR << "Triggered irrigation boundary id '" << ebc.id[k] << "' requires irrigation_strategy in extbc.input." << std::endl;
+	        return 0;
+	      }
+
+	      std::string fname = dir + irrigationStrategyFile[k];
+	      std::ifstream fStrategy(fname);
+	      if (!fStrategy.is_open())
+	      {
+	        if (par.masterproc)
+	          std::cerr << RERROR << "Irrigation strategy file " << fname << " not found." << std::endl;
+	        return 0;
+	      }
+
+	      ebc.extbc[k].irrigationStrategyFile = irrigationStrategyFile[k];
+	      ParserLine sline;
+	      std::string strategyLine;
+	      int haveUseDVS = 0;
+	      int haveNdata = 0;
+	      int ndata = 0;
+	      while (std::getline(fStrategy, strategyLine))
+	      {
+	        sline.line = strategyLine;
+	        sline.parse();
+	        if (sline.key.empty())
+	          continue;
+	        if (!strcmp("use_DVS", sline.key.c_str()) || !strcmp("use_dvs", sline.key.c_str()))
+	        {
+	          sline.value >> ebc.extbc[k].useDVSForIrrigation;
+	          haveUseDVS = 1;
+	        }
+	        else if (!strcmp("ndata", sline.key.c_str()))
+	        {
+	          sline.value >> ndata;
+	          haveNdata = 1;
+	          break;
+	        }
+	        else
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "In irrigation strategy file " << fname << ": key " << sline.key << " not understood." << std::endl;
+	          return 0;
+	        }
+	      }
+
+	      if (!haveUseDVS || !haveNdata || ndata <= 0)
+	      {
+	        if (par.masterproc)
+	          std::cerr << RERROR << "Irrigation strategy file " << fname << " must define use_DVS and positive ndata." << std::endl;
+	        return 0;
+	      }
+	      if (ebc.extbc[k].useDVSForIrrigation != 0 && ebc.extbc[k].useDVSForIrrigation != 1)
+	      {
+	        if (par.masterproc)
+	          std::cerr << RERROR << "Irrigation strategy file " << fname << ": use_DVS must be 0 or 1." << std::endl;
+	        return 0;
+	      }
+
+	      ebc.extbc[k].nIrrigationStages = ndata;
+	      ebc.extbc[k].irrigationDatMin = realArr("irrigationDatMin", ndata);
+	      ebc.extbc[k].irrigationDatMax = realArr("irrigationDatMax", ndata);
+	      ebc.extbc[k].irrigationDvsMin = realArr("irrigationDvsMin", ndata);
+	      ebc.extbc[k].irrigationDvsMax = realArr("irrigationDvsMax", ndata);
+	      ebc.extbc[k].irrigationHMin = realArr("irrigationHMin", ndata);
+	      ebc.extbc[k].irrigationHMax = realArr("irrigationHMax", ndata);
+	      ebc.extbc[k].irrigationGwDepthTrigger = realArr("irrigationGwDepthTrigger", ndata);
+	      ebc.extbc[k].irrigationQ = realArr("irrigationQ", ndata);
+	      ebc.extbc[k].irrigationEnabled = intArr("irrigationEnabled", ndata);
+	      ebc.extbc[k].drainageEnabled = intArr("drainageEnabled", ndata);
+	      ebc.extbc[k].irrigationTrigType = intArr("irrigationTrigType", ndata);
+	      ebc.extbc[k].irrigationThetaTrig = realArr("irrigationThetaTrig", ndata);
+	      ebc.extbc[k].irrigationThetaStop = realArr("irrigationThetaStop", ndata);
+
+	      int iStage = 0;
+	      while (iStage < ndata && std::getline(fStrategy, strategyLine))
+	      {
+	        std::string trimmed = strategyLine;
+	        size_t firstChar = trimmed.find_first_not_of(" \t\r");
+	        if (firstChar == std::string::npos)
+	          continue;
+	        trimmed.erase(0, firstChar);
+	        if (trimmed.empty() || trimmed.rfind("//", 0) == 0)
+	          continue;
+
+	        std::stringstream row(trimmed);
+	        real datMin, datMax, dvsMin, dvsMax, hMin, hMax, gwDepth, Qirr;
+	        int irrEnabled, drainEnabled;
+	        if (!(row >> datMin >> datMax >> dvsMin >> dvsMax >> hMin >> hMax >> gwDepth >> Qirr >> irrEnabled >> drainEnabled))
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Error reading irrigation strategy row " << iStage << " in " << fname << std::endl;
+	          return 0;
+	        }
+
+	        // 可选列（行尾追加，旧 10 列文件自动取缺省值）。每次试读失败会置 failbit，
+	        // 继续读下一列前必须 clear()。注意：策略行不剥离行内注释，新列之后勿再跟行内注释。
+	        int trigType = 0;
+	        real thetaTrig = -1.0, thetaStop = -1.0;
+	        row >> trigType;
+	        row.clear();
+	        row >> thetaTrig;
+	        row.clear();
+	        row >> thetaStop;
+	        row.clear();
+
+	        if (datMax < datMin || dvsMax < dvsMin || hMax < hMin)
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Invalid irrigation strategy row " << iStage << " in " << fname << ": max values must be >= min values." << std::endl;
+	          return 0;
+	        }
+	        if (irrEnabled != 0 && irrEnabled != 1)
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Invalid irrigation_enabled value in row " << iStage << " of " << fname << std::endl;
+	          return 0;
+	        }
+	        if (drainEnabled != 0 && drainEnabled != 1)
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Invalid drainage_enabled value in row " << iStage << " of " << fname << std::endl;
+	          return 0;
+	        }
+	        if (irrEnabled == 1 && fabs(Qirr) <= TOL12)
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Irrigation strategy row " << iStage << " in " << fname << " enables irrigation but Qirr is zero." << std::endl;
+	          return 0;
+	        }
+	        if (iStage > 0)
+	        {
+	          if (datMin < ebc.extbc[k].irrigationDatMax(iStage - 1) || dvsMin < ebc.extbc[k].irrigationDvsMax(iStage - 1))
+	          {
+	            if (par.masterproc)
+	              std::cerr << RERROR << "Irrigation strategy rows in " << fname << " must be sorted and non-overlapping for DAT and DVS ranges." << std::endl;
+	            return 0;
+	          }
+	        }
+
+	        // 触发类型/土壤水阈值校验。effMode：行级 trig_type 覆盖 extbc.input 的 bcvals(0) 全局模式。
+	        if (trigType < 0 || trigType > 4)
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Invalid trig_type in row " << iStage << " of " << fname << ": must be 0-4." << std::endl;
+	          return 0;
+	        }
+	        int effMode = trigType;
+	        if (effMode == 0 && ebc.extbc[k].bcvals.extent(0) > 0)
+	          effMode = int(ebc.extbc[k].bcvals(0) + 0.5);
+#if CROP_GROWTH_MODEL && SERGHEI_RE_MODEL
+	        if (effMode >= 2 && effMode <= 4)
+	        {
+	          if (thetaTrig <= 0.0 || thetaTrig > 1.0)
+	          {
+	            if (par.masterproc)
+	              std::cerr << RERROR << "Irrigation strategy row " << iStage << " in " << fname << ": soil-moisture trigger (mode " << effMode << ") requires theta_trig in (0,1] as a fraction of saturation." << std::endl;
+	            return 0;
+	          }
+	          if (thetaStop > 0.0 && (thetaStop < thetaTrig || thetaStop > 1.0))
+	          {
+	            if (par.masterproc)
+	              std::cerr << RERROR << "Invalid theta_stop in row " << iStage << " of " << fname << ": must be within [theta_trig, 1]." << std::endl;
+	            return 0;
+	          }
+	        }
+	        if (effMode <= 1 && (thetaTrig > 0.0 || thetaStop > 0.0))
+	        {
+	          if (par.masterproc)
+	            std::cerr << YEXC << "Irrigation strategy row " << iStage << " in " << fname << ": theta columns are ignored for depth-only trigger modes." << std::endl;
+	          thetaTrig = -1.0;
+	          thetaStop = -1.0;
+	        }
+#else
+	        if ((effMode >= 2 && effMode <= 4) || thetaTrig > 0.0 || thetaStop > 0.0)
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Irrigation strategy row " << iStage << " in " << fname << ": soil-moisture trigger requires a build with CROP_GROWTH_MODEL and SERGHEI_RE_MODEL enabled." << std::endl;
+	          return 0;
+	        }
+#endif
+
+	        ebc.extbc[k].irrigationDatMin(iStage) = datMin;
+	        ebc.extbc[k].irrigationDatMax(iStage) = datMax;
+	        ebc.extbc[k].irrigationDvsMin(iStage) = dvsMin;
+	        ebc.extbc[k].irrigationDvsMax(iStage) = dvsMax;
+	        ebc.extbc[k].irrigationHMin(iStage) = hMin;
+	        ebc.extbc[k].irrigationHMax(iStage) = hMax;
+	        ebc.extbc[k].irrigationGwDepthTrigger(iStage) = gwDepth;
+	        ebc.extbc[k].irrigationQ(iStage) = Qirr;
+	        ebc.extbc[k].irrigationEnabled(iStage) = irrEnabled;
+	        ebc.extbc[k].drainageEnabled(iStage) = drainEnabled;
+	        ebc.extbc[k].irrigationTrigType(iStage) = trigType;
+	        ebc.extbc[k].irrigationThetaTrig(iStage) = thetaTrig;
+	        ebc.extbc[k].irrigationThetaStop(iStage) = thetaStop;
+	        iStage++;
+	      }
+
+	      if (iStage != ndata)
+	      {
+	        if (par.masterproc)
+	          std::cerr << RERROR << "Irrigation strategy file " << fname << " expected " << ndata << " rows, read " << iStage << "." << std::endl;
+	        return 0;
+	      }
+	      fStrategy.close();
+	    }
+
+	    // read triggered-drainage strategy files
+	    for (int k = 0; k < ebc.extbc.size(); k++)
+	    {
+	      if (ebc.extbc[k].bctype != SWE_BC_TRIGGERED_DRAINAGE)
+	        continue;
+
+	      if (drainageStrategyFile[k].empty())
+	      {
+	        if (par.masterproc)
+	          std::cerr << RERROR << "Triggered drainage boundary id '" << ebc.id[k] << "' requires drainage_strategy in extbc.input." << std::endl;
+	        return 0;
+	      }
+
+	      std::string fname = dir + drainageStrategyFile[k];
+	      std::ifstream fStrategy(fname);
+	      if (!fStrategy.is_open())
+	      {
+	        if (par.masterproc)
+	          std::cerr << RERROR << "Drainage strategy file " << fname << " not found." << std::endl;
+	        return 0;
+	      }
+
+	      ebc.extbc[k].drainageStrategyFile = drainageStrategyFile[k];
+	      ParserLine sline;
+	      std::string strategyLine;
+	      int haveUseDVS = 0;
+	      int haveNdata = 0;
+	      int ndata = 0;
+	      while (std::getline(fStrategy, strategyLine))
+	      {
+	        sline.line = strategyLine;
+	        sline.parse();
+	        if (sline.key.empty())
+	          continue;
+	        if (!strcmp("use_DVS", sline.key.c_str()) || !strcmp("use_dvs", sline.key.c_str()))
+	        {
+	          sline.value >> ebc.extbc[k].useDVSForDrainage;
+	          haveUseDVS = 1;
+	        }
+	        else if (!strcmp("ndata", sline.key.c_str()))
+	        {
+	          sline.value >> ndata;
+	          haveNdata = 1;
+	          break;
+	        }
+	        else
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "In drainage strategy file " << fname << ": key " << sline.key << " not understood." << std::endl;
+	          return 0;
+	        }
+	      }
+
+	      if (!haveUseDVS || !haveNdata || ndata <= 0)
+	      {
+	        if (par.masterproc)
+	          std::cerr << RERROR << "Drainage strategy file " << fname << " must define use_DVS and positive ndata." << std::endl;
+	        return 0;
+	      }
+	      if (ebc.extbc[k].useDVSForDrainage != 0 && ebc.extbc[k].useDVSForDrainage != 1)
+	      {
+	        if (par.masterproc)
+	          std::cerr << RERROR << "Drainage strategy file " << fname << ": use_DVS must be 0 or 1." << std::endl;
+	        return 0;
+	      }
+
+	      ebc.extbc[k].nDrainageStages = ndata;
+	      ebc.extbc[k].drainageDatMin = realArr("drainageDatMin", ndata);
+	      ebc.extbc[k].drainageDatMax = realArr("drainageDatMax", ndata);
+	      ebc.extbc[k].drainageDvsMin = realArr("drainageDvsMin", ndata);
+	      ebc.extbc[k].drainageDvsMax = realArr("drainageDvsMax", ndata);
+	      ebc.extbc[k].drainageOnH = realArr("drainageOnH", ndata);
+	      ebc.extbc[k].drainageOffH = realArr("drainageOffH", ndata);
+	      ebc.extbc[k].drainageMode = intArr("drainageMode", ndata);
+	      ebc.extbc[k].drainageQ = realArr("drainageQ", ndata);
+	      ebc.extbc[k].drainageStageEnabled = intArr("drainageStageEnabled", ndata);
+
+	      int iStage = 0;
+	      while (iStage < ndata && std::getline(fStrategy, strategyLine))
+	      {
+	        std::string trimmed = strategyLine;
+	        size_t firstChar = trimmed.find_first_not_of(" \t\r");
+	        if (firstChar == std::string::npos)
+	          continue;
+	        trimmed.erase(0, firstChar);
+	        if (trimmed.empty() || trimmed.rfind("//", 0) == 0)
+	          continue;
+
+	        std::stringstream row(trimmed);
+	        real datMin, datMax, dvsMin, dvsMax, drainOnH, drainOffH, Qdrain;
+	        int drainMode, drainEnabled;
+	        if (!(row >> datMin >> datMax >> dvsMin >> dvsMax >> drainOnH >> drainOffH >> drainMode >> Qdrain >> drainEnabled))
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Error reading drainage strategy row " << iStage << " in " << fname << std::endl;
+	          return 0;
+	        }
+
+	        if (datMax < datMin || dvsMax < dvsMin)
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Invalid drainage strategy row " << iStage << " in " << fname << ": max values must be >= min values." << std::endl;
+	          return 0;
+	        }
+	        if (drainOnH < drainOffH)
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Invalid drainage strategy row " << iStage << " in " << fname << ": drain_on_h must be >= drain_off_h." << std::endl;
+	          return 0;
+	        }
+	        if (drainMode != 1 && drainMode != 2)
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Invalid drain_mode in row " << iStage << " of " << fname << ". Use 1 for critical/free outflow or 2 for fixed pumping flux." << std::endl;
+	          return 0;
+	        }
+	        if (drainEnabled != 0 && drainEnabled != 1)
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Invalid drainage_enabled value in row " << iStage << " of " << fname << std::endl;
+	          return 0;
+	        }
+	        if (drainEnabled == 1 && drainMode == 2 && fabs(Qdrain) <= TOL12)
+	        {
+	          if (par.masterproc)
+	            std::cerr << RERROR << "Drainage strategy row " << iStage << " in " << fname << " enables fixed pumping drainage but Qdrain is zero." << std::endl;
+	          return 0;
+	        }
+	        if (iStage > 0)
+	        {
+	          if (datMin < ebc.extbc[k].drainageDatMax(iStage - 1) || dvsMin < ebc.extbc[k].drainageDvsMax(iStage - 1))
+	          {
+	            if (par.masterproc)
+	              std::cerr << RERROR << "Drainage strategy rows in " << fname << " must be sorted and non-overlapping for DAT and DVS ranges." << std::endl;
+	            return 0;
+	          }
+	        }
+
+	        ebc.extbc[k].drainageDatMin(iStage) = datMin;
+	        ebc.extbc[k].drainageDatMax(iStage) = datMax;
+	        ebc.extbc[k].drainageDvsMin(iStage) = dvsMin;
+	        ebc.extbc[k].drainageDvsMax(iStage) = dvsMax;
+	        ebc.extbc[k].drainageOnH(iStage) = drainOnH;
+	        ebc.extbc[k].drainageOffH(iStage) = drainOffH;
+	        ebc.extbc[k].drainageMode(iStage) = drainMode;
+	        ebc.extbc[k].drainageQ(iStage) = Qdrain;
+	        ebc.extbc[k].drainageStageEnabled(iStage) = drainEnabled;
+	        iStage++;
+	      }
+
+	      if (iStage != ndata)
+	      {
+	        if (par.masterproc)
+	          std::cerr << RERROR << "Drainage strategy file " << fname << " expected " << ndata << " rows, read " << iStage << "." << std::endl;
+	        return 0;
+	      }
+	      fStrategy.close();
+	    }
+
+	    // read hydrograph files
+	    for (int k = 0; k < hydrographFile.size(); k++)
     {
       std::string fname = dir + hydrographFile[k];
       std::ifstream fHydro(fname);
@@ -1737,12 +2210,14 @@ public:
       case SWE_BC_WSE_CONST:
       case SWE_BC_FREE_OUTFLOW:
       case SWE_BC_HZ_T_OUTLET:
+      case SWE_BC_TRIGGERED_DRAINAGE:
         value = -1 * (k + 1);
         break;
 
       case SWE_BC_Q_CONST:
       case SWE_BC_HZ_T_INLET:
       case SWE_BC_Q_T:
+      case SWE_BC_TRIGGERED_IRRIGATION:
         value = k + 1;
         break;
 

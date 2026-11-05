@@ -77,8 +77,8 @@ class RTInitgw : public Initializer
     class PsLn
     {
     public:
-        std::string line;      //!< Raw input line
-        std::string key;       //!< Extracted key (left of the colon)
+        std::string line;        //!< Raw input line
+        std::string key;         //!< Extracted key (left of the colon)
         std::stringstream value; //!< Extracted value (right of the colon)
 
         //! Convert the entire line to lowercase (useful for case-insensitive matching)
@@ -167,6 +167,7 @@ public:
 
         // --- Step 1: Read solute transport input file ---
         std::string fNameIn = inFolder + "rttransportgw.input";
+		if (!sergheiVerifyFileConsistency(fNameIn, par.myrank)) return 0;
         if (!readRTFile(fNameIn, rt, par))
         {
             std::cerr << GOK << " GWRTM: Reading in reactive transport input file failed." << std::endl;
@@ -179,17 +180,17 @@ public:
 
         // --- Step 3: Read boundary conditions for reactive transport ---
         fNameIn = inFolder + "rtgwbc.input";
+		if (!sergheiVerifyFileConsistency(fNameIn, par.myrank)) return 0;
         if (!readRTBCFile(fNameIn, gdom, rtgbc, par, rt, gw))
         {
             if (par.masterproc)
-            {
                 std::cerr << RERROR "GWRTM: Unable to read transport BC file" << std::endl;
-                return 0;
-            }
+            return 0;
         }
 
         // --- Step 4: Read groundwater RT source/sink terms ---
         fNameIn = inFolder + "rtgwss.input";
+		if (!sergheiVerifyFileConsistency(fNameIn, par.myrank)) return 0;
         if (!readRTSSFile(fNameIn, gdom, par, rt, gw, ss))
         {
             if (par.masterproc)
@@ -202,13 +203,12 @@ public:
         if (rt.ReactionModule == 1)
         {
             fNameIn = inFolder + "reactiongw.input";
+			if (!sergheiVerifyFileConsistency(fNameIn, par.myrank)) return 0;
             if (!readRTReactionFile(fNameIn, rt, par))
             {
                 if (par.masterproc)
-                {
                     std::cerr << RERROR "GWRTM: Unable to read transport Reaction file" << std::endl;
-                    return 0;
-                }
+                return 0;
             }
         }
 
@@ -242,6 +242,10 @@ public:
         gmpi.mpi_sendrecv_rt(rt.c, gdom, par, rt.n_mass, 0);
 
         // --- Step 9: Apply boundary conditions (multi-species support) ---
+        // ConQss is shared by all boundary objects/species.  Clear it once
+        // before the complete initial boundary refresh; individual boundary
+        // calls must not erase fluxes produced by earlier boundaries.
+        Kokkos::deep_copy(rt.ConQss, 0.0);
         for (int iSpec = 0; iSpec < rt.n_mass; iSpec++)
         {
             for (int k = 0; k < rtgbc.rtgwbc.size(); k++)
@@ -763,7 +767,7 @@ public:
      *
      * Global parameters:
      *   - ReactModel_Type:          Reaction model selector (0 = sorption only, 1 = full nitrogen cycle)
-     *   - Bulk_Density (rho_b):     Bulk density of the porous medium [kg/L or g/cm^3]
+     *   - Bulk_Density (rho_b):     Bulk density of the porous medium [g/cm^3, stored internally as kg/L]
      *   - Nitrogen_Cycle_Simulation: Flag to enable nitrogen cycle reactions
      *
      * Per-species sorption parameters (one value per species):
@@ -771,30 +775,30 @@ public:
      *   - Kd:             Linear distribution coefficient [L/kg]
      *   - Kf:             Freundlich affinity constant
      *   - Nf:             Freundlich exponent
-     *   - Alpha_D:        Dual-domain mass transfer coefficient [1/s]
-     *   - Beta_D:         Dual-domain immobile fraction [-]
-     *   - Beta:           Langmuir sorption capacity parameter
+     *   - Alpha_D:        Langmuir affinity coefficient [L/mg]
+     *   - Beta_D:         Langmuir maximum sorption capacity [mg/kg]
+     *   - Beta:           Kinetic sorption rate constant [1/s] for type 4
      *   - Lambda_1:       First-order decay rate in liquid phase [1/s]
      *   - Lambda_2:       First-order decay rate in solid phase [1/s]
      *
      * Nitrification parameters (single value):
-     *   - Rate_Max_Nit:   Maximum nitrification rate [mg/L/s]
+     *   - Rate_Max_Nit:   Maximum nitrification rate on the NH4 basis [mg NH4/L/s]
      *   - K_Monod_NH4:    Half-saturation constant for NH4+ [mg/L]
      *   - K_Monod_DO:     Half-saturation constant for dissolved oxygen [mg/L]
      *
      * Denitrification parameters (single value):
-     *   - Rate_Max_Denit: Maximum denitrification rate [mg/L/s]
+     *   - Rate_Max_Denit: Maximum denitrification rate on the DOC-C basis [mg C/L/s]
      *   - K_Monod_NO3:    Half-saturation constant for NO3- [mg/L]
      *   - K_Monod_DOC:    Half-saturation constant for DOC [mg/L]
      *   - Ki_Inhib_DO:    DO inhibition constant [mg/L]
      *
      * Aerobic respiration parameters (single value):
-     *   - Rate_Max_Hetero:       Maximum heterotrophic respiration rate [mg/L/s]
+     *   - Rate_Max_Hetero:       Maximum heterotrophic respiration rate [mg C/L/s]
      *   - K_Monod_DOC_Aerobic:   Half-saturation constant for DOC [mg/L]
      *   - K_Monod_DO_Aerobic:    Half-saturation constant for DO [mg/L]
      *
      * Mineralization parameters (single value):
-     *   - Rate_Max_Min:    Maximum mineralization rate [mg/L/s]
+     *   - Rate_Max_Min:    Maximum mineralization rate on the DON-N basis [mg N/L/s]
      *   - K_Monod_DON:     Half-saturation constant for DON [mg/L]
      *   - K_Monod_DO_Min:  Half-saturation constant for DO [mg/L]
      *
@@ -807,9 +811,9 @@ public:
      *   - K_rel_DON: DON release rate coefficient [1/s]
      *
      * Environmental correction factors:
-     *   - Temp_Coeff_Theta: Arrhenius temperature correction coefficient [-]
+     *   - Temp_Coeff_Theta: Parsed temperature coefficient; inactive in the current groundwater kernel [-]
      *   - Opt_Temp:         Optimal temperature [deg C]
-     *   - Opt_pH:           Optimal pH [-]
+     *   - Opt_pH:           Parsed pH reference value; currently inactive [-]
      *
      * @param[in]     fNameIn  Full path to the reaction input file
      * @param[in,out] rt       Reactive transport state (populated on output)
@@ -855,7 +859,7 @@ public:
         // Environmental correction factors
         rt.Temp_Coeff_Theta = -999;
         rt.Opt_Temp = -999;
-        rt.Opt_pH = -999;
+        rt.Opt_pH = -999; // Parsed pH reference value; currently inactive.
 
         // Initialize all per-species array values to sentinel value -999
         for (int i = 0; i < rt.n_mass; i++)
@@ -869,6 +873,7 @@ public:
             rt.Beta(i) = -999;
             rt.Lambda_1(i) = -999;
             rt.Lambda_2(i) = -999;
+            rt.tscf(i) = -999;
         }
 
         std::string strAux;
@@ -894,8 +899,14 @@ public:
                     else if (!strcmp("Bulk_Density", pline.key.c_str()))
                     {
                         pline.value >> rt.rho_b;
+                        if (rt.rho_b > 10.0)
+                        {
+                            if (par.masterproc)
+                                std::cerr << RERROR "GWRTM: Bulk_Density must be provided in g/cm^3, not kg/m^3. Got " << rt.rho_b << std::endl;
+                            return 0;
+                        }
                         if (par.masterproc)
-                            std::cerr << GOK "GWRTM: Bulk_Density: " << rt.rho_b << std::endl;
+                            std::cerr << GOK "GWRTM: Bulk_Density [g/cm^3 -> internal kg/L]: " << rt.rho_b << std::endl;
                     }
                     else if (!strcmp("Nitrogen_Cycle_Simulation", pline.key.c_str()))
                     {
@@ -1110,6 +1121,24 @@ public:
                             std::cerr << std::endl;
                         }
                     }
+                    else if (!strcmp("TSCF", pline.key.c_str()))
+                    {
+                        for (int i = 0; i < rt.n_mass; i++)
+                        {
+                            pline.value >> rt.tscf(i);
+                        }
+                        if (par.masterproc)
+                        {
+                            std::cerr << GOK "GWRTM: tscf: ";
+                            for (int i = 0; i < rt.n_mass; i++)
+                            {
+                                std::cerr << rt.tscf(i);
+                                if (i < rt.n_mass - 1)
+                                    std::cerr << "; ";
+                            }
+                            std::cerr << std::endl;
+                        }
+                    }
                     // ---- Nitrification parameters (single values) ----
                     else if (!strcmp("Rate_Max_Nit", pline.key.c_str()))
                     {
@@ -1294,6 +1323,12 @@ public:
             {
                 if (par.masterproc)
                     std::cerr << RERROR "GWRTM: Sorption_Type[" << i << "] not set." << std::endl;
+                return 0;
+            }
+            if (rt.tscf(i) == -999)
+            {
+                if (par.masterproc)
+                    std::cerr << RERROR "GWRTM: GWRTM: TSCF (Transpiration Stream Concentration Factor)[" << i << "] not set." << std::endl;
                 return 0;
             }
         }

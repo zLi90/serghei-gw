@@ -96,6 +96,75 @@ public:
      * @param[out] root_zone_SM  Root zone average moisture content array,
      *                           dimension: nCellSw [m^3/m^3, volumetric]
      */
+
+    /**
+     * @brief Per-column root-zone sums for the soil-moisture irrigation trigger.
+     *
+     * Single-column companion of compute_root_zone_moisture(): accumulates
+     * depth-weighted sums of water content and saturation moisture content
+     * over the root zone [0, rd_m] of one soil column. The caller forms the
+     * relative saturation S = sumWcDz / sumThsDz, which is exactly the
+     * fraction-of-saturation form used by the triggered-irrigation
+     * thresholds (theta_trig, e.g. 0.70 = 70% of theta_s averaged the same
+     * way over the root zone).
+     *
+     * Takes views and dimensions instead of GwState&/GwDomain& so that it can
+     * be called from device lambdas (views are captured by value; capturing
+     * the host objects by reference would not work on accelerators).
+     *
+     * If the root depth is negligible or no layer overlaps the root zone,
+     * both sums fall back to the top-layer values so the returned ratio
+     * stays a dimensionless saturation fraction.
+     */
+    KOKKOS_INLINE_FUNCTION
+    static void rootZoneMoistureSums(const realArr2 &wc, const realArr &vgTable, const intArr &soilID,
+                                     const realArr &dz, const realArr &depth,
+                                     int hc, int nxhc, int nyhc, int nz,
+                                     int i, int j, real rd_m,
+                                     real &sumWcDz, real &sumThsDz)
+    {
+        sumWcDz = 0.0;
+        sumThsDz = 0.0;
+
+        for (int k = 0; k < nz; k++)
+        {
+            int iGlob = (hc + k) * nxhc * nyhc + (hc + j) * nxhc + (hc + i);
+            if (iGlob < 0 || iGlob >= wc.extent(0))
+                break;
+
+            real dzL = dz(iGlob);
+            real depth_top = depth(iGlob) - 0.5 * dzL;
+            real depth_bot = depth(iGlob) + 0.5 * dzL;
+
+            real overlap_top = fmax(0.0, depth_top);
+            real overlap_bot = fmin(rd_m, depth_bot);
+            real eff_dz = overlap_bot - overlap_top;
+            if (eff_dz <= 0.0)
+            {
+                /* Layer entirely below the root zone; deeper layers too. */
+                break;
+            }
+
+            real thetaS = vgTable(soilID(iGlob) * NVG + 2);
+            sumWcDz += wc(iGlob, 1) * eff_dz;
+            sumThsDz += thetaS * eff_dz;
+        }
+
+        if (sumThsDz <= 0.0)
+        {
+            int iGlobTop = (hc + 0) * nxhc * nyhc + (hc + j) * nxhc + (hc + i);
+            if (iGlobTop >= 0 && iGlobTop < wc.extent(0))
+            {
+                real thetaSTop = vgTable(soilID(iGlobTop) * NVG + 2);
+                if (thetaSTop > 0.0)
+                {
+                    sumWcDz = wc(iGlobTop, 1);
+                    sumThsDz = thetaSTop;
+                }
+            }
+        }
+    }
+
     static void compute_root_zone_moisture(const GwState &gw, const GwDomain &gdom,
                                            const realArr &RD, realArr &root_zone_SM)
     {
@@ -327,7 +396,7 @@ public:
 
                 /* Total number of surface grid cells (including halo).
                  * nCellSwSurface = nCellSw + halo cells on all sides. */
-                int nCellSwSurface = gdom.nxhc * gdom.nyhc;
+                int nCellSwSurface = gdom.nx * gdom.ny;
 
                 /* Allocate Kokkos device arrays for LAI and RD on the
                  * source/sink object if they have not been allocated yet.

@@ -130,8 +130,6 @@ class AtmosphericForcing{
         p = dom.getCellCenter(iGlob);
         int jj = domAF.getCellForPoint(p);
         rainRate(ii) = rain(jj);  // piecewise constant closest neighbor
-        //if(dom.etime < 1) Kokkos::printf("iGlob=%d\tii=%d\tjj=%d\tpx=%6e\tpy=%6e\n",iGlob,ii,jj,p(_X),p(_Y));
-        //Kokkos::printf("%.6e %.6e\n", rainRate(ii), rain(jj));
       }
     });
     Kokkos::fence();

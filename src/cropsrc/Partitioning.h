@@ -32,8 +32,8 @@
  * Reference: WOFOST 7.1 User Guide, Chapter 3 -- Partitioning
  ******************************************************************************/
 
-#ifndef _PARTITIONING_H_
-#define _PARTITIONING_H_
+#ifndef PARTITIONING_H
+#define PARTITIONING_H
 
 #include "../define.h"
 #include "CropState.h"         // Static crop parameters (partitioning tables)
@@ -184,4 +184,4 @@ public:
     }
 };
 
-#endif
+#endif /* PARTITIONING_H */

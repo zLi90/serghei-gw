@@ -18,8 +18,8 @@
  *   GWST = net stem biomass change     [kg/(ha d)]
  ******************************************************************************/
 
-#ifndef _STEM_DYNAMICS_STATE_H_
-#define _STEM_DYNAMICS_STATE_H_
+#ifndef STEM_DYNAMICS_STATE_H
+#define STEM_DYNAMICS_STATE_H
 
 #include "../define.h"
 
@@ -98,4 +98,4 @@ public:
     }
 };
 
-#endif
+#endif /* STEM_DYNAMICS_STATE_H */

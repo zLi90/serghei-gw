@@ -42,7 +42,6 @@ public:
 
 	void integrate(GwState const &gw, GwDomain const &gdom, std::vector<GwBC> &gwbc, std::vector<GwSS> &gwss)
 	{
-		int ierr = 0;
 		// get total volume
 		// [Code2] Uses gdom.hc (properly scoped) instead of bare hc
 		Vtot = 0;
@@ -53,8 +52,8 @@ public:
             	tmp += gw.wc(iGlob,1) * gdom.dx * gdom.dx * gdom.dz(iGlob); }, Kokkos::Sum<real>(Vtot));
 		Kokkos::fence();
 		Vtot_glob = 0.0;
-		ierr = MPI_Allreduce(&Vtot, &Vtot_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-		MPI_Barrier(MPI_COMM_WORLD);
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&Vtot, &Vtot_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+		SERGHEI_MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 
 		// [Code1] Root zone water content calculation for crop growth model coupling
 		// Computes average water content in the root zone for each source/sink domain
@@ -106,8 +105,8 @@ public:
 		Kokkos::fence();
 #endif
 		Vexch_glob = 0.0;
-		ierr = MPI_Allreduce(&Vexch, &Vexch_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-		MPI_Barrier(MPI_COMM_WORLD);
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&Vexch, &Vexch_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+		SERGHEI_MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 
 		// boundary flow
 		// [Code2] Base boundary flow logic preserved
@@ -116,7 +115,7 @@ public:
 		for (int k = 0; k < gwbc.size(); k++)
 		{
 			int _ncellsBC;
-			MPI_Allreduce(&(gwbc[k].ncellsBC), &_ncellsBC, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&(gwbc[k].ncellsBC), &_ncellsBC, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
 			ncellsBC += _ncellsBC;
 			QinBC += gwbc[k].Qinflow;
 			QoutBC += gwbc[k].Qoutflow;
@@ -124,10 +123,10 @@ public:
 		QinBC_glob = 0.0;
 		QoutBC_glob = 0.0;
 		ncellsBC_glob = 0;
-		ierr = MPI_Allreduce(&QinBC, &QinBC_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-		ierr = MPI_Allreduce(&QoutBC, &QoutBC_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-		ierr = MPI_Allreduce(&ncellsBC, &ncellsBC_glob, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-		MPI_Barrier(MPI_COMM_WORLD);
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&QinBC, &QinBC_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&QoutBC, &QoutBC_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&ncellsBC, &ncellsBC_glob, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
+		SERGHEI_MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 
 		// source/sink terms
 		// [Merge] Base structure from Code2, extended with Code1's soil evaporation / root transpiration / tile drainage tracking
@@ -140,7 +139,7 @@ public:
 		for (int k = 0; k < gwss.size(); k++)
 		{
 			int _ncellsIT;
-			MPI_Allreduce(&(gwss[k].ncellsIT), &_ncellsIT, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+			SERGHEI_MPI_CHECK(MPI_Allreduce(&(gwss[k].ncellsIT), &_ncellsIT, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
 			ncellsIT += _ncellsIT;
 			QinSS += gwss[k].Qinflow;
 			QoutSS += gwss[k].Qoutflow;
@@ -156,14 +155,14 @@ public:
 		QoutSS_SoilEvap_glob = 0.0;
 		QoutSS_RootTransp_glob = 0.0;
 		QoutSS_TileDrainage_glob = 0.0;
-		ierr = MPI_Allreduce(&QinSS, &QinSS_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-		ierr = MPI_Allreduce(&QoutSS, &QoutSS_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&QinSS, &QinSS_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&QoutSS, &QoutSS_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
 		// [Code1] MPI_Allreduce for extended source/sink terms
-		ierr = MPI_Allreduce(&QoutSS_SoilEvap, &QoutSS_SoilEvap_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-		ierr = MPI_Allreduce(&QoutSS_RootTransp, &QoutSS_RootTransp_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-		ierr = MPI_Allreduce(&QoutSS_TileDrainage, &QoutSS_TileDrainage_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD);
-		ierr = MPI_Allreduce(&ncellsIT, &ncellsIT_glob, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-		MPI_Barrier(MPI_COMM_WORLD);
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&QoutSS_SoilEvap, &QoutSS_SoilEvap_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&QoutSS_RootTransp, &QoutSS_RootTransp_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&QoutSS_TileDrainage, &QoutSS_TileDrainage_glob, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&ncellsIT, &ncellsIT_glob, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
+		SERGHEI_MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 	}
 };
 

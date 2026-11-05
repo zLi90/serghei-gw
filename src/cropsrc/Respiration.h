@@ -31,8 +31,8 @@
  * @see     Afgen.h             for the AFGEN table interpolation utility
  ******************************************************************************/
 
-#ifndef _RESPIRATION_H_
-#define _RESPIRATION_H_
+#ifndef RESPIRATION_H
+#define RESPIRATION_H
 
 #include "../define.h"
 #include "CropState.h"                  /* Static crop parameters (RMR, RML, RMS, RMO, Q10, RFSETB table) */
@@ -240,4 +240,4 @@ public:
     }
 };
 
-#endif
+#endif /* RESPIRATION_H */

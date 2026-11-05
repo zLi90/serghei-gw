@@ -24,8 +24,8 @@
 
 /* -*- mode: c++; c-default-style: "linux" -*- */
 
-#ifndef _WOFOST_INIT_H_
-#define _WOFOST_INIT_H_
+#ifndef WOFOST_INIT_H
+#define WOFOST_INIT_H
 
 #include "../define.h"
 #include "Wofost72.h"
@@ -36,12 +36,44 @@
 #include "../GwState.h"
 #include "../GwDomain.h"
 #include "../Parallel.h"
+#include "../MPIUtils.h"
 #include <string>
 #include <iostream>
 #include <ctime>
+#include <fstream>
 
 class WofostInit
 {
+	static unsigned long long fileFingerprint(const std::string &path)
+	{
+		std::ifstream input(path, std::ios::binary);
+		unsigned long long hash = 1469598103934665603ULL;
+		char ch;
+		while (input.get(ch))
+		{
+			hash ^= static_cast<unsigned char>(ch);
+			hash *= 1099511628211ULL;
+		}
+		return hash;
+	}
+
+	static bool verifyFileConsistency(const std::string &path, const Parallel &par)
+	{
+		const unsigned long long local = fileFingerprint(path);
+		unsigned long long min_hash = 0, max_hash = 0;
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&local, &min_hash, 1, MPI_UNSIGNED_LONG_LONG,
+		                                MPI_MIN, MPI_COMM_WORLD));
+		SERGHEI_MPI_CHECK(MPI_Allreduce(&local, &max_hash, 1, MPI_UNSIGNED_LONG_LONG,
+		                                MPI_MAX, MPI_COMM_WORLD));
+		if (min_hash != max_hash)
+		{
+			std::cerr << RERROR "WOFOST input differs across MPI ranks: " << path
+			          << " (rank " << par.myrank << ", fingerprint=" << local << ")"
+			          << std::endl;
+			return false;
+		}
+		return true;
+	}
 
 public:
     /**
@@ -84,6 +116,8 @@ public:
                 std::cerr << RERROR "Failed to read " << cropFile << std::endl;
             return 0;
         }
+		if (!verifyFileConsistency(cropFile, par))
+			return 0;
 
         /* ================================================================ */
         /* Step 2: Read meteorological driving data                         */
@@ -95,6 +129,8 @@ public:
                 std::cerr << RERROR "Failed to read " << meteoFile << std::endl;
             return 0;
         }
+		if (!verifyFileConsistency(meteoFile, par))
+			return 0;
 
         /* ================================================================ */
         /* Step 3: Allocate all WOFOST dynamic state arrays                 */
@@ -257,4 +293,4 @@ public:
     }
 };
 
-#endif /* _WOFOST_INIT_H_ */
+#endif /* WOFOST_INIT_H */

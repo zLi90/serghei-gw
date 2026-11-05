@@ -6,6 +6,9 @@
 #include "mpi.h"
 #include "Indexing.h"
 #include "Parallel.h"
+#include "MPIUtils.h"
+#include <algorithm>
+#include <vector>
 
 class GwMPI : public Exchange
 {
@@ -28,7 +31,7 @@ public:
     real MPItime = 0;
     real exchangeTime = 0;
 
-    // [CODE2 - base] allocate function with gdom.hc for explicit domain reference
+    // allocate function with gdom.hc for explicit domain reference
     inline void allocate(GwDomain &gdom)
     {
         int ii, jj, kk, nxhalo, nyhalo, idxS, idxN, idxW, idxE;
@@ -175,7 +178,7 @@ public:
     // Top level MPI exchange functions
     // ================================================================
 
-    // [CODE2 - base] Exchange for realArr2 (2D arrays)
+    // Exchange for realArr2 (2D arrays)
     inline void mpi_sendrecv(realArr2 var, GwDomain &gdom, Parallel &par)
     {
         int ierr, nx = gdom.nx + 2 * gdom.hc;
@@ -206,7 +209,7 @@ public:
         }
     }
 
-    // [CODE1 - NEW FEATURE] Exchange for realArr3 (3D arrays)
+    // Exchange for realArr3 (3D arrays)
     // Added to support solute transport (reactive transport) variables with 3D structure
     inline void mpi_sendrecv3(realArr3 var, GwDomain &gdom, Parallel &par)
     {
@@ -244,7 +247,7 @@ public:
         }
     }
 
-    // [CODE2 - base] Exchange for realArr (1D arrays)
+    // Exchange for realArr (1D arrays)
     inline void mpi_sendrecv1(realArr var, GwDomain &gdom, Parallel &par)
     {
         int ierr, nx = gdom.nx + 2 * gdom.hc;
@@ -270,33 +273,28 @@ public:
     }
 
     // ================================================================
-    // [CODE1 - NEW FEATURE] RT module MPI exchange function
+    // RT module MPI exchange function
     // Dedicated exchange for reactive transport (RT) module
     // Handles realArr3 with (iSpec, iGlob, iTime) dimensions for solute transport
     // Each species is exchanged sequentially, reusing the pre-allocated single-layer buffers
     // ================================================================
-    inline void mpi_sendrecv_rt(realArr3 rt_c, GwDomain &gdom, Parallel &par, int n_mass, int timeIdx)
+    inline void mpi_sendrecv_rt_species(realArr3 rt_c, GwDomain &gdom, Parallel &par, int iSpec, int timeIdx)
     {
         int ierr, nx = gdom.nx + 2 * gdom.hc;
         Kokkos::Timer timer;
 
-        // Exchange species one by one, reusing pre-allocated single-layer buffers
-        for (int iSpec = 0; iSpec < n_mass; iSpec++)
+        // Exchange one species while reusing pre-allocated single-layer buffers.
+        if (par.nproc_x > 1)
         {
-            // X direction exchange
-            if (par.nproc_x > 1)
-            {
-                haloPack_x_rt(haloSendBufE, haloSendBufW, rt_c, idxBufE, idxBufW, iSpec, timeIdx);
-                ierr = haloSendRecv_x(gdom, par);
-                haloUnPack_x_rt(haloRecvBufE, haloRecvBufW, rt_c, idxBufE, idxBufW, iSpec, timeIdx);
-            }
-            // Y direction exchange
-            if (par.nproc_y > 1)
-            {
-                haloPack_y_rt(haloSendBufS, haloSendBufN, rt_c, idxBufS, idxBufN, iSpec, timeIdx, nx);
-                ierr = haloSendRecv_y(gdom, par);
-                haloUnPack_y_rt(haloRecvBufS, haloRecvBufN, rt_c, idxBufS, idxBufN, iSpec, timeIdx);
-            }
+            haloPack_x_rt(haloSendBufE, haloSendBufW, rt_c, idxBufE, idxBufW, iSpec, timeIdx);
+            SERGHEI_MPI_CHECK(ierr = haloSendRecv_x(gdom, par));
+            haloUnPack_x_rt(haloRecvBufE, haloRecvBufW, rt_c, idxBufE, idxBufW, iSpec, timeIdx);
+        }
+        if (par.nproc_y > 1)
+        {
+            haloPack_y_rt(haloSendBufS, haloSendBufN, rt_c, idxBufS, idxBufN, iSpec, timeIdx, nx);
+            SERGHEI_MPI_CHECK(ierr = haloSendRecv_y(gdom, par));
+            haloUnPack_y_rt(haloRecvBufS, haloRecvBufN, rt_c, idxBufS, idxBufN, iSpec, timeIdx);
         }
         if (par.masterproc)
         {
@@ -304,11 +302,17 @@ public:
         }
     }
 
+    inline void mpi_sendrecv_rt(realArr3 rt_c, GwDomain &gdom, Parallel &par, int n_mass, int timeIdx)
+    {
+        for (int iSpec = 0; iSpec < n_mass; ++iSpec)
+            mpi_sendrecv_rt_species(rt_c, gdom, par, iSpec, timeIdx);
+    }
+
     //  ---------------------------------------------
     //  Exchange in the E-W direction
     //  ---------------------------------------------
 
-    // [CODE2 - base] Pack/unpack for realArr2 in E-W direction
+    // Pack/unpack for realArr2 in E-W direction
     inline void haloPack_x(realArr bufp, realArr bufm, realArr2 a, intArr idxp, intArr idxm, int col)
     {
         Kokkos::parallel_for(nBufE, KOKKOS_LAMBDA(int idx) {
@@ -316,29 +320,47 @@ public:
             bufp(idx) = a(idxp(idx)-1,col); });
     }
 
-    // [CODE2 - base] MPI Exchange E-W direction
+    // MPI Exchange E-W direction
     inline int haloSendRecv_x(GwDomain &gdom, Parallel &par)
     {
-        int ierr = 1, nPack = 1;
+        int ierr = MPI_SUCCESS, nPack = 1;
         if (par.nproc_x > 1)
         {
+            if (nBufW <= 0 || nBufE <= 0)
+                return MPI_SUCCESS;
             Kokkos::fence(); // ensure no kernels are running, we need everything available in host memory
 
+            std::vector<real> sendBufWHost(nBufW);
+            std::vector<real> sendBufEHost(nBufE);
+            std::vector<real> recvBufWHost(nBufW);
+            std::vector<real> recvBufEHost(nBufE);
+            auto sendBufWMirror = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), haloSendBufW);
+            auto sendBufEMirror = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), haloSendBufE);
+            std::copy(sendBufWMirror.data(), sendBufWMirror.data() + nBufW, sendBufWHost.data());
+            std::copy(sendBufEMirror.data(), sendBufEMirror.data() + nBufE, sendBufEHost.data());
+
             // Pre-post the receives
-            ierr = MPI_Irecv(haloRecvBufW.data(), nBufW, SERGHEI_MPI_REAL, par.neigh(1, 0), 0, MPI_COMM_WORLD, &rReq[0]);
-            ierr = MPI_Irecv(haloRecvBufE.data(), nBufE, SERGHEI_MPI_REAL, par.neigh(1, 2), 1, MPI_COMM_WORLD, &rReq[1]);
+            SERGHEI_MPI_CHECK(MPI_Irecv(recvBufWHost.data(), nBufW, SERGHEI_MPI_REAL, par.neigh(1, 0), 0, MPI_COMM_WORLD, &rReq[0]));
+            SERGHEI_MPI_CHECK(MPI_Irecv(recvBufEHost.data(), nBufE, SERGHEI_MPI_REAL, par.neigh(1, 2), 1, MPI_COMM_WORLD, &rReq[1]));
             // Send the data
-            ierr = MPI_Isend(haloSendBufW.data(), nBufW, SERGHEI_MPI_REAL, par.neigh(1, 0), 1, MPI_COMM_WORLD, &sReq[0]);
-            ierr = MPI_Isend(haloSendBufE.data(), nBufE, SERGHEI_MPI_REAL, par.neigh(1, 2), 0, MPI_COMM_WORLD, &sReq[1]);
+            SERGHEI_MPI_CHECK(MPI_Isend(sendBufWHost.data(), nBufW, SERGHEI_MPI_REAL, par.neigh(1, 0), 1, MPI_COMM_WORLD, &sReq[0]));
+            SERGHEI_MPI_CHECK(MPI_Isend(sendBufEHost.data(), nBufE, SERGHEI_MPI_REAL, par.neigh(1, 2), 0, MPI_COMM_WORLD, &sReq[1]));
 
             // Wait for the sends and receives to finish
-            ierr = MPI_Waitall(2, sReq, sStat);
-            ierr = MPI_Waitall(2, rReq, rStat);
+            SERGHEI_MPI_CHECK(MPI_Waitall(2, sReq, sStat));
+            SERGHEI_MPI_CHECK(MPI_Waitall(2, rReq, rStat));
+
+            auto recvBufWMirror = Kokkos::create_mirror_view(haloRecvBufW);
+            auto recvBufEMirror = Kokkos::create_mirror_view(haloRecvBufE);
+            std::copy(recvBufWHost.begin(), recvBufWHost.end(), recvBufWMirror.data());
+            std::copy(recvBufEHost.begin(), recvBufEHost.end(), recvBufEMirror.data());
+            Kokkos::deep_copy(haloRecvBufW, recvBufWMirror);
+            Kokkos::deep_copy(haloRecvBufE, recvBufEMirror);
         }
         return ierr;
     }
 
-    // [CODE2 - base] Unpack for realArr2 in E-W direction
+    // Unpack for realArr2 in E-W direction
     inline void haloUnPack_x(realArr bufp, realArr bufm, realArr2 a, intArr idxp, intArr idxm, int col)
     {
         Kokkos::parallel_for(nBufE, KOKKOS_LAMBDA(int idx) {
@@ -346,7 +368,7 @@ public:
              a(idxp(idx),col) = bufp(idx); });
     }
 
-    // [CODE2 - base] Pack/unpack for realArr (1D) in E-W direction
+    // Pack/unpack for realArr (1D) in E-W direction
     inline void haloPack_x1(realArr bufp, realArr bufm, realArr a, intArr idxp, intArr idxm)
     {
         Kokkos::parallel_for(nBufE, KOKKOS_LAMBDA(int idx) {
@@ -360,7 +382,7 @@ public:
              a(idxp(idx)) = bufp(idx); });
     }
 
-    // [CODE1 - NEW FEATURE] Pack/unpack for realArr3 in E-W direction
+    // Pack/unpack for realArr3 in E-W direction
     // Added to support 3D variable exchange (e.g., solute transport concentrations)
     inline void haloPack_x3(realArr bufp, realArr bufm, realArr3 a, intArr idxp, intArr idxm, int ii, int jj)
     {
@@ -375,7 +397,7 @@ public:
              a(idxp(idx), ii, jj) = bufp(idx); });
     }
 
-    // [CODE1 - NEW FEATURE] RT module specific pack/unpack in E-W direction
+    // RT module specific pack/unpack in E-W direction
     // Handles realArr3 with (iSpec, iGlob, iTime) indexing for reactive transport solute species
     inline void haloPack_x_rt(realArr bufp, realArr bufm, realArr3 a, intArr idxp, intArr idxm, int iSpec, int timeIdx)
     {
@@ -398,7 +420,7 @@ public:
     //  Exchange in the N-S direction
     //  ---------------------------------------------
 
-    // [CODE2 - base] Pack/unpack for realArr2 in N-S direction
+    // Pack/unpack for realArr2 in N-S direction
     inline void haloPack_y(realArr bufp, realArr bufm, realArr2 a, intArr idxp, intArr idxm, int col, int nx)
     {
         Kokkos::parallel_for(nBufS, KOKKOS_LAMBDA(int idx) {
@@ -406,29 +428,47 @@ public:
             bufp(idx) = a(idxp(idx)-nx,col); });
     }
 
-    // [CODE2 - base] MPI Exchange N-S direction
+    // MPI Exchange N-S direction
     inline int haloSendRecv_y(GwDomain &gdom, Parallel &par)
     {
-        int ierr = 1, nPack = 1;
+        int ierr = MPI_SUCCESS, nPack = 1;
         if (par.nproc_y > 1)
         {
+            if (nBufN <= 0 || nBufS <= 0)
+                return MPI_SUCCESS;
             Kokkos::fence(); // ensure no kernels are running, we need everything available in host memory
 
+            std::vector<real> sendBufNHost(nBufN);
+            std::vector<real> sendBufSHost(nBufS);
+            std::vector<real> recvBufNHost(nBufN);
+            std::vector<real> recvBufSHost(nBufS);
+            auto sendBufNMirror = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), haloSendBufN);
+            auto sendBufSMirror = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), haloSendBufS);
+            std::copy(sendBufNMirror.data(), sendBufNMirror.data() + nBufN, sendBufNHost.data());
+            std::copy(sendBufSMirror.data(), sendBufSMirror.data() + nBufS, sendBufSHost.data());
+
             // Pre-post the receives
-            ierr = MPI_Irecv(haloRecvBufN.data(), nBufN, SERGHEI_MPI_REAL, par.neigh(0, 1), 0, MPI_COMM_WORLD, &rReq[0]);
-            ierr = MPI_Irecv(haloRecvBufS.data(), nBufS, SERGHEI_MPI_REAL, par.neigh(2, 1), 1, MPI_COMM_WORLD, &rReq[1]);
+            SERGHEI_MPI_CHECK(MPI_Irecv(recvBufNHost.data(), nBufN, SERGHEI_MPI_REAL, par.neigh(0, 1), 0, MPI_COMM_WORLD, &rReq[0]));
+            SERGHEI_MPI_CHECK(MPI_Irecv(recvBufSHost.data(), nBufS, SERGHEI_MPI_REAL, par.neigh(2, 1), 1, MPI_COMM_WORLD, &rReq[1]));
             // Send the data
-            ierr = MPI_Isend(haloSendBufN.data(), nBufN, SERGHEI_MPI_REAL, par.neigh(0, 1), 1, MPI_COMM_WORLD, &sReq[0]);
-            ierr = MPI_Isend(haloSendBufS.data(), nBufS, SERGHEI_MPI_REAL, par.neigh(2, 1), 0, MPI_COMM_WORLD, &sReq[1]);
+            SERGHEI_MPI_CHECK(MPI_Isend(sendBufNHost.data(), nBufN, SERGHEI_MPI_REAL, par.neigh(0, 1), 1, MPI_COMM_WORLD, &sReq[0]));
+            SERGHEI_MPI_CHECK(MPI_Isend(sendBufSHost.data(), nBufS, SERGHEI_MPI_REAL, par.neigh(2, 1), 0, MPI_COMM_WORLD, &sReq[1]));
 
             // Wait for the sends and receives to finish
-            ierr = MPI_Waitall(2, sReq, sStat);
-            ierr = MPI_Waitall(2, rReq, rStat);
+            SERGHEI_MPI_CHECK(MPI_Waitall(2, sReq, sStat));
+            SERGHEI_MPI_CHECK(MPI_Waitall(2, rReq, rStat));
+
+            auto recvBufNMirror = Kokkos::create_mirror_view(haloRecvBufN);
+            auto recvBufSMirror = Kokkos::create_mirror_view(haloRecvBufS);
+            std::copy(recvBufNHost.begin(), recvBufNHost.end(), recvBufNMirror.data());
+            std::copy(recvBufSHost.begin(), recvBufSHost.end(), recvBufSMirror.data());
+            Kokkos::deep_copy(haloRecvBufN, recvBufNMirror);
+            Kokkos::deep_copy(haloRecvBufS, recvBufSMirror);
         }
         return ierr;
     }
 
-    // [CODE2 - base] Unpack for realArr2 in N-S direction
+    // Unpack for realArr2 in N-S direction
     inline void haloUnPack_y(realArr bufp, realArr bufm, realArr2 a, intArr idxp, intArr idxm, int col)
     {
         Kokkos::parallel_for(nBufS, KOKKOS_LAMBDA(int idx) {
@@ -436,7 +476,7 @@ public:
              a(idxp(idx),col) = bufp(idx); });
     }
 
-    // [CODE2 - base] Pack/unpack for realArr (1D) in N-S direction
+    // Pack/unpack for realArr (1D) in N-S direction
     inline void haloPack_y1(realArr bufp, realArr bufm, realArr a, intArr idxp, intArr idxm, int nx)
     {
         Kokkos::parallel_for(nBufS, KOKKOS_LAMBDA(int idx) {
@@ -450,7 +490,7 @@ public:
              a(idxp(idx)) = bufp(idx); });
     }
 
-    // [CODE1 - NEW FEATURE] Pack/unpack for realArr3 in N-S direction
+    // Pack/unpack for realArr3 in N-S direction
     // Added to support 3D variable exchange (e.g., solute transport concentrations)
     inline void haloPack_y3(realArr bufp, realArr bufm, realArr3 a, intArr idxp, intArr idxm, int ii, int jj, int nx)
     {
@@ -465,7 +505,7 @@ public:
              a(idxp(idx), ii, jj) = bufp(idx); });
     }
 
-    // [CODE1 - NEW FEATURE] RT module specific pack/unpack in N-S direction
+    // RT module specific pack/unpack in N-S direction
     // Handles realArr3 with (iSpec, iGlob, iTime) indexing for reactive transport solute species
     inline void haloPack_y_rt(realArr bufp, realArr bufm, realArr3 a, intArr idxp, intArr idxm, int iSpec, int timeIdx, int nx)
     {

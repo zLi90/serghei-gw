@@ -39,8 +39,8 @@
  * @see MeteoState.h       for meteorological forcing (TMIN, TMAX, IRRAD)
  */
 
-#ifndef _ASSIMILATION_H_
-#define _ASSIMILATION_H_
+#ifndef ASSIMILATION_H
+#define ASSIMILATION_H
 
 #include "../define.h"
 #include "CropState.h"
@@ -592,4 +592,4 @@ public:
     }
 };
 
-#endif
+#endif /* ASSIMILATION_H */

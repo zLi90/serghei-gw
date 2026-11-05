@@ -6,7 +6,7 @@
 #include "geometry.h"
 #include "Indexing.h"
 #include "timers.h"
-#include <utility> // 如果用 std::swap
+#include <utility> // std::swap
 
 class Domain
 {
@@ -262,8 +262,8 @@ public:
   {
     domainArea();
     Kokkos::fence();
-    MPI_Allreduce(&area, &areaGlobal, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&nCellValid, &nCellValidGlobal, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    SERGHEI_MPI_CHECK(MPI_Allreduce(&area, &areaGlobal, 1, SERGHEI_MPI_REAL, MPI_SUM, MPI_COMM_WORLD));
+    SERGHEI_MPI_CHECK(MPI_Allreduce(&nCellValid, &nCellValidGlobal, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD));
     std::cout << GOK << "Total physical computational cells: " << nCellValidGlobal << std::endl;
   };
 
@@ -312,15 +312,6 @@ public:
     id = par.myrank;
 
     // Get my beginning and ending global indices
-    /*
-    double nper;
-    nper = ((double) nx_glob)/par.nproc_x;
-    par.i_beg = (long) round( nper* par.px    );
-    par.i_end = (long) round( nper*(par.px+1) )-1;
-    nper = ((double) ny_glob)/par.nproc_y;
-    par.j_beg = (long) round( nper* par.py    );
-    par.j_end = (long) round( nper*(par.py+1) )-1;
-    */
 
     // Determine my number of grid cells
     get2Ddecomposition(par);
@@ -385,9 +376,9 @@ public:
         }
         std::cerr << "\n";
       }
-      ierr = MPI_Barrier(MPI_COMM_WORLD);
+	  SERGHEI_MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
     }
-    ierr = MPI_Barrier(MPI_COMM_WORLD);
+	SERGHEI_MPI_CHECK(MPI_Barrier(MPI_COMM_WORLD));
 #endif
     if (par.masterproc)
       std::cout << GOK << "Domain decomposition" << std::endl;
@@ -420,14 +411,8 @@ public:
       int ii1 = (ny - 1 - j) * nx; // Start index of corresponding row to swap
 
       // Swap row elements
-      /*
-      Kokkos::parallel_for("swapRows",nx,KOKKOS_CLASS_LAMBDA(int i){
-        Kokkos::kokkos_swap(myView(ii0 + i), myView(ii1 + i));
-      });
-    */
       for (int i = 0; i < nx; i++)
-        // Kokkos::kokkos_swap(myView(ii0 + i), myView(ii1 + i));
-        std::swap(myView(ii0 + i), myView(ii1 + i)); // 使用标准库 swap
+        std::swap(myView(ii0 + i), myView(ii1 + i));
     }
 
     if (id == 0)
