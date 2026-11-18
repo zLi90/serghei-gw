@@ -1,0 +1,21 @@
+;; ============================================================
+;; Case 1: gravity drainage (no pump, no storage)
+;; rainfall -> manhole J0 -> pipe C0 -> manhole J1 -> pipe C1 -> outfall O2 (FREE)
+;; Demonstrates: 1D dynamic-wave pipes + surface inflow into manholes + free outfall
+;; ============================================================
+
+[JUNCTIONS]
+;; cols: id  invert_elev  max_depth  init_depth  sur_depth  ponded_area  X(m)  Y(m)  type  sealed
+;; sealed=0 allows 1D-2D exchange; sealed=1 disables it (pure 1D)
+0  7.0  2.0  0.0  0.0  300.0   50.0  0.0  junction  0
+1  7.0  2.0  0.0  0.0   10.0  150.0  0.0  junction  1
+2  6.0  3.0  0.0  0.0  100.0  250.0  0.0  outlet    0
+
+[CONDUITS]
+;; cols: id  from  to  length(m)  roughness  in_offset  out_offset  init_flow  max_flow  diameter(m)
+0  0  1  100.0  0.013  0.0  0.0  0.0  0.0  0.60
+1  1  2  100.0  0.013  0.0  0.0  0.0  0.0  0.60
+
+[OUTFALLS]
+;; cols: nodeId  mode  param  gated; FREE = free outfall
+2  FREE  0  no

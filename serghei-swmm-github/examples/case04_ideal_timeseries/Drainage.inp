@@ -1,0 +1,29 @@
+;; ============================================================
+;; Case 4: IDEAL pump + time-varying river + flap gate
+;; rainfall -> manhole J0 -> IDEAL pump P0 -> manhole J1 -> pipe C0 -> outfall O2 (TIMESERIES)
+;; Demonstrates: IDEAL pump (pumps whatever arrives) + variable river + flap gate blocking backflow
+;; ============================================================
+
+[JUNCTIONS]
+;; cols: id  invert_elev  max_depth  init_depth  sur_depth  ponded_area  X(m)  Y(m)  type  sealed
+0  7.0  2.0  0.0  0.0  100.0   20.0  0.0  junction  0
+1  7.0  2.0  0.0  0.0   10.0  100.0  0.0  junction  1
+2  6.0  3.0  0.0  0.0  100.0  200.0  0.0  outlet    0
+
+[PUMPS]
+;; curveId=* selects an IDEAL pump (no [CURVES] needed); flow = upstream-node inflow + overflow
+0  0  1  *  0  0.8  0.2
+
+[CONDUITS]
+;; manhole J1 (invert 7.0) -> outfall (invert 6.0); river can backflow unless blocked by flap gate
+0  1  2  100.0  0.013  0.0  0.0  0.0  0.0  0.60
+
+[OUTFALLS]
+;; gated=yes blocks river backflow; change to no to observe high-tide backflow
+2  TIMESERIES  0  yes
+
+[RIVERSTAGE]
+;; cols: seriesId  time(s)  absolute_stage(m)
+0  0     6.5
+0  1800  8.5
+0  3600  6.5

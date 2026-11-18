@@ -1,0 +1,12 @@
+// ============================================================
+// Global parameters (surface SWE and overall time stepping)
+// Units: length m, time s
+// ============================================================
+simLength  : 3600     // total simulation time (s)
+cfl        : 0.4      // surface SWE CFL number
+outFreq    : 300      // surface NetCDF field output interval (s)
+obsFreq    : 10       // time-series output interval (s); also controls the DrainageTimeSeries.out write frequency
+parNx      : 1        // number of MPI processes in x
+parNy      : 1        // number of MPI processes in y
+outFormat  : NETCDF   // surface output format
+BCtype     : REFLECTIVE  // 2D outer boundary type (reflective)

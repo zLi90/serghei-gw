@@ -1,0 +1,5 @@
+initialMode  : h
+initialValue : 0.001
+friction     : manning
+roughness    : 0.035
+dryDepth     : 0.001

@@ -1,0 +1,7 @@
+timeUnits s
+rainUnits mm/h
+TimeSeriesNp 2
+nx 1
+ny 1
+0 500
+3600 500

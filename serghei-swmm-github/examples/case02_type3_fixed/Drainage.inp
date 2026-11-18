@@ -1,0 +1,38 @@
+;; ============================================================
+;; Case 2: wet well + TYPE3 pump + fixed outfall stage
+;; rainfall -> manhole J1 -> pipe C0 -> wet well (storage) S0 -> pump P0 -> outfall O2 (FIXED)
+;; Demonstrates: storage wet well + depth-based pump control + head-flow curve + constant downstream stage
+;; ============================================================
+
+[STORAGE]
+;; cols: id  invert_elev  max_depth  init_depth  shape  p1  p2  p3  sur_depth  ponded_area  X(m)  Y(m)
+;; FUNCTIONAL: area A = p3 + p1*d^p2, volume V = p3*d + p1/(p2+1)*d^(p2+1)
+;; p1=25, p2=0, p3=0 => 25 m2 constant-area prismatic wet well, max 3 m => 75 m3
+0  5.0  3.0  0.0  FUNCTIONAL  25.0  0.0  0.0  0.0  0.0  150.0  0.0
+
+[JUNCTIONS]
+;; cols: id  invert_elev  max_depth  init_depth  sur_depth  ponded_area  X(m)  Y(m)  type  sealed
+1  7.0  2.0  0.0  0.0  300.0   50.0  0.0  junction  0
+2  6.5  2.5  0.0  0.0  100.0  250.0  0.0  outlet    1
+
+[CONDUITS]
+;; cols: id  from  to  length(m)  roughness  in_offset  out_offset  init_flow  max_flow  diameter(m)
+;; manhole (1, invert 7.0) -> wet well (0, invert 5.0), gravity flow
+0  1  0  80.0  0.013  0.0  0.0  0.0  0.0  0.50
+
+[PUMPS]
+;; cols: id  from  to  curveId  init_status  startup_depth(m)  shutoff_depth(m)
+;; wet well (0) -> outfall (2); starts >0.4 m, stops <0.15 m
+0  0  2  0  0  0.4  0.15
+
+[CURVES]
+;; cols: curveId  type  head_H(m)  flow_Q(m3/s)
+;; head = downstream absolute stage - upstream absolute stage; last point (5.0, 0) stops at 5 m head
+0  pump3  0.0  0.50
+0  pump3  1.5  0.40
+0  pump3  3.0  0.30
+0  pump3  5.0  0.000
+
+[OUTFALLS]
+;; cols: nodeId  mode  param  gated; FIXED param is absolute stage 6.5 m
+2  FIXED  6.5  no
