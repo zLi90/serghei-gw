@@ -283,6 +283,8 @@ public:
         Tnode.SDoutflow = realArr("N_SDoutflow", Nobjects[NODE]);
         Tnode.SDinflowObs = realArr("N_SDinflowObs", Nobjects[NODE]);
         Tnode.SDoutflowObs = realArr("N_SDoutflowObs", Nobjects[NODE]);
+        Tnode.SDinflowAccum = realArr("N_SDinflowAccum", Nobjects[NODE]);
+        Tnode.SDoutflowAccum = realArr("N_SDoutflowAccum", Nobjects[NODE]);
         Tnode.converged = realArr("N_converged", Nobjects[NODE]);
         Tnode.newSurfArea = realArr("N_newSurfArea", Nobjects[NODE]);
         Tnode.oldSurfArea = realArr("N_oldSurfArea", Nobjects[NODE]);
@@ -525,6 +527,8 @@ public:
         Tnode.SDoutflow(j) = 0.0;
         Tnode.SDinflowObs(j) = 0.0;
         Tnode.SDoutflowObs(j) = 0.0;
+        Tnode.SDinflowAccum(j) = 0.0;
+        Tnode.SDoutflowAccum(j) = 0.0;
     
         Mobjects[NODE]++;
     }
@@ -561,6 +565,8 @@ public:
         Tnode.SDoutflow(j) = 0.0;
         Tnode.SDinflowObs(j) = 0.0;
         Tnode.SDoutflowObs(j) = 0.0;
+        Tnode.SDinflowAccum(j) = 0.0;
+        Tnode.SDoutflowAccum(j) = 0.0;
 
         Mobjects[NODE]++;
     }
@@ -609,6 +615,8 @@ public:
         Tnode.SDoutflow(j) = 0.0;
         Tnode.SDinflowObs(j) = 0.0;
         Tnode.SDoutflowObs(j) = 0.0;
+        Tnode.SDinflowAccum(j) = 0.0;
+        Tnode.SDoutflowAccum(j) = 0.0;
 
         Tstorage.shape(k) = (shape >= 0) ? shape : FUNCTIONAL_SHAPE;
         if (Tstorage.shape(k) == FUNCTIONAL_SHAPE) {

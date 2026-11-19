@@ -66,7 +66,8 @@ const  double MAXVELOCITY =  50.;
 const double Cw = 0.6;
 const double w = 1.6;
 const double Co = 0.62;
-const double Amh = 0.09;
+// Deprecated: the surface-drainage exchange area is computed per node from
+// inletLength*inletWidth (INLET) or junctionSize*junctionSize (JUNCTION).
 #define  N_TRANSECT_TBL  51 
 char     MemPoolAllocated;    
 int  Ntokens;                   

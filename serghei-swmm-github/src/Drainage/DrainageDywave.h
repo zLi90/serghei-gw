@@ -43,7 +43,6 @@ public:
     // Discharge coefficients
     double Cw = 0.6;  // Weir discharge coefficient
     double Co = 0.6;  // Orifice discharge coefficient
-    double w = 1.0;
 
     // Under-relaxation factor for the surface<->drainage exchange discharge.
     // 1.0 reproduces the original behavior exactly (no change). Values < 1.0
@@ -59,6 +58,9 @@ public:
 
     // Append LINK_*_depth[m] columns to DrainageTimeSeries.out (Drainage-parameter.input).
     bool outputLinkDepth = false;
+
+    // Write DrainageNodeVolume.out (per-node exchange accumulation). Set in Drainage-parameter.input.
+    bool writeNodeVolume = false;
 
     /*--------------------------------------
     Node-Link adjacency table for eliminating atomic operations
@@ -164,7 +166,6 @@ public:
         const double localJunctionSize = junctionSize;
         const double localCw = Cw;  // Use class member, not global variable
         const double localCo = Co;  // Use class member, not global variable
-        const double localw = w;
         const double localExchangeRelax = exchangeRelax;  // exchange under-relaxation (1.0 = off)
         const bool localUseMultiGrid = useMultiGrid;
         
@@ -200,17 +201,24 @@ public:
                     const bool isJunctionSealedNoInlet = (nodeType == JUNCTION && Tnode.sealed(ii) == TRUE && Tnode.connectedInlet(ii) == FALSE);
                     const bool isJunctionSealedWithInlet = (nodeType == JUNCTION && Tnode.sealed(ii) == TRUE && Tnode.connectedInlet(ii) == TRUE);
                     
-                    // Determine node coverage dimensions
+                    // Determine node coverage dimensions and exchange geometry
                     double nodeLength, nodeWidth;
-                    
+                    double nodeArea = 0.0;
+                    double nodePerimeter = 0.0;
+
                     if (isInlet) {
                         nodeLength = localInletLength;
                         nodeWidth = localInletWidth;
+                        // Rectangular inlet: area = L*W, wetted perimeter = 2*(L+W)
+                        nodeArea = localInletLength * localInletWidth;
+                        nodePerimeter = 2.0 * (localInletLength + localInletWidth);
                     } else if (isJunctionUnsealedNoInlet || isJunctionUnsealedWithInlet || 
                               isJunctionSealedNoInlet || isJunctionSealedWithInlet) {
-                        // For junction, use square coverage (circular manhole approximated as square)
+                        // Junction/manhole approximated as a square of side junctionSize
                         nodeLength = localJunctionSize;
                         nodeWidth = localJunctionSize;
+                        nodeArea = localJunctionSize * localJunctionSize;
+                        nodePerimeter = 4.0 * localJunctionSize;
                     }
                     
                     // For nodes that need multi-grid treatment
@@ -276,17 +284,11 @@ public:
                             double dischargeRate;
                             if (nodeHead < avgZ) {
                             // if (nodeHead < state.z(iGlobNode)) {
-                                // Free surface flow
-                                if (isInlet) {
-                                    dischargeRate = localCw * 2*(localInletLength+localInletWidth) * avgH * sqrt(2 * GRAV * avgH);
-                                    // dischargeRate = localCw * w * state.h(iGlobNode) * sqrt(2 * GRAV * state.h(iGlobNode));
-                                } else {
-                                    // For junction, use appropriate width
-                                    dischargeRate = localCw * nodeWidth*4 * avgH * sqrt(2 * GRAV * avgH);
-                                    }
+                                // Free surface flow: effective weir width = node wetted perimeter
+                                dischargeRate = localCw * nodePerimeter * avgH * sqrt(2 * GRAV * avgH);
                             } else {
                                 // Orifice flow
-                                dischargeRate = localCo * Amh * sqrt(2 * GRAV * (surfaceLevel - nodeHead));
+                                dischargeRate = localCo * nodeArea * sqrt(2 * GRAV * (surfaceLevel - nodeHead));
                             }
                             dischargeRate *= localExchangeRelax;  // exchange under-relaxation (1.0 = unchanged)
                             
@@ -317,6 +319,7 @@ public:
                             
                             // Update node inflow
                             Tnode.SDinflow(ii) = volume / dom.dt;
+                            Tnode.SDinflowAccum(ii) += volume;
                             localTwo2One += volume;
                         }
                         
@@ -333,10 +336,10 @@ public:
                             double dischargeRate;
                             if (Tnode.invertElev(ii) > surfaceLevel) {
                                 // Overflow from manhole
-                                dischargeRate = localCo * Amh * sqrt(2 * GRAV * max((Tnode.newDepth(ii) - Tnode.fullDepth(ii)), 0.0));
+                                dischargeRate = localCo * nodeArea * sqrt(2 * GRAV * max((Tnode.newDepth(ii) - Tnode.fullDepth(ii)), 0.0));
                             } else {
                                 // Orifice flow
-                                dischargeRate = localCo * Amh * sqrt(2 * GRAV * (nodeHead - surfaceLevel));
+                                dischargeRate = localCo * nodeArea * sqrt(2 * GRAV * (nodeHead - surfaceLevel));
                             }
                             dischargeRate *= localExchangeRelax;  // exchange under-relaxation (1.0 = unchanged)
                             
@@ -361,6 +364,7 @@ public:
                             
                             // Update node outflow
                             Tnode.SDoutflow(ii) = dischargeRate;
+                            Tnode.SDoutflowAccum(ii) += volume;
                             localOne2Two += volume;
                         }
                     }
@@ -379,17 +383,18 @@ public:
                             {
                                 if (Tnode.head(ii) < state.z(iGlobNode))
                                 {
-                                    state.Dqss(iGlobNode) = localCw * localw * state.h(iGlobNode) * sqrt(2 * GRAV * state.h(iGlobNode)); 
+                                    state.Dqss(iGlobNode) = localCw * nodePerimeter * state.h(iGlobNode) * sqrt(2 * GRAV * state.h(iGlobNode)); 
                                 }
                                 else
                                 {
-                                    state.Dqss(iGlobNode) = localCo * Amh * sqrt(2 * GRAV * (state.h(iGlobNode) + state.z(iGlobNode) - Tnode.head(ii)));
+                                    state.Dqss(iGlobNode) = localCo * nodeArea * sqrt(2 * GRAV * (state.h(iGlobNode) + state.z(iGlobNode) - Tnode.head(ii)));
                                     
                                 }
                                 state.Dqss(iGlobNode) *= localExchangeRelax;  // exchange under-relaxation (1.0 = unchanged)
                                 state.Vqss(iGlobNode) = min(state.Dqss(iGlobNode) * dom.dt, state.h(iGlobNode) * dom.cellArea());
                                 state.h(iGlobNode) -= state.Vqss(iGlobNode) / dom.cellArea();
                                 Tnode.SDinflow(ii) = state.Vqss(iGlobNode) / dom.dt;
+                                Tnode.SDinflowAccum(ii) += state.Vqss(iGlobNode);
                                 localTwo2One += state.Vqss(iGlobNode);
                             }
                     bool shouldOverflow = false;
@@ -404,16 +409,17 @@ public:
                                 // printf("Tnode.invertElev(ii) %f Tnode.newDepth %f state.h(iGlob) %f state.z(iGlob) %f \n", Tnode.invertElev(ii), Tnode.newDepth(ii), state.h(iGlob), state.z(iGlob));
                                 if (Tnode.invertElev(ii) > state.h(iGlobNode) + state.z(iGlobNode))
                                 {
-                                    state.Dqss(iGlobNode) = localCo * Amh * sqrt(2 * GRAV * max((Tnode.newDepth(ii) - Tnode.fullDepth(ii)),0));    
+                                    state.Dqss(iGlobNode) = localCo * nodeArea * sqrt(2 * GRAV * max((Tnode.newDepth(ii) - Tnode.fullDepth(ii)),0));    
                                 }
                                 else
                                 {
-                                    state.Dqss(iGlobNode) = localCo * Amh * sqrt(2 * GRAV * (Tnode.head(ii) - (state.h(iGlobNode) + state.z(iGlobNode))));
+                                    state.Dqss(iGlobNode) = localCo * nodeArea * sqrt(2 * GRAV * (Tnode.head(ii) - (state.h(iGlobNode) + state.z(iGlobNode))));
                                 }
                                 state.Dqss(iGlobNode) *= localExchangeRelax;  // exchange under-relaxation (1.0 = unchanged)
                                 state.Vqss(iGlobNode) = state.Dqss(iGlobNode) * dom.dt;
                                 state.h(iGlobNode) += state.Vqss(iGlobNode) / dom.cellArea();
                                 Tnode.SDoutflow(ii) = state.Dqss(iGlobNode);
+                                Tnode.SDoutflowAccum(ii) += state.Vqss(iGlobNode);
                                 localOne2Two += state.Vqss(iGlobNode);
                             }
                         
@@ -962,11 +968,13 @@ inline double getNodeStep(double tMin, int *minNode, Node& Tnode)
         outfallInflow += sumInflow;
         outfallBackflow += sumBackflow;
         
-        // Get last outfall discharge (serial - usually only 1-2 outfalls)
+        // Sum instantaneous discharge and backflow over all outfall nodes
+        outfallDischarge = 0.0;
+        outfallBackflowDischarge = 0.0;
         for (int ii = 0; ii < nNode; ii++) {
             if (Tnode.typee(ii) == OUTFALL) {
-                outfallDischarge = Tnode.inflow(ii);
-                outfallBackflowDischarge = Tnode.outflow(ii);
+                outfallDischarge += Tnode.inflow(ii);
+                outfallBackflowDischarge += Tnode.outflow(ii);
             }
         }
         

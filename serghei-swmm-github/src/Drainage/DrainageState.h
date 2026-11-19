@@ -17,6 +17,7 @@ public:
         fullVolume, overflow, oldDepth, newDepth, oldLatFlow, newLatFlow,
         oldFlowInflow, oldNetInflow, apiExtInflow, SDinflow, SDoutflow,
         SDinflowObs, SDoutflowObs,
+        SDinflowAccum, SDoutflowAccum,
         converged, newSurfArea, oldSurfArea, sumdqdh, dYdT, draingeVolume,
         backflow, backflowRatio, outfallFixedStage;
     intArr typee, subIndex, toNode, connectedInlet, numInlet, inletIndex, sealed,

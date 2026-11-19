@@ -51,22 +51,24 @@ Readers familiar with the surface module already know these files, so they are n
 ```text
 inletLength : 0.5   // inlet length along the flow direction (m)
 inletWidth  : 0.3   // inlet width (m)
-junctionSize : 0.6  // manhole diameter (m), approximated as a square footprint in the exchange
+junctionSize : 0.6  // manhole diameter (m); sets the exchange footprint, orifice area and weir perimeter
 Cw : 0.8            // weir discharge coefficient (surface water flowing freely into a node)
 Co : 0.6            // orifice discharge coefficient (submerged/pressure exchange)
-w : 1.0             // weir width weighting factor (default 1.0)
 outputLinkDepth : 1 // also write LINK_*_depth[m] to the time-series output (0/1)
+writeNodeVolume : 0 // also write DrainageNodeVolume.out (per-node exchange accumulation, 1/0)
 ```
 
 | Parameter | Unit | Meaning |
 |-----------|------|---------|
 | `inletLength` | m | length of an inlet along the flow direction |
 | `inletWidth` | m | width of an inlet |
-| `junctionSize` | m | manhole diameter, used to determine the footprint that exchanges with the surface |
+| `junctionSize` | m | manhole diameter; sets the exchange footprint, orifice area (junctionSize²) and weir perimeter (4×junctionSize) |
 | `Cw` | — | weir discharge coefficient, used for free surface inflow |
 | `Co` | — | orifice discharge coefficient, used for submerged/pressure exchange |
-| `w` | — | weir width weighting factor, default 1.0 |
 | `outputLinkDepth` | — | when `1`, extra `LINK_*_depth[m]` columns are written |
+| `writeNodeVolume` | — | when `1`, also write `DrainageNodeVolume.out` (per-node exchange accumulation) |
+
+The orifice area and weir perimeter are now computed per node type instead of using a single parameter: an inlet (INLET) uses `inletLength×inletWidth` and `2(inletLength+inletWidth)`, while a manhole (JUNCTION) uses `junctionSize²` and `4×junctionSize`.
 
 ### 2.4 Drainage.inp (network topology and boundaries)
 
@@ -229,7 +231,47 @@ build/bin/serghei input_dir/ output_dir/ n_threads
 - The screen prints `the swe dt and drainage dt are: ...` every step, a leftover debug print in the source; redirect it to `run.log`.
 - The main results are in `output_dir/DrainageTimeSeries.out`; surface fields are written as NetCDF.
 
-## 5. Examples
+## 5. Output files and results
+
+After a run, the output directory (`output_dir/`) contains:
+
+| File | Contents |
+|------|----------|
+| `DrainageTimeSeries.out` | drainage time series (main result, one row per `obsFreq` seconds) |
+| `DrainageNodeVolume.out` | per-node exchange accumulation (requires `writeNodeVolume : 1`) |
+| `domainTimeSeries.out` | surface-module time series |
+| `output.nc` (or multiple NetCDF files written every `outFreq`) | surface 2D field output |
+| `log.out` | run log |
+
+`DrainageTimeSeries.out` is a whitespace-separated text file with the following columns in order:
+
+| Column | Unit | Meaning |
+|--------|------|---------|
+| `Time` | s | simulation time |
+| `two2oneAccum` | L³ | cumulative surface-to-drainage exchange volume over the whole run (sum over all exchanging nodes) |
+| `one2twoAccum` | L³ | cumulative drainage-to-surface overflow volume over the whole run (sum over all nodes) |
+| `OutfallInflow` | L³ | cumulative inflow summed over all outfall nodes (water arriving at the outfalls) |
+| `OutfallBackflow` | L³ | cumulative backflow summed over all outfall nodes (high boundary flowing back into the network) |
+| `OutfallDischarge` | L³/s | current discharge summed over all outfall nodes (instantaneous) |
+| `OutfallBackflowDischarge` | L³/s | current backflow summed over all outfall nodes (instantaneous) |
+| `JUNCTION_i_2D-1D` / `JUNCTION_i_1D-2D` | L³/s | current exchange between manhole i and the surface (into / out of the network) |
+| `INLET_i_2D-1D` / `INLET_i_1D-2D` | L³/s | current exchange between inlet i and the surface |
+| `OUTFALL_i` | L³/s | current inflow at outfall node i (single node, not summed) |
+| `NODE_i_depth` | m | current depth at node i |
+| `LINK_i_depth` | m | current depth in link i (requires `outputLinkDepth : 1`) |
+| `PUMP_LINK_j_flow / head / setting / limited / offCurve` | see below | pump flow, head, switch, limited flag, off-curve flag |
+| `PUMP_LINK_j_volume / runTime / startUps` | m³ / s / count | cumulative pumped volume, operating time, startups |
+| `PUMP_LINK_j_hydraulicEnergy` | kWh | cumulative hydraulic energy (excluding pump/motor efficiency) |
+| `PUMP_LINK_j_offCurveLow / offCurveHigh` | s | cumulative operating time below/above the curve |
+
+Notes:
+
+- `two2oneAccum`, `one2twoAccum`, `OutfallInflow`, and `OutfallBackflow` are **cumulative over the whole run**; columns whose names contain `Discharge` or `_2D-1D` / `_1D-2D` are **instantaneous flow rates** (L³/s).
+- `OUTFALL_i` is the instantaneous inflow of a single outfall; `OutfallDischarge` is the instantaneous sum over all outfalls.
+
+`DrainageNodeVolume.out` (written when `writeNodeVolume : 1`) records, for each output time, one line per node: `Time` (s), `Node` (node index), `two2oneAccum` (cumulative surface-to-network volume at this node, m³), and `one2twoAccum` (cumulative network-to-surface volume at this node, m³). These two columns are **per-node** accumulations, unlike the global totals in `DrainageTimeSeries.out`, and are useful for checking each node's water balance.
+
+## 6. Examples
 
 `examples/` contains four runnable cases covering "with/without pump" and "fixed/variable outfall stage" combinations. Each case directory has all input files (with commented `Drainage.inp`), a `schematic.png` structure diagram, and a `README.md`:
 

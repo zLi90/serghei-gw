@@ -7,5 +7,5 @@ inletWidth  : 0.3   // inlet width (m)
 junctionSize : 0.6  // manhole diameter (m), approximated as a square footprint in the exchange
 Cw : 0.8            // weir discharge coefficient (surface water flowing freely into a node)
 Co : 0.6            // orifice discharge coefficient (submerged/pressure exchange)
-w : 1.0             // weir width weighting factor (default 1.0)
 outputLinkDepth : 1 // also write LINK_*_depth[m] pipe depths to DrainageTimeSeries.out
+writeNodeVolume : 0 // also write DrainageNodeVolume.out (per-node exchange accumulation, 1/0)

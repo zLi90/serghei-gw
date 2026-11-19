@@ -321,8 +321,10 @@ public:
           else if (!strcmp("Co", pline.key.c_str())) { 
             pline.value >> Ddyw.Co; 
           }
-          else if (!strcmp("w", pline.key.c_str())) { 
-            pline.value >> Ddyw.w; 
+          else if (!strcmp("writeNodeVolume", pline.key.c_str())) {
+            int flag = 0;
+            pline.value >> flag;
+            Ddyw.writeNodeVolume = (flag != 0);
           }
           else if (!strcmp("outputLinkDepth", pline.key.c_str())) {
             std::string flag;
@@ -343,7 +345,7 @@ public:
         std::cerr << BDASH "  junctionSize: " << Ddyw.junctionSize << "\n";
         std::cerr << BDASH "  Cw: "           << Ddyw.Cw << "\n";
         std::cerr << BDASH "  Co: "           << Ddyw.Co << "\n";
-        std::cerr << BDASH "  w: "           << Ddyw.w << "\n";
+        std::cerr << BDASH "  writeNodeVolume: " << Ddyw.writeNodeVolume << "\n";
         std::cerr << BDASH "  outputLinkDepth: "
                   << (Ddyw.outputLinkDepth ? "true" : "false") << "\n";
       }
@@ -358,6 +360,7 @@ public:
       std::cerr << BDASH "  junctionSize: " << Ddyw.junctionSize << "\n";
       std::cerr << BDASH "  Cw: "           << Ddyw.Cw << "\n";
       std::cerr << BDASH "  Co: "           << Ddyw.Co << "\n";
+      std::cerr << BDASH "  writeNodeVolume: " << Ddyw.writeNodeVolume << "\n";
       std::cerr << BDASH "  outputLinkDepth: "
                 << (Ddyw.outputLinkDepth ? "true" : "false") << "\n";
     }

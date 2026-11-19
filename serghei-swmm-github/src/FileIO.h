@@ -123,6 +123,7 @@ protected:
   std::ofstream domainOutputFile;
   std::ofstream SubsurfaceOutputFile;
   std::ofstream DrainageOutputFile;
+  std::ofstream DrainageNodeVolumeFile;
   std::ofstream logFile;
 	int nOut; // expected number of spatial outputs
 	#if SERGHEI_MAXFLOOD > 0
@@ -1473,6 +1474,18 @@ public:
 	  return 0;
       }
 
+    if (Drain.writeNodeVolume) {
+      std::string nodeVolumeName = dir + "DrainageNodeVolume.out";
+      DrainageNodeVolumeFile.open(nodeVolumeName);
+      if (DrainageNodeVolumeFile.is_open()) {
+        DrainageNodeVolumeFile << "Time Node two2oneAccum one2twoAccum" << std::endl;
+      }
+      else {
+        std::cerr << RERROR "Could not create DrainageNodeVolume.out file" << std::endl;
+        return 0;
+      }
+    }
+
     // write the data
      if(par.masterproc)  {writeDrainageOutputTimeSeries (par, dom, sint, Drain, Tlink, Tnode, Tpump);}
 
@@ -1536,6 +1549,17 @@ public:
     }
     DrainageOutputFile << std::endl;
 
+    if (DrainageNodeVolumeFile.is_open()) {
+      DrainageNodeVolumeFile.precision(OUTPUT_PRECISION);
+      for (int ii = 0; ii < Nobjects[NODE]; ii++) {
+        DrainageNodeVolumeFile << std::scientific << dom.etime << " "
+          << ii << " "
+          << Tnode.SDinflowAccum(ii) << " "
+          << Tnode.SDoutflowAccum(ii) << "\n";
+      }
+      DrainageNodeVolumeFile.flush();
+    }
+
   }
 
 #endif
@@ -1586,6 +1610,8 @@ public:
 
   void closeOutputStreams(){
   	domainOutputFile.close();
+    DrainageOutputFile.close();
+    DrainageNodeVolumeFile.close();
 	}
 
 
